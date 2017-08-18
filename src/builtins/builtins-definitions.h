@@ -119,6 +119,7 @@ namespace internal {
   TFC(StringGreaterThan, Compare, 1)                                           \
   TFC(StringGreaterThanOrEqual, Compare, 1)                                    \
   TFS(StringIndexOf, kReceiver, kSearchString, kPosition)                      \
+  TFS(StringTrim, kReceiver, kMode)                                            \
   TFC(StringLessThan, Compare, 1)                                              \
   TFC(StringLessThanOrEqual, Compare, 1)                                       \
                                                                                \
@@ -945,7 +946,7 @@ namespace internal {
   CPP(StringPrototypeStartsWith)                                               \
   /* ES6 #sec-string.prototype.tostring */                                     \
   TFJ(StringPrototypeToString, 0)                                              \
-  CPP(StringPrototypeTrim)                                                     \
+  TFJ(StringPrototypeTrim, 0)                                                  \
   CPP(StringPrototypeTrimLeft)                                                 \
   CPP(StringPrototypeTrimRight)                                                \
   /* ES6 #sec-string.prototype.valueof */                                      \

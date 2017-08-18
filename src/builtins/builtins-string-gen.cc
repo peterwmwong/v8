@@ -1715,6 +1715,134 @@ TF_BUILTIN(StringPrototypeSubstring, StringBuiltinsAssembler) {
   }
 }
 
+// ES6 #sec-string.prototype.trim
+TF_BUILTIN(StringPrototypeTrim, StringBuiltinsAssembler) {
+  // Node* const context = Parameter(Descriptor::kContext);
+  // Node* const receiver = Parameter(Descriptor::kReceiver);
+  // Return(StringConstant("hello"));
+  Return(CallBuiltin(Builtins::kStringTrim, Parameter(Descriptor::kContext),
+                     Parameter(Descriptor::kReceiver), IntPtrConstant(2)));
+}
+
+// ES6 #sec-string.prototype.trim
+TF_BUILTIN(StringTrim, StringBuiltinsAssembler) {
+  // Node* const inc_ptr = IntPtrConstant(1);
+  // Node* const dec_ptr = IntPtrConstant(-1);
+  Node* const trim_left_mode = SmiConstant(1);
+
+  Node* const context = Parameter(Descriptor::kContext);
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const mode = Parameter(Descriptor::kMode);
+
+  // Check that {receiver} is coercible to Object and convert it to a String.
+  Node* const string = ToThisString(context, receiver, "String.prototype.trim");
+  Node* const string_length = LoadStringLength(string);
+  Node* const string_length_untag = SmiUntag(string_length);
+
+  VARIABLE(var_inc, MachineType::PointerRepresentation(),
+           SelectIntPtrConstant(IntPtrEqual(mode, trim_left_mode), -1, 1));
+  Label if_not_empty(this);
+
+  GotoIf(SmiGreaterThan(string_length, SmiConstant(0)), &if_not_empty);
+  Return(string);
+
+  BIND(&if_not_empty);
+  {
+    VARIABLE(var_index, MachineType::PointerRepresentation(), IntPtrConstant(0));
+    VARIABLE(var_result, MachineRepresentation::kTagged);
+    Label loop(this, &var_index), substr(this);
+
+    Goto(&loop);
+    BIND(&loop);
+    {
+      Label if_whitespace(this);
+      Node* index = var_index.value();
+      GotoIf(UintPtrGreaterThanOrEqual(index, string_length_untag), &substr);
+
+      Node* val = StringCharCodeAt(string, index, ParameterMode::INTPTR_PARAMETERS);
+
+      GotoIf(Uint32LessThan(val, Int32Constant(0x0009)), &substr); // HORIZONTAL TAB
+        // GotoIf(Word32Equal(val, Int32Constant(0x000A)), &if_whitespace); // LINE FEED OR NEW LINE
+        // GotoIf(Word32Equal(val, Int32Constant(0x000B)), &if_whitespace); // VERTICAL TAB
+        // GotoIf(Word32Equal(val, Int32Constant(0x000C)), &if_whitespace); // FORMFEED
+      GotoIf(Uint32LessThanOrEqual(val, Int32Constant(0x000D)), &if_whitespace); // HORIZONTAL TAB
+
+      GotoIf(Word32Equal(val, Int32Constant(0x0020)), &if_whitespace); // SPACE
+      GotoIf(Word32Equal(val, Int32Constant(0x00A0)), &if_whitespace); // NO-BREAK SPACE
+
+      GotoIf(Uint32LessThan(val, Int32Constant(0x2000)), &substr); // EN QUAD
+        // GotoIf(Word32Equal(val, Int32Constant(0x2001)), &if_whitespace); // EM QUAD
+        // GotoIf(Word32Equal(val, Int32Constant(0x2002)), &if_whitespace); // EN SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2003)), &if_whitespace); // EM SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2004)), &if_whitespace); // THREE-PER-EM SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2005)), &if_whitespace); // FOUR-PER-EM SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2006)), &if_whitespace); // SIX-PER-EM SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2007)), &if_whitespace); // FIGURE SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2008)), &if_whitespace); // PUNCTUATION SPACE
+        // GotoIf(Word32Equal(val, Int32Constant(0x2009)), &if_whitespace); // THIN SPACE
+      GotoIf(Uint32LessThanOrEqual(val, Int32Constant(0x200A)), &if_whitespace); // HAIR SPACE
+
+      GotoIf(Word32Equal(val, Int32Constant(0x2028)), &if_whitespace); // LINE SEPARATOR
+      GotoIf(Word32Equal(val, Int32Constant(0x2029)), &if_whitespace); // PARAGRAPH SEPARATOR
+      GotoIf(Word32Equal(val, Int32Constant(0x200B)), &if_whitespace); // ZERO WIDTH SPACE (category Cf)
+      GotoIf(Word32Equal(val, Int32Constant(0x3000)), &if_whitespace); // IDEOGRAPHIC SPACE
+
+      Goto(&substr);
+      BIND(&substr);
+      {
+        // GotoIf(SmiEqual(var_increment.value(), var_end_increment), &return_result);
+        // // Trim Right
+        // var_increment.Bind(SmiConstant(-1));
+        // var_start.Bind()
+        // var_index.Bind(string_length);
+        // Goto(&loop);
+        Return(SubString(context, string, SmiTag(var_index.value()), string_length, SubStringFlags::FROM_TO_ARE_BOUNDED));
+      }
+      BIND(&if_whitespace);
+      {
+        // Increment(&var_index);
+        // var_index.Bind(Select())
+        var_index.Bind(IntPtrAdd(var_index.value(), var_inc.value()));
+        Goto(&loop);
+      }
+    }
+  }
+
+
+  // Node* const length = LoadStringLength(string);
+
+  // // Conversion and bounds-checks for {start}.
+  // var_start.Bind(ToSmiBetweenZeroAnd(context, start, length));
+
+  // // Conversion and bounds-checks for {end}.
+  // {
+  //   var_end.Bind(length);
+  //   GotoIf(WordEqual(end, UndefinedConstant()), &out);
+
+  //   var_end.Bind(ToSmiBetweenZeroAnd(context, end, length));
+
+  //   Label if_endislessthanstart(this);
+  //   Branch(SmiLessThan(var_end.value(), var_start.value()),
+  //          &if_endislessthanstart, &out);
+
+  //   BIND(&if_endislessthanstart);
+  //   {
+  //     Node* const tmp = var_end.value();
+  //     var_end.Bind(var_start.value());
+  //     var_start.Bind(tmp);
+  //     Goto(&out);
+  //   }
+  // }
+
+  // BIND(&out);
+  // {
+  //   Node* result =
+  //       SubString(context, string, var_start.value(), var_end.value());
+  //   args.PopAndReturn(result);
+  // }
+}
+
+
 // ES6 #sec-string.prototype.tostring
 TF_BUILTIN(StringPrototypeToString, CodeStubAssembler) {
   Node* context = Parameter(Descriptor::kContext);

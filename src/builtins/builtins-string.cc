@@ -347,13 +347,6 @@ BUILTIN(StringPrototypeStartsWith) {
   return isolate->heap()->true_value();
 }
 
-// ES6 section 21.1.3.27 String.prototype.trim ()
-BUILTIN(StringPrototypeTrim) {
-  HandleScope scope(isolate);
-  TO_THIS_STRING(string, "String.prototype.trim");
-  return *String::Trim(string, String::kTrim);
-}
-
 // Non-standard WebKit extension
 BUILTIN(StringPrototypeTrimLeft) {
   HandleScope scope(isolate);
