@@ -313,6 +313,7 @@ class String : public Name {
 
   // Trimming.
   enum TrimMode { kTrim, kTrimLeft, kTrimRight };
+  static const char* kTrimModeMethod[];
   static Handle<String> Trim(Handle<String> string, TrimMode mode);
 
   DECL_CAST(String)

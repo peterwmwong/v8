@@ -137,6 +137,27 @@ RUNTIME_FUNCTION(Runtime_StringReplaceOneCharWithString) {
   return isolate->StackOverflow();
 }
 
+RUNTIME_FUNCTION(Runtime_StringTrim) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(Object, receiver, 0);
+  CONVERT_SMI_ARG_CHECKED(mode, 1);
+  String::TrimMode trim_mode = static_cast<String::TrimMode>(mode);
+
+  if (receiver->IsNullOrUndefined(isolate)) {
+    THROW_NEW_ERROR_RETURN_FAILURE(
+        isolate, NewTypeError(MessageTemplate::kCalledOnNullOrUndefined,
+                              isolate->factory()->NewStringFromAsciiChecked(
+                                  String::kTrimModeMethod[trim_mode])));
+  }
+
+  Handle<String> string;
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, string,
+                                     Object::ToString(isolate, receiver));
+
+  return *String::Trim(string, trim_mode);
+}
+
 // ES6 #sec-string.prototype.includes
 // String.prototype.includes(searchString [, position])
 RUNTIME_FUNCTION(Runtime_StringIncludes) {

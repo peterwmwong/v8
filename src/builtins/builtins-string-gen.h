@@ -102,6 +102,23 @@ class StringIncludesIndexOfAssembler : public StringBuiltinsAssembler {
   void Generate(SearchVariant variant);
 };
 
+class StringTrimAssembler : public StringBuiltinsAssembler {
+ public:
+  explicit StringTrimAssembler(compiler::CodeAssemblerState* state)
+      : StringBuiltinsAssembler(state) {}
+
+ protected:
+  void Generate(String::TrimMode mode);
+
+  void GotoIfNotWhiteSpaceOrLineTerminator(Node* const char_code,
+                                           Label* const if_not_whitespace);
+
+  void ScanForNonWhiteSpaceOrLineTerminator(
+      Node* const string_data, Node* const string_data_offset,
+      Node* const is_stringonebyte, Variable* const var_index, Node* const end,
+      Node* const increment, Label* const if_none_found);
+};
+
 }  // namespace internal
 }  // namespace v8
 

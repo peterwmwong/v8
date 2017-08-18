@@ -10589,6 +10589,10 @@ bool DescriptorArray::IsEqualTo(DescriptorArray* other) {
 #endif
 
 // static
+const char* String::kTrimModeMethod[] = {"String.prototype.trim",
+                                         "String.prototype.trimLeft",
+                                         "String.prototype.trimRight"};
+
 Handle<String> String::Trim(Handle<String> string, TrimMode mode) {
   Isolate* const isolate = string->GetIsolate();
   string = String::Flatten(string);
