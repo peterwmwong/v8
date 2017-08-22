@@ -962,7 +962,7 @@ TF_BUILTIN(StringPrototypeIndexOf, StringIncludesIndexOfAssembler) {
   Generate(kIndexOf);
 }
 
-void StringIncludesIndexOfAssembler::Generate(StringIndexOfVariant variant) {
+void StringIncludesIndexOfAssembler::Generate(SearchVariant variant) {
   // TODO(ishell): use constants from Descriptor once the JSFunction linkage
   // arguments are reordered.
   Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);

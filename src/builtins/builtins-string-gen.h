@@ -96,9 +96,10 @@ class StringIncludesIndexOfAssembler : public StringBuiltinsAssembler {
   explicit StringIncludesIndexOfAssembler(compiler::CodeAssemblerState* state)
       : StringBuiltinsAssembler(state) {}
 
-  enum StringIndexOfVariant { kIncludes, kIndexOf };
+ protected:
+  enum SearchVariant { kIncludes, kIndexOf };
 
-  void Generate(StringIndexOfVariant variant);
+  void Generate(SearchVariant variant);
 };
 
 }  // namespace internal
