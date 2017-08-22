@@ -950,8 +950,8 @@ TF_BUILTIN(StringIndexOf, StringBuiltinsAssembler) {
                 [this](Node* result) { this->Return(result); });
 }
 
-// ES6 section 21.1.3.7
-// String.prototype.includes(searchString [ , position ])
+// ES6 String.prototype.includes(searchString [, position])
+// #sec-string.prototype.includes
 TF_BUILTIN(StringPrototypeIncludes, StringIncludesIndexOfAssembler) {
   Generate(kIncludes);
 }
@@ -964,6 +964,7 @@ TF_BUILTIN(StringPrototypeIndexOf, StringIncludesIndexOfAssembler) {
 
 void StringIncludesIndexOfAssembler::Generate(StringIndexOfVariant variant) {
   // TODO(ishell): use constants from Descriptor once the JSFunction linkage
+  // arguments are reordered.
   Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);
   Node* const context = Parameter(BuiltinDescriptor::kContext);
   CodeStubArguments arguments(this, ChangeInt32ToIntPtr(argc));
