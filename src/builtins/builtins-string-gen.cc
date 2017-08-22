@@ -963,6 +963,7 @@ TF_BUILTIN(StringPrototypeIndexOf, StringIncludesIndexOfAssembler) {
 }
 
 void StringIncludesIndexOfAssembler::Generate(StringIndexOfVariant variant) {
+  // TODO(ishell): use constants from Descriptor once the JSFunction linkage
   Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);
   Node* const context = Parameter(BuiltinDescriptor::kContext);
   CodeStubArguments arguments(this, ChangeInt32ToIntPtr(argc));
