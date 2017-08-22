@@ -951,109 +951,81 @@ TF_BUILTIN(StringIndexOf, StringBuiltinsAssembler) {
 }
 
 // ES6 section 21.1.3.7
-// String.prototype.includes ( searchString [ , position ] )
-TF_BUILTIN(StringPrototypeIncludes, StringBuiltinsAssembler) {
-  GenerateStringIncludesIndexOf(kIncludes);
+// String.prototype.includes(searchString [ , position ])
+TF_BUILTIN(StringPrototypeIncludes, StringIncludesIndexOfAssembler) {
+  Generate(kIncludes);
 }
 
 // ES6 String.prototype.indexOf(searchString [, position])
 // #sec-string.prototype.indexof
-TF_BUILTIN(StringPrototypeIndexOf, StringBuiltinsAssembler) {
-  GenerateStringIncludesIndexOf(kIndexOf);
+TF_BUILTIN(StringPrototypeIndexOf, StringIncludesIndexOfAssembler) {
+  Generate(kIndexOf);
 }
 
-void StringBuiltinsAssembler::GenerateStringIncludesIndexOf(
-    StringIndexOfVariant variant) {
-  Node* undefined = UndefinedConstant();
-  Node* const smi_zero = SmiConstant(0);
-  Node* const intptr_one = IntPtrConstant(1);
+void StringIncludesIndexOfAssembler::Generate(StringIndexOfVariant variant) {
   Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);
   Node* const context = Parameter(BuiltinDescriptor::kContext);
   CodeStubArguments arguments(this, ChangeInt32ToIntPtr(argc));
+  Node* const receiver = arguments.GetReceiver();
 
-  VARIABLE(var_search, MachineRepresentation::kTagged);
+  VARIABLE(var_search_string, MachineRepresentation::kTagged);
   VARIABLE(var_position, MachineRepresentation::kTagged);
-  VARIABLE(var_receiver, MachineRepresentation::kTagged,
-           arguments.GetReceiver());
-  Label argc_1(this), argc_2(this), call_runtime(this), fast_path(this);
+  Label argc_1(this), argc_2(this), call_runtime(this, Label::kDeferred),
+      fast_path(this);
 
-  auto f_result = [&](Node* result) {
-    arguments.PopAndReturn(
-        (variant == kIndexOf)
-            ? result
-            : SelectBooleanConstant(SmiGreaterThanOrEqual(result, smi_zero)));
-  };
-
-  GotoIf(IntPtrEqual(argc, intptr_one), &argc_1);
-  GotoIf(IntPtrGreaterThan(argc, intptr_one), &argc_2);
-
-  Comment("0 Argument case");
-  var_search.Bind(undefined);
-  var_position.Bind(undefined);
-  Goto(&call_runtime);
-
+  GotoIf(IntPtrEqual(argc, IntPtrConstant(1)), &argc_1);
+  GotoIf(IntPtrGreaterThan(argc, IntPtrConstant(1)), &argc_2);
+  {
+    Comment("0 Argument case");
+    CSA_ASSERT(this, IntPtrEqual(argc, IntPtrConstant(0)));
+    Node* const undefined = UndefinedConstant();
+    var_search_string.Bind(undefined);
+    var_position.Bind(undefined);
+    Goto(&call_runtime);
+  }
   BIND(&argc_1);
   {
     Comment("1 Argument case");
-    var_search.Bind(arguments.AtIndex(0));
-    var_position.Bind(smi_zero);
+    var_search_string.Bind(arguments.AtIndex(0));
+    var_position.Bind(SmiConstant(0));
     Goto(&fast_path);
   }
   BIND(&argc_2);
   {
     Comment("2 Argument case");
-    var_search.Bind(arguments.AtIndex(0));
+    var_search_string.Bind(arguments.AtIndex(0));
     var_position.Bind(arguments.AtIndex(1));
     GotoIfNot(TaggedIsSmi(var_position.value()), &call_runtime);
     Goto(&fast_path);
   }
-
   BIND(&fast_path);
   {
     Comment("Fast Path");
-    Node* const receiver = var_receiver.value();
-    Node* const search = var_search.value();
+    Node* const search = var_search_string.value();
+    Node* const position = var_position.value();
     GotoIf(TaggedIsSmi(receiver), &call_runtime);
     GotoIf(TaggedIsSmi(search), &call_runtime);
+    GotoIfNot(IsString(receiver), &call_runtime);
+    GotoIfNot(IsString(search), &call_runtime);
 
-    if (variant == kIndexOf) {
-      GotoIfNot(IsString(receiver), &call_runtime);
-      GotoIfNot(IsString(search), &call_runtime);
-      StringIndexOf(receiver, search, var_position.value(), f_result);
-    } else {
-      Label call_indexof(this), if_nonstring_search(this);
-
-      GotoIf(IsString(receiver), &call_indexof);
-      GotoIf(IsNullOrUndefined(receiver), &call_runtime);
-
-      var_receiver.Bind(CallBuiltin(Builtins::kToString, context, receiver));
-      Branch(IsString(var_receiver.value()), &call_indexof, &call_runtime);
-
-      BIND(&call_indexof);
-      {
-        Comment("Call indexOf");
-        GotoIfNot(IsString(search), &if_nonstring_search);
-        StringIndexOf(var_receiver.value(), search, var_position.value(),
-                      f_result);
-      }
-      BIND(&if_nonstring_search);
-      {
-        Comment("Non-string search string");
-        GotoIf(IsNullOrUndefined(search), &call_runtime);
-        GotoIf(IsFalse(GetProperty(context, search,
-                                   isolate()->factory()->match_symbol())),
-               &call_runtime);
-        GotoIfNot(IsJSRegExp(search), &call_runtime);
-        ThrowTypeError(context, MessageTemplate::kFirstArgumentNotRegExp,
-                       "String.prototype.includes");
-      }
-    }
+    StringIndexOf(receiver, search, position, [&](Node* result) {
+      CSA_ASSERT(this, TaggedIsSmi(result));
+      arguments.PopAndReturn((variant == kIndexOf)
+                                 ? result
+                                 : SelectBooleanConstant(SmiGreaterThanOrEqual(
+                                       result, SmiConstant(0))));
+    });
   }
   BIND(&call_runtime);
   {
     Comment("Call Runtime");
-    f_result(CallRuntime(Runtime::kStringIndexOf, context, var_receiver.value(),
-                         var_search.value(), var_position.value()));
+    Runtime::FunctionId runtime = variant == kIndexOf
+                                      ? Runtime::kStringIndexOf
+                                      : Runtime::kStringIncludes;
+    Node* const result =
+        CallRuntime(runtime, context, receiver, var_search_string.value(),
+                    var_position.value());
+    arguments.PopAndReturn(result);
   }
 }
 

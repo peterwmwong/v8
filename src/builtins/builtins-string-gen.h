@@ -58,9 +58,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
                                      SloppyTNode<Smi> index,
                                      UnicodeEncoding encoding);
 
-  enum StringIndexOfVariant { kIncludes, kIndexOf };
-  void GenerateStringIncludesIndexOf(StringIndexOfVariant variant);
-
   void StringIndexOf(Node* const subject_string, Node* const search_string,
                      Node* const position, std::function<void(Node*)> f_return);
 
@@ -92,6 +89,16 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
                                  const NodeFunction0& regexp_call,
                                  const NodeFunction1& generic_call,
                                  CodeStubArguments* args = nullptr);
+};
+
+class StringIncludesIndexOfAssembler : public StringBuiltinsAssembler {
+ public:
+  explicit StringIncludesIndexOfAssembler(compiler::CodeAssemblerState* state)
+      : StringBuiltinsAssembler(state) {}
+
+  enum StringIndexOfVariant { kIncludes, kIndexOf };
+
+  void Generate(StringIndexOfVariant variant);
 };
 
 }  // namespace internal
