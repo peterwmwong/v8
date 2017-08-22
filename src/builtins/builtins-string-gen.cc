@@ -965,10 +965,12 @@ TF_BUILTIN(StringPrototypeIndexOf, StringIncludesIndexOfAssembler) {
 void StringIncludesIndexOfAssembler::Generate(SearchVariant variant) {
   // TODO(ishell): use constants from Descriptor once the JSFunction linkage
   // arguments are reordered.
-  Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);
+  Node* argc = Parameter(BuiltinDescriptor::kArgumentsCount);
   Node* const context = Parameter(BuiltinDescriptor::kContext);
   CodeStubArguments arguments(this, ChangeInt32ToIntPtr(argc));
   Node* const receiver = arguments.GetReceiver();
+  // From now on use word-size argc value.
+  argc = arguments.GetLength();
 
   VARIABLE(var_search_string, MachineRepresentation::kTagged);
   VARIABLE(var_position, MachineRepresentation::kTagged);
