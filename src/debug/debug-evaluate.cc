@@ -294,6 +294,7 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   /* Collections */                  \
   V(GenericHash)                     \
   /* Called from builtins */         \
+  V(StringAdd)                       \
   V(StringParseFloat)                \
   V(StringParseInt)                  \
   V(StringCharCodeAt)                \
@@ -315,6 +316,7 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(ThrowIncompatibleMethodReceiver) \
   V(ThrowInvalidHint)                \
   V(ThrowNotDateError)               \
+  V(ThrowRangeError)                 \
   /* Misc. */                        \
   V(Call)                            \
   V(MaxSmi)                          \
@@ -586,6 +588,7 @@ bool BuiltinHasNoSideEffect(Builtins::Name id) {
     case Builtins::kStringPrototypeIncludes:
     case Builtins::kStringPrototypeIndexOf:
     case Builtins::kStringPrototypeLastIndexOf:
+    case Builtins::kStringPrototypeRepeat:
     case Builtins::kStringPrototypeSlice:
     case Builtins::kStringPrototypeStartsWith:
     case Builtins::kStringPrototypeSubstr:

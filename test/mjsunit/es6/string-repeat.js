@@ -60,6 +60,7 @@ assertEquals("", "abc".repeat(0));
 assertEquals("abcabc", "abc".repeat(2.0));
 
 assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "a".repeat(37));
+assertEquals("", "a".repeat(NaN));
 assertThrows('"a".repeat(-1)', RangeError);
 assertThrows('"a".repeat(Number.POSITIVE_INFINITY)', RangeError);
 assertThrows('"a".repeat(Math.pow(2, 30))', RangeError);

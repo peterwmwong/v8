@@ -1180,6 +1180,92 @@ compiler::Node* StringBuiltinsAssembler::GetSubstitution(
   return var_result.value();
 }
 
+// ES6 #sec-string.prototype.repeat
+TF_BUILTIN(StringPrototypeRepeat, StringBuiltinsAssembler) {
+  Label invalid_count(this), invalid_string_length(this),
+      return_emptystring(this);
+
+  Node* const argc =
+      ChangeInt32ToIntPtr(Parameter(BuiltinDescriptor::kArgumentsCount));
+  Node* const context = Parameter(BuiltinDescriptor::kContext);
+  CodeStubArguments arguments(this, argc);
+  Node* const receiver = arguments.GetReceiver();
+  Node* const string =
+      ToThisString(context, receiver, "String.prototype.repeat");
+  Node* const is_stringempty =
+      SmiEqual(LoadStringLength(string), SmiConstant(0));
+
+  GotoIf(IntPtrEqual(argc, IntPtrConstant(0)), &return_emptystring);
+
+  VARIABLE(var_count, MachineRepresentation::kTagged,
+           ToInteger(context, arguments.AtIndex(0),
+                     CodeStubAssembler::kTruncateMinusZero));
+  {
+    Label next(this), if_count_isheapnumber(this, Label::kDeferred);
+
+    GotoIfNot(TaggedIsSmi(var_count.value()), &if_count_isheapnumber);
+    { // Count is SMI
+      GotoIf(SmiLessThan(var_count.value(), SmiConstant(0)), &invalid_count);
+      GotoIf(SmiEqual(var_count.value(), SmiConstant(0)), &return_emptystring);
+      GotoIf(is_stringempty, &return_emptystring);
+      GotoIf(SmiGreaterThan(var_count.value(), SmiConstant(String::kMaxLength)),
+             &invalid_string_length);
+      Goto(&next);
+    }
+    BIND(&if_count_isheapnumber);
+    {
+      Node* const number_value = LoadHeapNumberValue(var_count.value());
+      Node* const sub_value = Float64Sub(number_value, number_value);
+      GotoIfNot(Float64Equal(sub_value, sub_value), &invalid_count);
+      Branch(is_stringempty, &return_emptystring, &invalid_count);
+    }
+    BIND(&next);
+  }
+  {
+    VARIABLE(var_result, MachineRepresentation::kTagged, EmptyStringConstant());
+    VARIABLE(var_temp, MachineRepresentation::kTagged, string);
+
+    Label loop(this, {&var_count, &var_result, &var_temp}), return_result(this);
+    Goto(&loop);
+    BIND(&loop);
+    {
+      {
+        Label next(this);
+        GotoIfNot(SmiToWord32(SmiAnd(var_count.value(), SmiConstant(1))),
+                  &next);
+        var_result.Bind(
+            StringAdd(context, var_result.value(), var_temp.value()));
+        Goto(&next);
+        BIND(&next);
+      }
+
+      var_count.Bind(SmiShr(var_count.value(), 1));
+      GotoIf(SmiEqual(var_count.value(), SmiConstant(0)), &return_result);
+      var_temp.Bind(StringAdd(context, var_temp.value(), var_temp.value()));
+      Goto(&loop);
+    }
+
+    BIND(&return_result);
+    arguments.PopAndReturn(var_result.value());
+  }
+
+  BIND(&return_emptystring);
+  arguments.PopAndReturn(EmptyStringConstant());
+
+  BIND(&invalid_count);
+  {
+    CallRuntime(Runtime::kThrowRangeError, context,
+                SmiConstant(MessageTemplate::kInvalidCountValue),
+                var_count.value());
+    Unreachable();
+  }
+  BIND(&invalid_string_length);
+  {
+    CallRuntime(Runtime::kThrowInvalidStringLength, context);
+    Unreachable();
+  }
+}
+
 // ES6 #sec-string.prototype.replace
 TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
   Label out(this);
