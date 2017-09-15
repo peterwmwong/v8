@@ -1447,6 +1447,90 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
   }
 }
 
+class StringMatchSearchAssembler : public StringBuiltinsAssembler {
+ public:
+  explicit StringMatchSearchAssembler(compiler::CodeAssemblerState* state)
+      : StringBuiltinsAssembler(state) {}
+
+ protected:
+  enum Variant { kMatch, kSearch };
+
+  void Generate(Variant variant, const char* method_name, Node* const receiver,
+                Node* maybe_regexp, Node* const context) {
+    Label call_regexp_match_search(this);
+
+    Builtins::Name builtin;
+    Handle<Symbol> symbol;
+    if (variant == kMatch) {
+      builtin = Builtins::kRegExpMatch;
+      symbol = isolate()->factory()->match_symbol();
+    } else {
+      builtin = Builtins::kRegExpSearch;
+      symbol = isolate()->factory()->search_symbol();
+    }
+
+    RequireObjectCoercible(context, receiver, method_name);
+
+    MaybeCallFunctionAtSymbol(
+        context, maybe_regexp, symbol,
+        [=] { return CallBuiltin(builtin, context, maybe_regexp, receiver); },
+        [=](Node* fn) {
+          Callable call_callable = CodeFactory::Call(isolate());
+          return CallJS(call_callable, context, fn, maybe_regexp, receiver);
+        });
+
+    // maybe_regexp is not a RegExp nor has [@@match / @@search] property.
+    {
+      Node* const non_regexp_pattern = maybe_regexp;
+      RegExpBuiltinsAssembler regexp_asm(state());
+      Label fast_path(this), slow_path(this);
+
+      Node* const regexp = regexp_asm.RegExpCreate(
+          context,
+          Select(IsUndefined(non_regexp_pattern),
+                 [=] { return EmptyStringConstant(); },
+                 [=] { return ToString_Inline(context, non_regexp_pattern); },
+                 MachineRepresentation::kTagged));
+      Node* const native_context = LoadNativeContext(context);
+      Node* const regexp_function =
+          LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
+      Node* const initial_map = LoadObjectField(
+          regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+
+      regexp_asm.BranchIfFastRegExp(context, regexp, initial_map, &fast_path,
+                                    &slow_path);
+
+      BIND(&fast_path);
+      Return(CallBuiltin(builtin, context, regexp, receiver));
+
+      BIND(&slow_path);
+      {
+        Node* const maybe_func = GetProperty(context, regexp, symbol);
+        Callable call_callable = CodeFactory::Call(isolate());
+        Return(CallJS(call_callable, context, maybe_func, regexp,
+                      ToString_Inline(context, receiver)));
+      }
+    }
+  }
+};
+
+// ES6 #sec-string.prototype.match
+TF_BUILTIN(StringPrototypeMatch, StringMatchSearchAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const maybe_regexp = Parameter(Descriptor::kRegexp);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  Generate(kMatch, "String.prototype.match", receiver, maybe_regexp, context);
+}
+
+// ES6 #sec-string.prototype.search
+TF_BUILTIN(StringPrototypeSearch, StringMatchSearchAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const maybe_regexp = Parameter(Descriptor::kRegexp);
+  Node* const context = Parameter(Descriptor::kContext);
+  Generate(kSearch, "String.prototype.search", receiver, maybe_regexp, context);
+}
+
 // ES6 section 21.1.3.18 String.prototype.slice ( start, end )
 TF_BUILTIN(StringPrototypeSlice, StringBuiltinsAssembler) {
   Label out(this);

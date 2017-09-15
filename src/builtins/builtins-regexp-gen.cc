@@ -310,7 +310,7 @@ Node* RegExpBuiltinsAssembler::RegExpExecInternal(Node* const context,
 #ifdef V8_INTERPRETED_REGEXP
   return CallRuntime(Runtime::kRegExpExec, context, regexp, string, last_index,
                      match_info);
-#else   // V8_INTERPRETED_REGEXP
+#else  // V8_INTERPRETED_REGEXP
   CSA_ASSERT(this, TaggedIsNotSmi(regexp));
   CSA_ASSERT(this, IsJSRegExp(regexp));
 
@@ -1204,6 +1204,21 @@ Node* RegExpBuiltinsAssembler::IsRegExp(Node* const context,
 
   BIND(&out);
   return var_result.value();
+}
+
+// ES#sec-regexpcreate
+// Runtime Semantics: RegExpCreate ( pattern )
+Node* RegExpBuiltinsAssembler::RegExpCreate(Node* const context,
+                                            Node* const pattern) {
+  Node* const native_context = LoadNativeContext(context);
+  Node* const regexp_function =
+      LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
+  Node* const initial_map = LoadObjectField(
+      regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+  Node* const regexp = AllocateJSObjectFromMap(initial_map);
+
+  return CallRuntime(Runtime::kRegExpInitializeAndCompile, context, regexp,
+                     pattern, EmptyStringConstant());
 }
 
 // ES#sec-regexpinitialize
@@ -2144,7 +2159,16 @@ TF_BUILTIN(RegExpPrototypeMatch, RegExpBuiltinsAssembler) {
   ThrowIfNotJSReceiver(context, maybe_receiver,
                        MessageTemplate::kIncompatibleMethodReceiver,
                        "RegExp.prototype.@@match");
-  Node* const receiver = maybe_receiver;
+
+  Return(CallBuiltin(Builtins::kRegExpMatch, context, maybe_receiver,
+                     maybe_string));
+}
+
+// Helper that skips a few initial checks.
+TF_BUILTIN(RegExpMatch, RegExpBuiltinsAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const maybe_string = Parameter(Descriptor::kPattern);
+  Node* const context = Parameter(Descriptor::kContext);
 
   // Convert {maybe_string} to a String.
   Node* const string = ToString_Inline(context, maybe_string);
@@ -2272,7 +2296,16 @@ TF_BUILTIN(RegExpPrototypeSearch, RegExpBuiltinsAssembler) {
   ThrowIfNotJSReceiver(context, maybe_receiver,
                        MessageTemplate::kIncompatibleMethodReceiver,
                        "RegExp.prototype.@@search");
-  Node* const receiver = maybe_receiver;
+
+  Return(CallBuiltin(Builtins::kRegExpSearch, context, maybe_receiver,
+                     maybe_string));
+}
+
+// Helper that skips a few initial checks.
+TF_BUILTIN(RegExpSearch, RegExpBuiltinsAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const maybe_string = Parameter(Descriptor::kPattern);
+  Node* const context = Parameter(Descriptor::kContext);
 
   // Convert {maybe_string} to a String.
   Node* const string = ToString_Inline(context, maybe_string);

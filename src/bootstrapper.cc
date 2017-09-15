@@ -1976,6 +1976,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           true);
     SimpleInstallFunction(prototype, "localeCompare",
                           Builtins::kStringPrototypeLocaleCompare, 1, true);
+    SimpleInstallFunction(prototype, "match", Builtins::kStringPrototypeMatch,
+                          1, true);
 #ifdef V8_INTL_SUPPORT
     SimpleInstallFunction(prototype, "normalize",
                           Builtins::kStringPrototypeNormalizeIntl, 0, false);
@@ -1991,6 +1993,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           2, false);
     SimpleInstallFunction(prototype, "small", Builtins::kStringPrototypeSmall,
                           0, true);
+    SimpleInstallFunction(prototype, "search", Builtins::kStringPrototypeSearch,
+                          1, true);
     SimpleInstallFunction(prototype, "split", Builtins::kStringPrototypeSplit,
                           2, false);
     SimpleInstallFunction(prototype, "strike", Builtins::kStringPrototypeStrike,

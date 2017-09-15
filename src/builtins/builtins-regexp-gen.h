@@ -19,6 +19,8 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                           Node* const map, Label* const if_isunmodified,
                           Label* const if_ismodified);
 
+  Node* RegExpCreate(Node* const context, Node* const pattern);
+
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
   // including the match itself), index (the index where the match starts),
