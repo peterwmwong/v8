@@ -1181,6 +1181,11 @@ compiler::Node* StringBuiltinsAssembler::GetSubstitution(
   return var_result.value();
 }
 
+// ES6 #sec-string.prototype.match
+TF_BUILTIN(StringPrototypeMatch, StringBuiltinsAssembler) {
+  Return(NumberConstant(1));
+}
+
 // ES6 #sec-string.prototype.repeat
 TF_BUILTIN(StringPrototypeRepeat, StringBuiltinsAssembler) {
   Label invalid_count(this), invalid_string_length(this),
@@ -1445,6 +1450,11 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
         CallStub(stringadd_callable, context, var_result.value(), suffix);
     Return(result);
   }
+}
+
+// ES6 #sec-string.prototype.search
+TF_BUILTIN(StringPrototypeSearch, StringBuiltinsAssembler) {
+  Return(NumberConstant(1));
 }
 
 // ES6 section 21.1.3.18 String.prototype.slice ( start, end )
