@@ -19,6 +19,11 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                           Node* const map, Label* const if_isunmodified,
                           Label* const if_ismodified);
 
+  // Low level logic around the actual call into pattern matching code.
+  Node* RegExpExecInternal(Node* const context, Node* const regexp,
+                           Node* const string, Node* const last_index,
+                           Node* const match_info);
+
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
   // including the match itself), index (the index where the match starts),
@@ -42,11 +47,6 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                          Node* const last_index, Node* const string_length,
                          String::Encoding encoding, Variable* var_string_start,
                          Variable* var_string_end);
-
-  // Low level logic around the actual call into pattern matching code.
-  Node* RegExpExecInternal(Node* const context, Node* const regexp,
-                           Node* const string, Node* const last_index,
-                           Node* const match_info);
 
   Node* ConstructNewResultFromMatchInfo(Node* const context, Node* const regexp,
                                         Node* const match_info,

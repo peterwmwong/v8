@@ -1454,7 +1454,52 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
 
 // ES6 #sec-string.prototype.search
 TF_BUILTIN(StringPrototypeSearch, StringBuiltinsAssembler) {
-  Return(NumberConstant(1));
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const pattern = Parameter(Descriptor::kPattern);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  RequireObjectCoercible(context, receiver, "String.prototype.search");
+  Node* const receiver_string = ToString_Inline(context, receiver);
+
+  // MaybeCallFunctionAtSymbol(
+  //     context, separator, isolate()->factory()->split_symbol(),
+  //     [=]() {
+  //       Node* const subject_string = ToString_Inline(context, receiver);
+
+  //       return CallBuiltin(Builtins::kRegExpSplit, context, separator,
+  //                          subject_string, limit);
+  //     },
+  //     [=](Node* fn) {
+  //       Callable call_callable = CodeFactory::Call(isolate());
+  //       return CallJS(call_callable, context, fn, separator, receiver,
+  //       limit);
+  //     },
+  //     &args);
+
+  Node* const native_context = LoadNativeContext(context);
+  Node* const regexp_function =
+      LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
+  Node* const initial_map = LoadObjectField(
+      regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+
+  Node* const regexp = CallRuntime(
+      Runtime::kRegExpInitializeAndCompile, context,
+      AllocateJSObjectFromMap(initial_map), pattern, EmptyStringConstant());
+
+  Node* const internal_match_info = LoadContextElement(
+      native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
+
+  RegExpBuiltinsAssembler regexp_asm(state());
+  Node* const match_indices = regexp_asm.RegExpExecInternal(
+      context, regexp, receiver_string, SmiConstant(0), internal_match_info);
+
+  Return(Select(WordEqual(match_indices, NullConstant()),
+                [&] { return SmiConstant(-1); },
+                [&] {
+                  return LoadFixedArrayElement(
+                      match_indices, RegExpMatchInfo::kFirstCaptureIndex);
+                },
+                MachineRepresentation::kTagged));
 }
 
 // ES6 section 21.1.3.18 String.prototype.slice ( start, end )

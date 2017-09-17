@@ -22,40 +22,40 @@ DEFINE_METHODS(
   GlobalString.prototype,
   {
     /* ES#sec-string.prototype.match */
-    match(pattern) {
-      CHECK_OBJECT_COERCIBLE(this, "String.prototype.match");
+    // match(pattern) {
+    //   CHECK_OBJECT_COERCIBLE(this, "String.prototype.match");
 
-      if (!IS_NULL_OR_UNDEFINED(pattern)) {
-        var matcher = pattern[matchSymbol];
-        if (!IS_UNDEFINED(matcher)) {
-          return %_Call(matcher, pattern, this);
-        }
-      }
+    //   if (!IS_NULL_OR_UNDEFINED(pattern)) {
+    //     var matcher = pattern[matchSymbol];
+    //     if (!IS_UNDEFINED(matcher)) {
+    //       return %_Call(matcher, pattern, this);
+    //     }
+    //   }
 
-      var subject = TO_STRING(this);
+    //   var subject = TO_STRING(this);
 
-      // Equivalent to RegExpCreate (ES#sec-regexpcreate)
-      var regexp = %RegExpCreate(pattern);
-      return regexp[matchSymbol](subject);
-    }
+    //   // Equivalent to RegExpCreate (ES#sec-regexpcreate)
+    //   var regexp = %RegExpCreate(pattern);
+    //   return regexp[matchSymbol](subject);
+    // }
 
-    /* ES#sec-string.prototype.search */
-    search(pattern) {
-      CHECK_OBJECT_COERCIBLE(this, "String.prototype.search");
+    // /* ES#sec-string.prototype.search */
+    // search(pattern) {
+    //   CHECK_OBJECT_COERCIBLE(this, "String.prototype.search");
 
-      if (!IS_NULL_OR_UNDEFINED(pattern)) {
-        var searcher = pattern[searchSymbol];
-        if (!IS_UNDEFINED(searcher)) {
-          return %_Call(searcher, pattern, this);
-        }
-      }
+    //   if (!IS_NULL_OR_UNDEFINED(pattern)) {
+    //     var searcher = pattern[searchSymbol];
+    //     if (!IS_UNDEFINED(searcher)) {
+    //       return %_Call(searcher, pattern, this);
+    //     }
+    //   }
 
-      var subject = TO_STRING(this);
+    //   var subject = TO_STRING(this);
 
-      // Equivalent to RegExpCreate (ES#sec-regexpcreate)
-      var regexp = %RegExpCreate(pattern);
-      return %_Call(regexp[searchSymbol], regexp, subject);
-    }
+    //   // Equivalent to RegExpCreate (ES#sec-regexpcreate)
+    //   var regexp = %RegExpCreate(pattern);
+    //   return %_Call(regexp[searchSymbol], regexp, subject);
+    // }
   }
 );
 
