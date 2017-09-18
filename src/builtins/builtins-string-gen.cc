@@ -1053,8 +1053,7 @@ void StringBuiltinsAssembler::RequireObjectCoercible(Node* const context,
 
 void StringBuiltinsAssembler::MaybeCallFunctionAtSymbol(
     Node* const context, Node* const object, Handle<Symbol> symbol,
-    const NodeFunction0& regexp_call, const NodeFunction1& generic_call,
-    CodeStubArguments* args) {
+    const NodeFunction0& regexp_call, const NodeFunction1& generic_call) {
   Label out(this);
 
   // Smis definitely don't have an attached symbol.
@@ -1092,12 +1091,7 @@ void StringBuiltinsAssembler::MaybeCallFunctionAtSymbol(
                                   &slow_lookup);
 
     BIND(&stub_call);
-    Node* const result = regexp_call();
-    if (args == nullptr) {
-      Return(result);
-    } else {
-      args->PopAndReturn(result);
-    }
+    regexp_call();
 
     BIND(&slow_lookup);
   }
@@ -1117,12 +1111,7 @@ void StringBuiltinsAssembler::MaybeCallFunctionAtSymbol(
   GotoIf(IsNull(maybe_func), &out);
 
   // Attempt to call the function.
-  Node* const result = generic_call(maybe_func);
-  if (args == nullptr) {
-    Return(result);
-  } else {
-    args->PopAndReturn(result);
-  }
+  generic_call(maybe_func);
 
   BIND(&out);
 }
@@ -1316,12 +1305,12 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
       [=]() {
         Node* const subject_string = ToString_Inline(context, receiver);
 
-        return CallBuiltin(Builtins::kRegExpReplace, context, search,
-                           subject_string, replace);
+        Return(CallBuiltin(Builtins::kRegExpReplace, context, search,
+                           subject_string, replace));
       },
       [=](Node* fn) {
         Callable call_callable = CodeFactory::Call(isolate());
-        return CallJS(call_callable, context, fn, search, receiver, replace);
+        Return(CallJS(call_callable, context, fn, search, receiver, replace));
       });
 
   // Convert {receiver} and {search} to strings.
@@ -1454,52 +1443,97 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
 
 // ES6 #sec-string.prototype.search
 TF_BUILTIN(StringPrototypeSearch, StringBuiltinsAssembler) {
+  Handle<Symbol> search_symbol = isolate()->factory()->search_symbol();
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const pattern = Parameter(Descriptor::kPattern);
   Node* const context = Parameter(Descriptor::kContext);
+  // Node* const native_context = LoadNativeContext(context);
 
   RequireObjectCoercible(context, receiver, "String.prototype.search");
-  Node* const receiver_string = ToString_Inline(context, receiver);
 
-  // MaybeCallFunctionAtSymbol(
-  //     context, separator, isolate()->factory()->split_symbol(),
-  //     [=]() {
-  //       Node* const subject_string = ToString_Inline(context, receiver);
+  VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
+  VARIABLE(var_last_match_info, MachineRepresentation::kTagged, UndefinedConstant());
 
-  //       return CallBuiltin(Builtins::kRegExpSplit, context, separator,
-  //                          subject_string, limit);
-  //     },
-  //     [=](Node* fn) {
-  //       Callable call_callable = CodeFactory::Call(isolate());
-  //       return CallJS(call_callable, context, fn, separator, receiver,
-  //       limit);
-  //     },
-  //     &args);
+  MaybeCallFunctionAtSymbol(
+      context, pattern, search_symbol,
+      [=] {
+        // var_regexp.Bind(pattern);
+        // var_last_match_info.Bind(LoadContextElement(
+        //     native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
+        // Goto(&fast_path);
 
-  Node* const native_context = LoadNativeContext(context);
-  Node* const regexp_function =
-      LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
-  Node* const initial_map = LoadObjectField(
-      regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+        Node* const receiver_string = ToString_Inline(context, receiver);
+        Node* const native_context = LoadNativeContext(context);
+        Node* const internal_match_info = LoadContextElement(
+            native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
+        RegExpBuiltinsAssembler regexp_asm(state());
+        Node* const match_indices =
+            regexp_asm.RegExpExecInternal(context, pattern, receiver_string,
+                                          SmiConstant(0), internal_match_info);
+        Return(Select(WordEqual(match_indices, NullConstant()),
+                      [&] { return SmiConstant(-1); },
+                      [&] {
+                        return LoadFixedArrayElement(
+                            match_indices, RegExpMatchInfo::kFirstCaptureIndex);
+                      },
+                      MachineRepresentation::kTagged));
+      },
+      [=](Node* fn) {
+        Callable call_callable = CodeFactory::Call(isolate());
+        Return(CallJS(call_callable, context, fn, pattern, receiver));
+      });
+  {
+    Node* const receiver_string = ToString_Inline(context, receiver);
+    {
+      Label next(this);
+      GotoIfNot(IsUndefined(pattern), &next);
+      Return(SmiConstant(0));
+      BIND(&next);
+    }
 
-  Node* const regexp = CallRuntime(
-      Runtime::kRegExpInitializeAndCompile, context,
-      AllocateJSObjectFromMap(initial_map), pattern, EmptyStringConstant());
+    // TOOD: Is this necessary, won't the regexp helpers below handle this?
+    Node* const pattern_string = ToString_Inline(context, pattern);
 
-  Node* const internal_match_info = LoadContextElement(
-      native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
+    Node* const native_context = LoadNativeContext(context);
+    Node* const regexp_function =
+        LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
+    Node* const initial_map = LoadObjectField(
+        regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+    Node* const regexp =
+        CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
+                    AllocateJSObjectFromMap(initial_map), pattern_string,
+                    EmptyStringConstant());
+    Node* const regexp_map = LoadMap(regexp);
 
-  RegExpBuiltinsAssembler regexp_asm(state());
-  Node* const match_indices = regexp_asm.RegExpExecInternal(
-      context, regexp, receiver_string, SmiConstant(0), internal_match_info);
+    Node* const internal_match_info = LoadContextElement(
+        native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
 
-  Return(Select(WordEqual(match_indices, NullConstant()),
-                [&] { return SmiConstant(-1); },
-                [&] {
-                  return LoadFixedArrayElement(
-                      match_indices, RegExpMatchInfo::kFirstCaptureIndex);
-                },
-                MachineRepresentation::kTagged));
+    RegExpBuiltinsAssembler regexp_asm(state());
+    Label fast_path(this), slow_path(this);
+
+    regexp_asm.BranchIfFastRegExp(context, regexp, regexp_map, &fast_path, &slow_path);
+    BIND(&fast_path);
+    {
+      Node* const match_indices =
+          regexp_asm.RegExpExecInternal(context, regexp, receiver_string,
+                                        SmiConstant(0), internal_match_info);
+
+      Return(Select(WordEqual(match_indices, NullConstant()),
+                    [&] { return SmiConstant(-1); },
+                    [&] {
+                      return LoadFixedArrayElement(
+                          match_indices, RegExpMatchInfo::kFirstCaptureIndex);
+                    },
+                    MachineRepresentation::kTagged));
+    }
+    BIND(&slow_path);
+    {
+      Node* const maybe_func = GetProperty(context, regexp, search_symbol);
+      Callable call_callable = CodeFactory::Call(isolate());
+      Return(
+          CallJS(call_callable, context, maybe_func, regexp, receiver_string));
+    }
+  }
 }
 
 // ES6 section 21.1.3.18 String.prototype.slice ( start, end )
@@ -1606,17 +1640,17 @@ TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
 
   MaybeCallFunctionAtSymbol(
       context, separator, isolate()->factory()->split_symbol(),
-      [=]() {
+      [&]() {
         Node* const subject_string = ToString_Inline(context, receiver);
 
-        return CallBuiltin(Builtins::kRegExpSplit, context, separator,
-                           subject_string, limit);
+        args.PopAndReturn(CallBuiltin(Builtins::kRegExpSplit, context,
+                                      separator, subject_string, limit));
       },
-      [=](Node* fn) {
+      [&](Node* fn) {
         Callable call_callable = CodeFactory::Call(isolate());
-        return CallJS(call_callable, context, fn, separator, receiver, limit);
-      },
-      &args);
+        args.PopAndReturn(
+            CallJS(call_callable, context, fn, separator, receiver, limit));
+      });
 
   // String and integer conversions.
 
