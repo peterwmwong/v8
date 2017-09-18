@@ -1444,96 +1444,74 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
 // ES6 #sec-string.prototype.search
 TF_BUILTIN(StringPrototypeSearch, StringBuiltinsAssembler) {
   Handle<Symbol> search_symbol = isolate()->factory()->search_symbol();
+  RegExpBuiltinsAssembler regexp_asm(state());
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const pattern = Parameter(Descriptor::kPattern);
   Node* const context = Parameter(Descriptor::kContext);
-  // Node* const native_context = LoadNativeContext(context);
-
-  RequireObjectCoercible(context, receiver, "String.prototype.search");
+  Node* const native_context = LoadNativeContext(context);
 
   VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
-  VARIABLE(var_last_match_info, MachineRepresentation::kTagged, UndefinedConstant());
+  VARIABLE(var_last_match_info, MachineRepresentation::kTagged,
+           UndefinedConstant());
 
+  Label fast_path(this), slow_path(this), if_pattern_undefined(this);
+
+  RequireObjectCoercible(context, receiver, "String.prototype.search");
+  GotoIf(IsUndefined(pattern), &if_pattern_undefined);
+
+  Node* const receiver_string = ToString_Inline(context, receiver);
   MaybeCallFunctionAtSymbol(
       context, pattern, search_symbol,
-      [=] {
-        // var_regexp.Bind(pattern);
-        // var_last_match_info.Bind(LoadContextElement(
-        //     native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
-        // Goto(&fast_path);
-
-        Node* const receiver_string = ToString_Inline(context, receiver);
-        Node* const native_context = LoadNativeContext(context);
-        Node* const internal_match_info = LoadContextElement(
-            native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
-        RegExpBuiltinsAssembler regexp_asm(state());
-        Node* const match_indices =
-            regexp_asm.RegExpExecInternal(context, pattern, receiver_string,
-                                          SmiConstant(0), internal_match_info);
-        Return(Select(WordEqual(match_indices, NullConstant()),
-                      [&] { return SmiConstant(-1); },
-                      [&] {
-                        return LoadFixedArrayElement(
-                            match_indices, RegExpMatchInfo::kFirstCaptureIndex);
-                      },
-                      MachineRepresentation::kTagged));
+      [&] {
+        var_regexp.Bind(pattern);
+        var_last_match_info.Bind(LoadContextElement(
+            native_context, Context::REGEXP_LAST_MATCH_INFO_INDEX));
+        Goto(&fast_path);
       },
       [=](Node* fn) {
         Callable call_callable = CodeFactory::Call(isolate());
         Return(CallJS(call_callable, context, fn, pattern, receiver));
       });
-  {
-    Node* const receiver_string = ToString_Inline(context, receiver);
-    {
-      Label next(this);
-      GotoIfNot(IsUndefined(pattern), &next);
-      Return(SmiConstant(0));
-      BIND(&next);
-    }
 
-    // TOOD: Is this necessary, won't the regexp helpers below handle this?
+  {  // pattern is not a regexp or has @@search property
     Node* const pattern_string = ToString_Inline(context, pattern);
-
-    Node* const native_context = LoadNativeContext(context);
     Node* const regexp_function =
         LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
     Node* const initial_map = LoadObjectField(
         regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
-    Node* const regexp =
-        CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
-                    AllocateJSObjectFromMap(initial_map), pattern_string,
-                    EmptyStringConstant());
-    Node* const regexp_map = LoadMap(regexp);
 
-    Node* const internal_match_info = LoadContextElement(
-        native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
+    var_regexp.Bind(CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
+                                AllocateJSObjectFromMap(initial_map),
+                                pattern_string, EmptyStringConstant()));
+    var_last_match_info.Bind(LoadContextElement(
+        native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
 
-    RegExpBuiltinsAssembler regexp_asm(state());
-    Label fast_path(this), slow_path(this);
-
-    regexp_asm.BranchIfFastRegExp(context, regexp, regexp_map, &fast_path, &slow_path);
-    BIND(&fast_path);
-    {
-      Node* const match_indices =
-          regexp_asm.RegExpExecInternal(context, regexp, receiver_string,
-                                        SmiConstant(0), internal_match_info);
-
-      Return(Select(WordEqual(match_indices, NullConstant()),
-                    [&] { return SmiConstant(-1); },
-                    [&] {
-                      return LoadFixedArrayElement(
-                          match_indices, RegExpMatchInfo::kFirstCaptureIndex);
-                    },
-                    MachineRepresentation::kTagged));
-    }
-    BIND(&slow_path);
-    {
-      Node* const maybe_func = GetProperty(context, regexp, search_symbol);
-      Callable call_callable = CodeFactory::Call(isolate());
-      Return(
-          CallJS(call_callable, context, maybe_func, regexp, receiver_string));
-    }
+    regexp_asm.BranchIfFastRegExp(context, var_regexp.value(), initial_map,
+                                  &fast_path, &slow_path);
   }
+  BIND(&slow_path);
+  {
+    Node* const regexp = var_regexp.value();
+    Node* const maybe_func = GetProperty(context, regexp, search_symbol);
+    Callable call_callable = CodeFactory::Call(isolate());
+    Return(CallJS(call_callable, context, maybe_func, regexp, receiver_string));
+  }
+  BIND(&fast_path);
+  {
+    Node* const match_indices = regexp_asm.RegExpExecInternal(
+        context, var_regexp.value(), receiver_string, SmiConstant(0),
+        var_last_match_info.value());
+
+    Return(Select(WordEqual(match_indices, NullConstant()),
+                  [&] { return SmiConstant(-1); },
+                  [&] {
+                    return LoadFixedArrayElement(
+                        match_indices, RegExpMatchInfo::kFirstCaptureIndex);
+                  },
+                  MachineRepresentation::kTagged));
+  }
+  BIND(&if_pattern_undefined);
+  Return(SmiConstant(0));
 }
 
 // ES6 section 21.1.3.18 String.prototype.slice ( start, end )
