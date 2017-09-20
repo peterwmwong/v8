@@ -24,6 +24,12 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                            Node* const string, Node* const last_index,
                            Node* const match_info);
 
+  Node* ConstructNewResultFromMatchInfo(Node* const context, Node* const regexp,
+                                        Node* const match_info,
+                                        Node* const string);
+
+  Node* FlagGetter(Node* const context, Node* const regexp, JSRegExp::Flag flag,
+                   bool is_fastpath);
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
   // including the match itself), index (the index where the match starts),
@@ -47,10 +53,6 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                          Node* const last_index, Node* const string_length,
                          String::Encoding encoding, Variable* var_string_start,
                          Variable* var_string_end);
-
-  Node* ConstructNewResultFromMatchInfo(Node* const context, Node* const regexp,
-                                        Node* const match_info,
-                                        Node* const string);
 
   Node* RegExpPrototypeExecBodyWithoutResult(Node* const context,
                                              Node* const regexp,
@@ -85,8 +87,6 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   Node* FastFlagGetter(Node* const regexp, JSRegExp::Flag flag);
   Node* SlowFlagGetter(Node* const context, Node* const regexp,
                        JSRegExp::Flag flag);
-  Node* FlagGetter(Node* const context, Node* const regexp, JSRegExp::Flag flag,
-                   bool is_fastpath);
   void FlagGetter(Node* context, Node* receiver, JSRegExp::Flag flag,
                   int counter, const char* method_name);
 

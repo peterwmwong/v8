@@ -1170,11 +1170,6 @@ compiler::Node* StringBuiltinsAssembler::GetSubstitution(
   return var_result.value();
 }
 
-// ES6 #sec-string.prototype.match
-TF_BUILTIN(StringPrototypeMatch, StringBuiltinsAssembler) {
-  Return(NumberConstant(1));
-}
-
 // ES6 #sec-string.prototype.repeat
 TF_BUILTIN(StringPrototypeRepeat, StringBuiltinsAssembler) {
   Label invalid_count(this), invalid_string_length(this),
@@ -1441,77 +1436,119 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
   }
 }
 
-// ES6 #sec-string.prototype.search
-TF_BUILTIN(StringPrototypeSearch, StringBuiltinsAssembler) {
-  Handle<Symbol> search_symbol = isolate()->factory()->search_symbol();
-  RegExpBuiltinsAssembler regexp_asm(state());
+class StringMatchSearchAssembler : public StringBuiltinsAssembler {
+ public:
+  explicit StringMatchSearchAssembler(compiler::CodeAssemblerState* state)
+      : StringBuiltinsAssembler(state) {}
+
+ protected:
+  enum Variant { kMatch, kSearch };
+
+  void Generate(Variant variant, const char* method_name, Node* const receiver,
+                Node* pattern, Node* const context) {
+    Handle<Symbol> symbol = variant == kMatch
+                                ? isolate()->factory()->match_symbol()
+                                : isolate()->factory()->search_symbol();
+    RegExpBuiltinsAssembler regexp_asm(state());
+    Node* const native_context = LoadNativeContext(context);
+    pattern =
+        Select(IsUndefined(pattern), [=] { return EmptyStringConstant(); },
+               [=] { return pattern; }, MachineRepresentation::kTagged);
+
+    VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
+    VARIABLE(var_last_match_info, MachineRepresentation::kTagged,
+             EmptyFixedArrayConstant());
+    VARIABLE(var_match_indices, MachineRepresentation::kTagged, NullConstant());
+    VARIABLE(var_receiver_string, MachineRepresentation::kTagged,
+             NullConstant());
+
+    Label fast_path(this), slow_path(this), return_found(this),
+        return_not_found(this);
+
+    RequireObjectCoercible(context, receiver, method_name);
+
+    var_receiver_string.Bind(ToString_Inline(context, receiver));
+    MaybeCallFunctionAtSymbol(
+        context, pattern, symbol,
+        [&] {
+          var_regexp.Bind(pattern);
+          var_last_match_info.Bind(LoadContextElement(
+              native_context, Context::REGEXP_LAST_MATCH_INFO_INDEX));
+
+          Node* const is_global = regexp_asm.FlagGetter(
+              context, var_regexp.value(), JSRegExp::kGlobal, true);
+          Branch(is_global, &slow_path, &fast_path);
+        },
+        [=](Node* fn) {
+          Callable call_callable = CodeFactory::Call(isolate());
+          Return(CallJS(call_callable, context, fn, pattern, receiver));
+        });
+
+    // Pattern is not a RegExp and does not have a @@search property.
+    // Create a RegExp from the pattern.
+    {
+      Node* const pattern_string = ToString_Inline(context, pattern);
+      Node* const regexp_function =
+          LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
+      Node* const initial_map = LoadObjectField(
+          regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+
+      var_regexp.Bind(CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
+                                  AllocateJSObjectFromMap(initial_map),
+                                  pattern_string, EmptyStringConstant()));
+      var_last_match_info.Bind(LoadContextElement(
+          native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
+
+      regexp_asm.BranchIfFastRegExp(context, var_regexp.value(), initial_map,
+                                    &fast_path, &slow_path);
+    }
+    BIND(&slow_path);
+    {
+      Node* const regexp = var_regexp.value();
+      Node* const maybe_func = GetProperty(context, regexp, symbol);
+      Callable call_callable = CodeFactory::Call(isolate());
+      Return(CallJS(call_callable, context, maybe_func, regexp,
+                    var_receiver_string.value()));
+    }
+    BIND(&fast_path);
+    {
+      Node* const regexp = var_regexp.value();
+      Node* const match_indices = regexp_asm.RegExpExecInternal(
+          context, regexp, var_receiver_string.value(), SmiConstant(0),
+          var_last_match_info.value());
+
+      var_match_indices.Bind(match_indices);
+      Branch(IsNull(match_indices), &return_not_found, &return_found);
+    }
+
+    BIND(&return_not_found);
+    Return(variant == kMatch ? NullConstant() : SmiConstant(-1));
+
+    BIND(&return_found);
+    Return(variant == kMatch
+               ? regexp_asm.ConstructNewResultFromMatchInfo(
+                     context, var_regexp.value(), var_match_indices.value(),
+                     var_receiver_string.value())
+               : LoadFixedArrayElement(var_match_indices.value(),
+                                       RegExpMatchInfo::kFirstCaptureIndex));
+  }
+};
+
+// ES6 #sec-string.prototype.match
+TF_BUILTIN(StringPrototypeMatch, StringMatchSearchAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const pattern = Parameter(Descriptor::kPattern);
   Node* const context = Parameter(Descriptor::kContext);
-  Node* const native_context = LoadNativeContext(context);
 
-  VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
-  VARIABLE(var_last_match_info, MachineRepresentation::kTagged,
-           UndefinedConstant());
+  Generate(kMatch, "String.prototype.match", receiver, pattern, context);
+}
 
-  Label fast_path(this), slow_path(this), if_pattern_undefined(this);
-
-  RequireObjectCoercible(context, receiver, "String.prototype.search");
-  GotoIf(IsUndefined(pattern), &if_pattern_undefined);
-
-  Node* const receiver_string = ToString_Inline(context, receiver);
-  MaybeCallFunctionAtSymbol(
-      context, pattern, search_symbol,
-      [&] {
-        var_regexp.Bind(pattern);
-        var_last_match_info.Bind(LoadContextElement(
-            native_context, Context::REGEXP_LAST_MATCH_INFO_INDEX));
-        Goto(&fast_path);
-      },
-      [=](Node* fn) {
-        Callable call_callable = CodeFactory::Call(isolate());
-        Return(CallJS(call_callable, context, fn, pattern, receiver));
-      });
-
-  {  // pattern is not a regexp or has @@search property
-    Node* const pattern_string = ToString_Inline(context, pattern);
-    Node* const regexp_function =
-        LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
-    Node* const initial_map = LoadObjectField(
-        regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
-
-    var_regexp.Bind(CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
-                                AllocateJSObjectFromMap(initial_map),
-                                pattern_string, EmptyStringConstant()));
-    var_last_match_info.Bind(LoadContextElement(
-        native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
-
-    regexp_asm.BranchIfFastRegExp(context, var_regexp.value(), initial_map,
-                                  &fast_path, &slow_path);
-  }
-  BIND(&slow_path);
-  {
-    Node* const regexp = var_regexp.value();
-    Node* const maybe_func = GetProperty(context, regexp, search_symbol);
-    Callable call_callable = CodeFactory::Call(isolate());
-    Return(CallJS(call_callable, context, maybe_func, regexp, receiver_string));
-  }
-  BIND(&fast_path);
-  {
-    Node* const match_indices = regexp_asm.RegExpExecInternal(
-        context, var_regexp.value(), receiver_string, SmiConstant(0),
-        var_last_match_info.value());
-
-    Return(Select(WordEqual(match_indices, NullConstant()),
-                  [&] { return SmiConstant(-1); },
-                  [&] {
-                    return LoadFixedArrayElement(
-                        match_indices, RegExpMatchInfo::kFirstCaptureIndex);
-                  },
-                  MachineRepresentation::kTagged));
-  }
-  BIND(&if_pattern_undefined);
-  Return(SmiConstant(0));
+// ES6 #sec-string.prototype.search
+TF_BUILTIN(StringPrototypeSearch, StringMatchSearchAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* const pattern = Parameter(Descriptor::kPattern);
+  Node* const context = Parameter(Descriptor::kContext);
+  Generate(kSearch, "String.prototype.search", receiver, pattern, context);
 }
 
 // ES6 section 21.1.3.18 String.prototype.slice ( start, end )
