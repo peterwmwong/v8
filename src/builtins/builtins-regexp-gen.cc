@@ -3114,5 +3114,31 @@ TF_BUILTIN(RegExpInternalMatch, RegExpBuiltinsAssembler) {
   }
 }
 
+// Simple string matching functionality for internal use which does not modify
+// the last match info.
+TF_BUILTIN(RegExpInternalMatch2, RegExpBuiltinsAssembler) {
+  Node* const regexp = Parameter(Descriptor::kRegExp);
+  Node* const string = Parameter(Descriptor::kString);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  CSA_ASSERT(this, IsJSRegExp(regexp));
+  CSA_ASSERT(this, IsString(string));
+
+  Node* const native_context = LoadNativeContext(context);
+  Node* const internal_match_info = LoadContextElement(
+      native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
+  Node* const match_indices = RegExpExecInternal(
+      context, regexp, string, SmiConstant(0), internal_match_info);
+
+  Label if_matched(this);
+
+  GotoIfNot(IsNull(match_indices), &if_matched);
+  Return(NullConstant());
+
+  BIND(&if_matched);
+  Return(
+      ConstructNewResultFromMatchInfo(context, regexp, match_indices, string));
+}
+
 }  // namespace internal
 }  // namespace v8

@@ -1512,25 +1512,18 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
     }
     BIND(&fast_path);
     {
-      Node* const regexp = var_regexp.value();
-      Node* const match_indices = regexp_asm.RegExpExecInternal(
-          context, regexp, var_receiver_string.value(), SmiConstant(0),
-          var_last_match_info.value());
-
-      var_match_indices.Bind(match_indices);
-      Branch(IsNull(match_indices), &return_not_found, &return_found);
+      Node* const result =
+          CallBuiltin(Builtins::kRegExpInternalMatch2, context,
+                      var_regexp.value(), var_receiver_string.value());
+      if (variant == kMatch) {
+        Return(result);
+      } else {
+        Handle<String> index = isolate()->factory()->index_string();
+        Return(Select(IsNull(result), [&] { return SmiConstant(-1); },
+                      [&] { return GetProperty(context, result, index); },
+                      MachineRepresentation::kTagged));
+      }
     }
-
-    BIND(&return_not_found);
-    Return(variant == kMatch ? NullConstant() : SmiConstant(-1));
-
-    BIND(&return_found);
-    Return(variant == kMatch
-               ? regexp_asm.ConstructNewResultFromMatchInfo(
-                     context, var_regexp.value(), var_match_indices.value(),
-                     var_receiver_string.value())
-               : LoadFixedArrayElement(var_match_indices.value(),
-                                       RegExpMatchInfo::kFirstCaptureIndex));
   }
 };
 
