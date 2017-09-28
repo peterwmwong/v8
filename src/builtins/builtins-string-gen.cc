@@ -1456,7 +1456,7 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
                [=] { return pattern; }, MachineRepresentation::kTagged);
 
     VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
-    VARIABLE(var_use_internal_match_info, MachineRepresentation::kTagged,
+    VARIABLE(var_regexp_is_internal, MachineRepresentation::kTagged,
              FalseConstant());
     VARIABLE(var_receiver_string, MachineRepresentation::kTagged,
              UndefinedConstant());
@@ -1488,7 +1488,7 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
       Node* const initial_map = LoadObjectField(
           regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
 
-      var_use_internal_match_info.Bind(TrueConstant());
+      var_regexp_is_internal.Bind(TrueConstant());
       var_regexp.Bind(CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
                                   AllocateJSObjectFromMap(initial_map),
                                   pattern_string, EmptyStringConstant()));
@@ -1499,7 +1499,7 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
     Return(CallBuiltin(Builtins::kRegExpMatch, context, var_regexp.value(),
                        var_receiver_string.value(),
                        BooleanConstant(variant == kMatch),
-                       var_use_internal_match_info.value()));
+                       var_regexp_is_internal.value()));
     BIND(&slow_path);
     {
       Node* const regexp = var_regexp.value();

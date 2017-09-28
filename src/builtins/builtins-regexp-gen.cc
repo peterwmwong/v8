@@ -3097,7 +3097,7 @@ TF_BUILTIN(RegExpMatch, RegExpBuiltinsAssembler) {
   Node* const regexp = Parameter(Descriptor::kRegExp);
   Node* const string = Parameter(Descriptor::kString);
   Node* return_match = Parameter(Descriptor::kReturnMatch);
-  Node* is_internal_regexp = Parameter(Descriptor::kIsInternalRegexp);
+  Node* const is_internal_regexp = Parameter(Descriptor::kIsInternalRegexp);
 
   CSA_ASSERT(this, IsJSRegExp(regexp));
   CSA_ASSERT(this, IsString(string));
@@ -3105,39 +3105,48 @@ TF_BUILTIN(RegExpMatch, RegExpBuiltinsAssembler) {
   CSA_ASSERT(this, IsBoolean(is_internal_regexp));
 
   return_match = IsTrue(return_match);
-  is_internal_regexp = IsTrue(is_internal_regexp);
+
+  VARIABLE(var_match_info_index, MachineType::PointerRepresentation(),
+           IntPtrConstant(Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
+  VARIABLE(var_last_index, MachineRepresentation::kTagged, SmiConstant(0));
+  VARIABLE(var_should_update_last_index, MachineRepresentation::kWord32,
+    Int32Constant(0));
+
+  {
+    Label next(this);
+    GotoIf(IsTrue(is_internal_regexp), &next);
+
+    Node* const flags = LoadAndUntagToWord32ObjectField(
+                   regexp, JSRegExp::kFlagsOffset);
+    var_should_update_last_index.Bind(Word32And(
+        flags, Int32Constant(JSRegExp::kGlobal | JSRegExp::kSticky)));
+    var_match_info_index.Bind(
+        IntPtrConstant(Context::REGEXP_LAST_MATCH_INFO_INDEX));
+
+    GotoIfNot(var_should_update_last_index.value(), &next);
+
+    var_last_index.Bind(LoadLastIndex(context, regexp, true));
+
+    Goto(&next);
+    BIND(&next);
+  }
 
   Node* const native_context = LoadNativeContext(context);
-  Node* const match_info = LoadContextElement(
-      native_context,
-      SelectIntPtrConstant(is_internal_regexp,
-                           Context::REGEXP_INTERNAL_MATCH_INFO_INDEX,
-                           Context::REGEXP_LAST_MATCH_INFO_INDEX));
-
-  // TODO: currently hard coded to start at 0 position, if the regexp is sticky,
-  //       shouldn't the last match info be used?
-  Node* const match_indices =
-      RegExpExecInternal(context, regexp, string, SmiConstant(0), match_info);
-  Node* const is_null = IsNull(match_indices);
+  Node* const match_info =
+      LoadContextElement(native_context, var_match_info_index.value());
+  Node* const match_indices = RegExpExecInternal(
+      context, regexp, string, var_last_index.value(), match_info);
 
   Label if_match(this), if_no_match(this);
 
-  Branch(is_null, &if_no_match, &if_match);
+  Branch(IsNull(match_indices), &if_no_match, &if_match);
   BIND(&if_match);
   {
     // Update the last index if the regex is not internal and is either global
     // or sticky
     {
       Label next(this);
-      GotoIf(is_internal_regexp, &next);
-
-      Node* const flags = LoadAndUntagToWord32ObjectField(regexp, JSRegExp::kFlagsOffset);
-      Node* const is_global_or_sticky = Word32And(
-          flags, Int32Constant(JSRegExp::kGlobal | JSRegExp::kSticky));
-      Node* const should_update_last_index =
-          Word32NotEqual(is_global_or_sticky, Int32Constant(0));
-
-      GotoIfNot(should_update_last_index, &next);
+      GotoIfNot(var_should_update_last_index.value(), &next);
 
       Node* const new_lastindex = LoadFixedArrayElement(
           match_indices, RegExpMatchInfo::kFirstCaptureIndex + 1);
@@ -3148,8 +3157,8 @@ TF_BUILTIN(RegExpMatch, RegExpBuiltinsAssembler) {
     }
     Return(Select(return_match,
                   [&] {
-                    return ConstructNewResultFromMatchInfo(context, regexp,
-                                                          match_indices, string);
+                    return ConstructNewResultFromMatchInfo(
+                        context, regexp, match_indices, string);
                   },
                   [&] {
                     return LoadFixedArrayElement(
