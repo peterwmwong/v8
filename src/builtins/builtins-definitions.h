@@ -809,13 +809,13 @@ namespace internal {
   CPP(RegExpCapture9Getter)                                                    \
   /* ES #sec-regexp-pattern-flags */                                           \
   TFJ(RegExpConstructor, 2, kPattern, kFlags)                                  \
-  TFS(RegExpInternalMatch2, kRegExp, kString)                                  \
   TFJ(RegExpInternalMatch, 2, kRegExp, kString)                                \
   CPP(RegExpInputGetter)                                                       \
   CPP(RegExpInputSetter)                                                       \
   CPP(RegExpLastMatchGetter)                                                   \
   CPP(RegExpLastParenGetter)                                                   \
   CPP(RegExpLeftContextGetter)                                                 \
+  TFS(RegExpMatch, kRegExp, kString, kReturnMatch, kIsInternalRegexp)          \
   /* ES #sec-regexp.prototype.compile */                                       \
   TFJ(RegExpPrototypeCompile, 2, kPattern, kFlags)                             \
   /* ES #sec-regexp.prototype.exec */                                          \

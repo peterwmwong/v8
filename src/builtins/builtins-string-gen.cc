@@ -1456,14 +1456,12 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
                [=] { return pattern; }, MachineRepresentation::kTagged);
 
     VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
-    VARIABLE(var_last_match_info, MachineRepresentation::kTagged,
-             EmptyFixedArrayConstant());
-    VARIABLE(var_match_indices, MachineRepresentation::kTagged, NullConstant());
+    VARIABLE(var_use_internal_match_info, MachineRepresentation::kTagged,
+             FalseConstant());
     VARIABLE(var_receiver_string, MachineRepresentation::kTagged,
-             NullConstant());
+             UndefinedConstant());
 
-    Label fast_path(this), slow_path(this), return_found(this),
-        return_not_found(this);
+    Label fast_path(this), slow_path(this);
 
     RequireObjectCoercible(context, receiver, method_name);
 
@@ -1472,11 +1470,8 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
         context, pattern, symbol,
         [&] {
           var_regexp.Bind(pattern);
-          var_last_match_info.Bind(LoadContextElement(
-              native_context, Context::REGEXP_LAST_MATCH_INFO_INDEX));
-
-          Node* const is_global = regexp_asm.FlagGetter(
-              context, var_regexp.value(), JSRegExp::kGlobal, true);
+          Node* const is_global =
+              regexp_asm.FlagGetter(context, pattern, JSRegExp::kGlobal, true);
           Branch(is_global, &slow_path, &fast_path);
         },
         [=](Node* fn) {
@@ -1493,15 +1488,18 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
       Node* const initial_map = LoadObjectField(
           regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
 
+      var_use_internal_match_info.Bind(TrueConstant());
       var_regexp.Bind(CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
                                   AllocateJSObjectFromMap(initial_map),
                                   pattern_string, EmptyStringConstant()));
-      var_last_match_info.Bind(LoadContextElement(
-          native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
-
       regexp_asm.BranchIfFastRegExp(context, var_regexp.value(), initial_map,
                                     &fast_path, &slow_path);
     }
+    BIND(&fast_path);
+    Return(CallBuiltin(Builtins::kRegExpMatch, context, var_regexp.value(),
+                       var_receiver_string.value(),
+                       BooleanConstant(variant == kMatch),
+                       var_use_internal_match_info.value()));
     BIND(&slow_path);
     {
       Node* const regexp = var_regexp.value();
@@ -1509,20 +1507,6 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
       Callable call_callable = CodeFactory::Call(isolate());
       Return(CallJS(call_callable, context, maybe_func, regexp,
                     var_receiver_string.value()));
-    }
-    BIND(&fast_path);
-    {
-      Node* const result =
-          CallBuiltin(Builtins::kRegExpInternalMatch2, context,
-                      var_regexp.value(), var_receiver_string.value());
-      if (variant == kMatch) {
-        Return(result);
-      } else {
-        Handle<String> index = isolate()->factory()->index_string();
-        Return(Select(IsNull(result), [&] { return SmiConstant(-1); },
-                      [&] { return GetProperty(context, result, index); },
-                      MachineRepresentation::kTagged));
-      }
     }
   }
 };

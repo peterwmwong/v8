@@ -19,17 +19,9 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                           Node* const map, Label* const if_isunmodified,
                           Label* const if_ismodified);
 
-  // Low level logic around the actual call into pattern matching code.
-  Node* RegExpExecInternal(Node* const context, Node* const regexp,
-                           Node* const string, Node* const last_index,
-                           Node* const match_info);
-
-  Node* ConstructNewResultFromMatchInfo(Node* const context, Node* const regexp,
-                                        Node* const match_info,
-                                        Node* const string);
-
   Node* FlagGetter(Node* const context, Node* const regexp, JSRegExp::Flag flag,
                    bool is_fastpath);
+
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
   // including the match itself), index (the index where the match starts),
@@ -61,6 +53,15 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                                              const bool is_fastpath);
   Node* RegExpPrototypeExecBody(Node* const context, Node* const regexp,
                                 Node* const string, const bool is_fastpath);
+
+  // Low level logic around the actual call into pattern matching code.
+  Node* RegExpExecInternal(Node* const context, Node* const regexp,
+                           Node* const string, Node* const last_index,
+                           Node* const match_info);
+
+  Node* ConstructNewResultFromMatchInfo(Node* const context, Node* const regexp,
+                                        Node* const match_info,
+                                        Node* const string);
 
   Node* ThrowIfNotJSReceiver(Node* context, Node* maybe_receiver,
                              MessageTemplate::Template msg_template,
