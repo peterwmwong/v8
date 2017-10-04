@@ -815,7 +815,6 @@ namespace internal {
   CPP(RegExpLastMatchGetter)                                                   \
   CPP(RegExpLastParenGetter)                                                   \
   CPP(RegExpLeftContextGetter)                                                 \
-  TFS(RegExpMatch, kRegExp, kString, kReturnMatch, kIsInternalRegexp)          \
   /* ES #sec-regexp.prototype.compile */                                       \
   TFJ(RegExpPrototypeCompile, 2, kPattern, kFlags)                             \
   /* ES #sec-regexp.prototype.exec */                                          \
@@ -851,8 +850,10 @@ namespace internal {
   TFJ(RegExpPrototypeSplit, SharedFunctionInfo::kDontAdaptArgumentsSentinel)   \
   /* RegExp helpers */                                                         \
   TFS(RegExpExecAtom, kRegExp, kString, kLastIndex, kMatchInfo)                \
+  TFS(RegExpMatch, kReceiver, kPattern)                                        \
   TFS(RegExpPrototypeExecSlow, kReceiver, kString)                             \
   TFS(RegExpReplace, kRegExp, kString, kReplaceValue)                          \
+  TFS(RegExpSearch, kReceiver, kPattern)                                       \
   TFS(RegExpSplit, kRegExp, kString, kLimit)                                   \
                                                                                \
   /* Set */                                                                    \

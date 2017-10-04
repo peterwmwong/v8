@@ -310,7 +310,7 @@ Node* RegExpBuiltinsAssembler::RegExpExecInternal(Node* const context,
 #ifdef V8_INTERPRETED_REGEXP
   return CallRuntime(Runtime::kRegExpExec, context, regexp, string, last_index,
                      match_info);
-#else   // V8_INTERPRETED_REGEXP
+#else  // V8_INTERPRETED_REGEXP
   CSA_ASSERT(this, TaggedIsNotSmi(regexp));
   CSA_ASSERT(this, IsJSRegExp(regexp));
 
@@ -1204,6 +1204,21 @@ Node* RegExpBuiltinsAssembler::IsRegExp(Node* const context,
 
   BIND(&out);
   return var_result.value();
+}
+
+// ES#sec-regexpcreate
+// Runtime Semantics: RegExpCreate ( pattern )
+Node* RegExpBuiltinsAssembler::RegExpCreate(Node* const context,
+                                            Node* const pattern) {
+  Node* const native_context = LoadNativeContext(context);
+  Node* const regexp_function =
+      LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
+  Node* const initial_map = LoadObjectField(
+      regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
+  Node* const regexp = AllocateJSObjectFromMap(initial_map);
+
+  return CallRuntime(Runtime::kRegExpInitializeAndCompile, context, regexp,
+                     pattern, EmptyStringConstant());
 }
 
 // ES#sec-regexpinitialize
@@ -2139,6 +2154,14 @@ TF_BUILTIN(RegExpPrototypeMatch, RegExpBuiltinsAssembler) {
   Node* const maybe_receiver = Parameter(Descriptor::kReceiver);
   Node* const maybe_string = Parameter(Descriptor::kString);
   Node* const context = Parameter(Descriptor::kContext);
+  Return(CallBuiltin(Builtins::kRegExpMatch, context, maybe_receiver,
+                     maybe_string));
+}
+
+TF_BUILTIN(RegExpMatch, RegExpBuiltinsAssembler) {
+  Node* const maybe_receiver = Parameter(Descriptor::kReceiver);
+  Node* const maybe_string = Parameter(Descriptor::kPattern);
+  Node* const context = Parameter(Descriptor::kContext);
 
   // Ensure {maybe_receiver} is a JSReceiver.
   ThrowIfNotJSReceiver(context, maybe_receiver,
@@ -2265,6 +2288,14 @@ void RegExpBuiltinsAssembler::RegExpPrototypeSearchBodySlow(
 TF_BUILTIN(RegExpPrototypeSearch, RegExpBuiltinsAssembler) {
   Node* const maybe_receiver = Parameter(Descriptor::kReceiver);
   Node* const maybe_string = Parameter(Descriptor::kString);
+  Node* const context = Parameter(Descriptor::kContext);
+  Return(CallBuiltin(Builtins::kRegExpSearch, context, maybe_receiver,
+                     maybe_string));
+}
+
+TF_BUILTIN(RegExpSearch, RegExpBuiltinsAssembler) {
+  Node* const maybe_receiver = Parameter(Descriptor::kReceiver);
+  Node* const maybe_string = Parameter(Descriptor::kPattern);
   Node* const context = Parameter(Descriptor::kContext);
 
   // Ensure {maybe_receiver} is a JSReceiver.
@@ -3086,90 +3117,32 @@ TF_BUILTIN(RegExpInternalMatch, RegExpBuiltinsAssembler) {
   Node* const regexp = Parameter(Descriptor::kRegExp);
   Node* const string = Parameter(Descriptor::kString);
   Node* const context = Parameter(Descriptor::kContext);
-  Return(CallBuiltin(Builtins::kRegExpMatch, context, regexp, string,
-                     TrueConstant(), TrueConstant()));
-}
 
-// Helper for string match or search and skips updating the last match info if
-// for internal usage.
-TF_BUILTIN(RegExpMatch, RegExpBuiltinsAssembler) {
-  Node* const context = Parameter(Descriptor::kContext);
-  Node* const regexp = Parameter(Descriptor::kRegExp);
-  Node* const string = Parameter(Descriptor::kString);
-  Node* return_match = Parameter(Descriptor::kReturnMatch);
-  Node* const is_internal_regexp = Parameter(Descriptor::kIsInternalRegexp);
+  Node* const null = NullConstant();
+  Node* const smi_zero = SmiConstant(0);
 
   CSA_ASSERT(this, IsJSRegExp(regexp));
   CSA_ASSERT(this, IsString(string));
-  CSA_ASSERT(this, IsBoolean(return_match));
-  CSA_ASSERT(this, IsBoolean(is_internal_regexp));
-
-  return_match = IsTrue(return_match);
-
-  VARIABLE(var_match_info_index, MachineType::PointerRepresentation(),
-           IntPtrConstant(Context::REGEXP_INTERNAL_MATCH_INFO_INDEX));
-  VARIABLE(var_last_index, MachineRepresentation::kTagged, SmiConstant(0));
-  VARIABLE(var_should_update_last_index, MachineRepresentation::kWord32,
-    Int32Constant(0));
-
-  {
-    Label next(this);
-    GotoIf(IsTrue(is_internal_regexp), &next);
-
-    Node* const flags = LoadAndUntagToWord32ObjectField(
-                   regexp, JSRegExp::kFlagsOffset);
-    var_should_update_last_index.Bind(Word32And(
-        flags, Int32Constant(JSRegExp::kGlobal | JSRegExp::kSticky)));
-    var_match_info_index.Bind(
-        IntPtrConstant(Context::REGEXP_LAST_MATCH_INFO_INDEX));
-
-    GotoIfNot(var_should_update_last_index.value(), &next);
-
-    var_last_index.Bind(LoadLastIndex(context, regexp, true));
-
-    Goto(&next);
-    BIND(&next);
-  }
 
   Node* const native_context = LoadNativeContext(context);
-  Node* const match_info =
-      LoadContextElement(native_context, var_match_info_index.value());
-  Node* const match_indices = RegExpExecInternal(
-      context, regexp, string, var_last_index.value(), match_info);
+  Node* const internal_match_info = LoadContextElement(
+      native_context, Context::REGEXP_INTERNAL_MATCH_INFO_INDEX);
 
-  Label if_match(this), if_no_match(this);
+  Node* const match_indices = RegExpExecInternal(context, regexp, string,
+                                                 smi_zero, internal_match_info);
 
-  Branch(IsNull(match_indices), &if_no_match, &if_match);
-  BIND(&if_match);
+  Label if_matched(this), if_didnotmatch(this);
+  Branch(WordEqual(match_indices, null), &if_didnotmatch, &if_matched);
+
+  BIND(&if_didnotmatch);
+  Return(null);
+
+  BIND(&if_matched);
   {
-    // Update the last index if the regex is not internal and is either global
-    // or sticky
-    {
-      Label next(this);
-      GotoIfNot(var_should_update_last_index.value(), &next);
-
-      Node* const new_lastindex = LoadFixedArrayElement(
-          match_indices, RegExpMatchInfo::kFirstCaptureIndex + 1);
-      StoreLastIndex(context, regexp, new_lastindex, true);
-
-      Goto(&next);
-      BIND(&next);
-    }
-    Return(Select(return_match,
-                  [&] {
-                    return ConstructNewResultFromMatchInfo(
-                        context, regexp, match_indices, string);
-                  },
-                  [&] {
-                    return LoadFixedArrayElement(
-                        match_indices, RegExpMatchInfo::kFirstCaptureIndex);
-                  },
-                  MachineRepresentation::kTagged));
+    Node* result =
+        ConstructNewResultFromMatchInfo(context, regexp, match_indices, string);
+    Return(result);
   }
-  BIND(&if_no_match);
-  Return(Select(return_match, [&] { return NullConstant(); },
-                [&] { return SmiConstant(-1); },
-                MachineRepresentation::kTagged));
 }
 
 }  // namespace internal

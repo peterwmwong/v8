@@ -1053,7 +1053,8 @@ void StringBuiltinsAssembler::RequireObjectCoercible(Node* const context,
 
 void StringBuiltinsAssembler::MaybeCallFunctionAtSymbol(
     Node* const context, Node* const object, Handle<Symbol> symbol,
-    const NodeFunction0& regexp_call, const NodeFunction1& generic_call) {
+    const NodeFunction0& regexp_call, const NodeFunction1& generic_call,
+    CodeStubArguments* args) {
   Label out(this);
 
   // Smis definitely don't have an attached symbol.
@@ -1091,7 +1092,12 @@ void StringBuiltinsAssembler::MaybeCallFunctionAtSymbol(
                                   &slow_lookup);
 
     BIND(&stub_call);
-    regexp_call();
+    Node* const result = regexp_call();
+    if (args == nullptr) {
+      Return(result);
+    } else {
+      args->PopAndReturn(result);
+    }
 
     BIND(&slow_lookup);
   }
@@ -1111,7 +1117,12 @@ void StringBuiltinsAssembler::MaybeCallFunctionAtSymbol(
   GotoIf(IsNull(maybe_func), &out);
 
   // Attempt to call the function.
-  generic_call(maybe_func);
+  Node* const result = generic_call(maybe_func);
+  if (args == nullptr) {
+    Return(result);
+  } else {
+    args->PopAndReturn(result);
+  }
 
   BIND(&out);
 }
@@ -1300,12 +1311,12 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
       [=]() {
         Node* const subject_string = ToString_Inline(context, receiver);
 
-        Return(CallBuiltin(Builtins::kRegExpReplace, context, search,
-                           subject_string, replace));
+        return CallBuiltin(Builtins::kRegExpReplace, context, search,
+                           subject_string, replace);
       },
       [=](Node* fn) {
         Callable call_callable = CodeFactory::Call(isolate());
-        Return(CallJS(call_callable, context, fn, search, receiver, replace));
+        return CallJS(call_callable, context, fn, search, receiver, replace);
       });
 
   // Convert {receiver} and {search} to strings.
@@ -1445,68 +1456,56 @@ class StringMatchSearchAssembler : public StringBuiltinsAssembler {
   enum Variant { kMatch, kSearch };
 
   void Generate(Variant variant, const char* method_name, Node* const receiver,
-                Node* pattern, Node* const context) {
-    Handle<Symbol> symbol = variant == kMatch
-                                ? isolate()->factory()->match_symbol()
-                                : isolate()->factory()->search_symbol();
-    RegExpBuiltinsAssembler regexp_asm(state());
-    Node* const native_context = LoadNativeContext(context);
-    pattern =
-        Select(IsUndefined(pattern), [=] { return EmptyStringConstant(); },
-               [=] { return pattern; }, MachineRepresentation::kTagged);
+                Node* regexp, Node* const context) {
+    Label call_regexp_match_search(this);
 
-    VARIABLE(var_regexp, MachineRepresentation::kTagged, UndefinedConstant());
-    VARIABLE(var_regexp_is_internal, MachineRepresentation::kTagged,
-             FalseConstant());
-    VARIABLE(var_receiver_string, MachineRepresentation::kTagged,
-             UndefinedConstant());
-
-    Label fast_path(this), slow_path(this);
+    Builtins::Name builtin;
+    Handle<Symbol> symbol;
+    if (variant == kMatch) {
+      builtin = Builtins::kRegExpMatch;
+      symbol = isolate()->factory()->match_symbol();
+    } else {
+      builtin = Builtins::kRegExpSearch;
+      symbol = isolate()->factory()->search_symbol();
+    }
 
     RequireObjectCoercible(context, receiver, method_name);
 
-    var_receiver_string.Bind(ToString_Inline(context, receiver));
     MaybeCallFunctionAtSymbol(
-        context, pattern, symbol,
-        [&] {
-          var_regexp.Bind(pattern);
-          Node* const is_global =
-              regexp_asm.FlagGetter(context, pattern, JSRegExp::kGlobal, true);
-          Branch(is_global, &slow_path, &fast_path);
-        },
+        context, regexp, symbol,
+        [=] { return CallBuiltin(builtin, context, regexp, receiver); },
         [=](Node* fn) {
           Callable call_callable = CodeFactory::Call(isolate());
-          Return(CallJS(call_callable, context, fn, pattern, receiver));
+          return CallJS(call_callable, context, fn, regexp, receiver);
         });
-
-    // Pattern is not a RegExp and does not have a @@search property.
-    // Create a RegExp from the pattern.
     {
-      Node* const pattern_string = ToString_Inline(context, pattern);
+      RegExpBuiltinsAssembler regexp_asm(state());
+      Label fast_path(this), slow_path(this);
+
+      Node* const pattern =
+          Select(IsUndefined(regexp), [=] { return EmptyStringConstant(); },
+                 [=] { return ToString_Inline(context, regexp); },
+                 MachineRepresentation::kTagged);
+      Node* const rx = regexp_asm.RegExpCreate(context, pattern);
+      Node* const native_context = LoadNativeContext(context);
       Node* const regexp_function =
           LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
       Node* const initial_map = LoadObjectField(
           regexp_function, JSFunction::kPrototypeOrInitialMapOffset);
 
-      var_regexp_is_internal.Bind(TrueConstant());
-      var_regexp.Bind(CallRuntime(Runtime::kRegExpInitializeAndCompile, context,
-                                  AllocateJSObjectFromMap(initial_map),
-                                  pattern_string, EmptyStringConstant()));
-      regexp_asm.BranchIfFastRegExp(context, var_regexp.value(), initial_map,
-                                    &fast_path, &slow_path);
-    }
-    BIND(&fast_path);
-    Return(CallBuiltin(Builtins::kRegExpMatch, context, var_regexp.value(),
-                       var_receiver_string.value(),
-                       BooleanConstant(variant == kMatch),
-                       var_regexp_is_internal.value()));
-    BIND(&slow_path);
-    {
-      Node* const regexp = var_regexp.value();
-      Node* const maybe_func = GetProperty(context, regexp, symbol);
-      Callable call_callable = CodeFactory::Call(isolate());
-      Return(CallJS(call_callable, context, maybe_func, regexp,
-                    var_receiver_string.value()));
+      regexp_asm.BranchIfFastRegExp(context, rx, initial_map, &fast_path,
+                                    &slow_path);
+
+      BIND(&fast_path);
+      Return(CallBuiltin(builtin, context, rx, receiver));
+
+      BIND(&slow_path);
+      {
+        Node* const maybe_func = GetProperty(context, rx, symbol);
+        Callable call_callable = CodeFactory::Call(isolate());
+        Return(CallJS(call_callable, context, maybe_func, rx,
+                      ToString_Inline(context, receiver)));
+      }
     }
   }
 };
@@ -1632,17 +1631,17 @@ TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
 
   MaybeCallFunctionAtSymbol(
       context, separator, isolate()->factory()->split_symbol(),
-      [&]() {
+      [=]() {
         Node* const subject_string = ToString_Inline(context, receiver);
 
-        args.PopAndReturn(CallBuiltin(Builtins::kRegExpSplit, context,
-                                      separator, subject_string, limit));
+        return CallBuiltin(Builtins::kRegExpSplit, context, separator,
+                           subject_string, limit);
       },
-      [&](Node* fn) {
+      [=](Node* fn) {
         Callable call_callable = CodeFactory::Call(isolate());
-        args.PopAndReturn(
-            CallJS(call_callable, context, fn, separator, receiver, limit));
-      });
+        return CallJS(call_callable, context, fn, separator, receiver, limit);
+      },
+      &args);
 
   // String and integer conversions.
 

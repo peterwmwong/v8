@@ -22,6 +22,8 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   Node* FlagGetter(Node* const context, Node* const regexp, JSRegExp::Flag flag,
                    bool is_fastpath);
 
+  Node* RegExpCreate(Node* const context, Node* const pattern);
+
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
   // including the match itself), index (the index where the match starts),
