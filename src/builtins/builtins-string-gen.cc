@@ -1230,48 +1230,8 @@ TF_BUILTIN(StringPrototypeRepeat, StringBuiltinsAssembler) {
       Branch(is_stringempty, &return_emptystring, &invalid_string_length);
     }
     BIND(&next);
-  }
-
-  // The receiver is repeated with the following algorithm:
-  //   let n = count;
-  //   let power_of_two_repeats = receiver;
-  //   let result = "";
-  //   while (true) {
-  //     if (n & 1) result += s;
-  //     n >>= 1;
-  //     if (n === 0) return result;
-  //     power_of_two_repeats += power_of_two_repeats;
-  //   }
-  {
-    VARIABLE(var_result, MachineRepresentation::kTagged, EmptyStringConstant());
-    VARIABLE(var_temp, MachineRepresentation::kTagged, string);
-
-    Callable stringadd_callable =
-        CodeFactory::StringAdd(isolate(), STRING_ADD_CHECK_NONE, NOT_TENURED);
-
-    Label loop(this, {&var_count, &var_result, &var_temp}), return_result(this);
-    Goto(&loop);
-    BIND(&loop);
-    {
-      {
-        Label next(this);
-        GotoIfNot(SmiToWord32(SmiAnd(var_count.value(), SmiConstant(1))),
-                  &next);
-        var_result.Bind(CallStub(stringadd_callable, context,
-                                 var_result.value(), var_temp.value()));
-        Goto(&next);
-        BIND(&next);
-      }
-
-      var_count.Bind(SmiShr(var_count.value(), 1));
-      GotoIf(SmiEqual(var_count.value(), SmiConstant(0)), &return_result);
-      var_temp.Bind(CallStub(stringadd_callable, context, var_temp.value(),
-                             var_temp.value()));
-      Goto(&loop);
-    }
-
-    BIND(&return_result);
-    Return(var_result.value());
+    Return(CallBuiltin(Builtins::kStringRepeat, context, string,
+                       var_count.value()));
   }
 
   BIND(&return_emptystring);
@@ -1289,6 +1249,57 @@ TF_BUILTIN(StringPrototypeRepeat, StringBuiltinsAssembler) {
     CallRuntime(Runtime::kThrowInvalidStringLength, context);
     Unreachable();
   }
+}
+
+// Helper with less checks
+TF_BUILTIN(StringRepeat, StringBuiltinsAssembler) {
+  Node* const context = Parameter(Descriptor::kContext);
+  Node* const string = Parameter(Descriptor::kString);
+  Node* const count = Parameter(Descriptor::kCount);
+
+  CSA_ASSERT(this, IsString(string));
+  CSA_ASSERT(this, TaggedIsSmi(count));
+  CSA_ASSERT(this, SmiLessThanOrEqual(count, SmiConstant(String::kMaxLength)));
+
+  // The string is repeated with the following algorithm:
+  //   let n = count;
+  //   let power_of_two_repeats = string;
+  //   let result = "";
+  //   while (true) {
+  //     if (n & 1) result += s;
+  //     n >>= 1;
+  //     if (n === 0) return result;
+  //     power_of_two_repeats += power_of_two_repeats;
+  //   }
+  VARIABLE(var_result, MachineRepresentation::kTagged, EmptyStringConstant());
+  VARIABLE(var_temp, MachineRepresentation::kTagged, string);
+  VARIABLE(var_count, MachineRepresentation::kTagged, count);
+
+  Callable stringadd_callable =
+      CodeFactory::StringAdd(isolate(), STRING_ADD_CHECK_NONE, NOT_TENURED);
+
+  Label loop(this, {&var_count, &var_result, &var_temp}), return_result(this);
+  Goto(&loop);
+  BIND(&loop);
+  {
+    {
+      Label next(this);
+      GotoIfNot(SmiToWord32(SmiAnd(var_count.value(), SmiConstant(1))), &next);
+      var_result.Bind(CallStub(stringadd_callable, context, var_result.value(),
+                               var_temp.value()));
+      Goto(&next);
+      BIND(&next);
+    }
+
+    var_count.Bind(SmiShr(var_count.value(), 1));
+    GotoIf(SmiEqual(var_count.value(), SmiConstant(0)), &return_result);
+    var_temp.Bind(CallStub(stringadd_callable, context, var_temp.value(),
+                           var_temp.value()));
+    Goto(&loop);
+  }
+
+  BIND(&return_result);
+  Return(var_result.value());
 }
 
 // ES6 #sec-string.prototype.replace
@@ -1529,6 +1540,130 @@ TF_BUILTIN(StringPrototypeMatch, StringMatchSearchAssembler) {
   Node* const context = Parameter(Descriptor::kContext);
 
   Generate(kMatch, "String.prototype.match", receiver, maybe_regexp, context);
+}
+
+class StringPadAssembler : public StringBuiltinsAssembler {
+ public:
+  explicit StringPadAssembler(compiler::CodeAssemblerState* state)
+      : StringBuiltinsAssembler(state) {}
+
+ protected:
+  enum Variant { kStart, kEnd };
+
+  void Generate(Variant variant, const char* method_name) {
+    Node* argc =
+        ChangeInt32ToIntPtr(Parameter(BuiltinDescriptor::kArgumentsCount));
+    Node* const context = Parameter(BuiltinDescriptor::kContext);
+    CodeStubArguments arguments(this, argc);
+    Node* const receiver = arguments.GetReceiver();
+    Node* const receiver_string = ToThisString(context, receiver, method_name);
+    Node* const string_length = LoadStringLength(receiver_string);
+
+    VARIABLE(var_max_length, MachineRepresentation::kTagged, string_length);
+    VARIABLE(var_fill_string, MachineRepresentation::kTagged,
+             StringConstant(" "));
+    VARIABLE(var_fill_length, MachineRepresentation::kTagged, SmiConstant(1));
+
+    Label argc_2(this), dont_pad(this), invalid_string_length(this), pad(this);
+
+    // If no max_length was provided, return the string
+    GotoIf(IntPtrEqual(argc, IntPtrConstant(0)), &dont_pad);
+
+    var_max_length.Bind(ToLength_Inline(context, arguments.AtIndex(0)));
+
+    // Only allow a max_length that is a smi less than the max string length
+    GotoIfNot(Word32And(TaggedIsSmi(var_max_length.value()),
+                        SmiLessThanOrEqual(var_max_length.value(),
+                                           SmiConstant(String::kMaxLength))),
+              &invalid_string_length);
+
+    // If the max_length is less than length of the string, return the string
+    GotoIf(SmiLessThanOrEqual(var_max_length.value(), string_length),
+           &dont_pad);
+
+    Branch(IntPtrEqual(argc, IntPtrConstant(1)), &pad, &argc_2);
+    BIND(&argc_2);
+    {
+      Node* const fill = arguments.AtIndex(1);
+      GotoIf(IsUndefined(fill), &pad);
+
+      var_fill_string.Bind(ToString_Inline(context, fill));
+      var_fill_length.Bind(LoadStringLength(var_fill_string.value()));
+
+      Branch(SmiGreaterThan(var_fill_length.value(), SmiConstant(0)), &pad,
+             &dont_pad);
+    }
+    BIND(&pad);
+    {
+      CSA_ASSERT(this, SmiGreaterThan(var_fill_length.value(), SmiConstant(0)));
+
+      Callable stringadd_callable =
+          CodeFactory::StringAdd(isolate(), STRING_ADD_CHECK_NONE, NOT_TENURED);
+      Node* const pad_length = SmiSub(var_max_length.value(), string_length);
+
+      VARIABLE(var_pad, MachineRepresentation::kTagged);
+
+      Label single_char_fill(this), multi_char_fill(this), return_result(this);
+      Branch(SmiEqual(var_fill_length.value(), SmiConstant(1)),
+             &single_char_fill, &multi_char_fill);
+
+      // Fast path for a single character fill.  No need to calculate number of
+      // repetitions or remainder.
+      BIND(&single_char_fill);
+      {
+        var_pad.Bind(CallBuiltin(Builtins::kStringRepeat, context,
+                                 var_fill_string.value(), pad_length));
+        Goto(&return_result);
+      }
+      BIND(&multi_char_fill);
+      {
+        Node* const fill_length_word32 = SmiToWord32(var_fill_length.value());
+        Node* const pad_length_word32 = SmiToWord32(pad_length);
+        Node* const repetitions_word32 =
+            Int32Div(pad_length_word32, fill_length_word32);
+        Node* const remaining_word32 =
+            Int32Mod(pad_length_word32, fill_length_word32);
+
+        Node* const repeats = CallBuiltin(
+            Builtins::kStringRepeat, context, var_fill_string.value(),
+            SmiFromWord32(repetitions_word32));
+
+        var_pad.Bind(Select(
+            remaining_word32,
+            [&] {
+              Node* const remainder_string =
+                  SubString(context, var_fill_string.value(), SmiConstant(0),
+                            SmiFromWord32(remaining_word32),
+                            SubStringFlags::FROM_TO_ARE_BOUNDED);
+              return CallStub(stringadd_callable, context, repeats,
+                              remainder_string);
+            },
+            [=] { return repeats; }, MachineRepresentation::kTagged));
+        Goto(&return_result);
+      }
+      BIND(&return_result);
+      arguments.PopAndReturn(variant == kStart
+                                 ? CallStub(stringadd_callable, context,
+                                            var_pad.value(), receiver_string)
+                                 : CallStub(stringadd_callable, context,
+                                            receiver_string, var_pad.value()));
+    }
+    BIND(&dont_pad);
+    arguments.PopAndReturn(receiver_string);
+    BIND(&invalid_string_length);
+    {
+      CallRuntime(Runtime::kThrowInvalidStringLength, context);
+      Unreachable();
+    }
+  }
+};
+
+TF_BUILTIN(StringPrototypePadEnd, StringPadAssembler) {
+  Generate(kEnd, "String.prototype.padEnd");
+}
+
+TF_BUILTIN(StringPrototypePadStart, StringPadAssembler) {
+  Generate(kStart, "String.prototype.padStart");
 }
 
 // ES6 #sec-string.prototype.search
