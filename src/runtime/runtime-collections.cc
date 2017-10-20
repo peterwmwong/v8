@@ -130,12 +130,12 @@ RUNTIME_FUNCTION(Runtime_WeakCollectionSet) {
   DCHECK_EQ(4, args.length());
   CONVERT_ARG_HANDLE_CHECKED(JSWeakCollection, weak_collection, 0);
   CONVERT_ARG_HANDLE_CHECKED(Object, key, 1);
-  CHECK(key->IsJSReceiver() || key->IsSymbol());
+  DCHECK(key->IsJSReceiver());
   CONVERT_ARG_HANDLE_CHECKED(Object, value, 2);
   CONVERT_SMI_ARG_CHECKED(hash, 3)
   Handle<ObjectHashTable> table(
       ObjectHashTable::cast(weak_collection->table()));
-  CHECK(table->IsKey(isolate, *key));
+  DCHECK(table->IsKey(isolate, *key));
   JSWeakCollection::Set(weak_collection, key, value, hash);
   return *weak_collection;
 }
