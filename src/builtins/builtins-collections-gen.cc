@@ -1772,7 +1772,7 @@ class WeakCollectionsBuiltinsAssembler : public CodeStubAssembler {
   // if the key is found. The key index is returned (instead of the entry
   // index), as it is assumed the calling code will need access the key and/or
   // value. It is faster to calculate the value index from the key index (see
-  // ValueIndexFromKeyIndex).
+  // ValueIndexFromKeyIndex()).
   typedef std::function<void(TNode<Object> entry_key, Label* if_same)>
       KeyComparator;
   TNode<IntPtrT> FindKeyIndex(TNode<Object> table,
@@ -1790,13 +1790,10 @@ class WeakCollectionsBuiltinsAssembler : public CodeStubAssembler {
 void WeakCollectionsBuiltinsAssembler::AddEntry(
     TNode<Object> table, TNode<IntPtrT> key_index, TNode<Object> key,
     TNode<Object> value, TNode<IntPtrT> number_of_elements) {
-  //>>> set(EntryToIndex(entry), key);
-  //>>> set(EntryToIndex(entry) + 1, value);
   TNode<IntPtrT> value_index = ValueIndexFromKeyIndex(key_index);
   StoreFixedArrayElement(table, key_index, key);
   StoreFixedArrayElement(table, value_index, value);
 
-  //>>> ElementAdded();
   StoreFixedArrayElement(table, ObjectHashTable::kNumberOfElementsIndex,
                          SmiFromWord(number_of_elements));
 }
@@ -1818,46 +1815,30 @@ TNode<Smi> WeakCollectionsBuiltinsAssembler::CallGetOrCreateHashRaw(
 TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::FindKeyIndex(
     TNode<Object> table, TNode<IntPtrT> first_probe_entry,
     TNode<IntPtrT> entry_mask, const KeyComparator& key_compare) {
-  //>>> uint32_t capacity = Capacity();
-  //>>> uint32_t entry = FirstProbe(hash, capacity);
-  //>>> Node* const hash = CallGetOrCreateHashRaw(key);
   TVARIABLE(IntPtrT, var_entry, first_probe_entry);
 
-  //>>> uint32_t count = 1;
   TVARIABLE(IntPtrT, var_count, IntPtrConstant(0));
 
-  //>>> // EnsureCapacity will guarantee the hash table is never full.
-  //>>> Object* undefined = isolate->heap()->undefined_value();
-  //>>> Object* the_hole = isolate->heap()->the_hole_value();
-  //>>> USE(the_hole);
-
-  //>>> while (true) {
   Variable* loop_vars[] = {&var_count, &var_entry};
   Label loop(this, arraysize(loop_vars), loop_vars), if_found(this);
   Goto(&loop);
   BIND(&loop);
   TNode<IntPtrT> key_index;
   {
-    //>>>   Object* element = KeyAt(entry);
     key_index = KeyIndexFromEntry(var_entry);
     TNode<Object> entry_key = CAST(LoadFixedArrayElement(table, key_index));
 
     key_compare(entry_key, &if_found);
 
-    //>>>   entry = NextProbe(entry, count++, capacity);
     Increment(&var_count);
     var_entry = WordAnd(IntPtrAdd(UncheckedCast<IntPtrT>(var_entry),
                                   UncheckedCast<IntPtrT>(var_count)),
                         entry_mask);
     Goto(&loop);
   }
-  //>>> }
 
   BIND(&if_found);
   return key_index;
-
-  //>>> return kNotFound;
-  //>>> See if_not_found label
 }
 
 TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::KeyIndexFromEntry(
@@ -1874,18 +1855,10 @@ TNode<Word32T> WeakCollectionsBuiltinsAssembler::InsufficientCapacityToAdd(
     TNode<IntPtrT> number_of_deleted) {
   // The negative form of HashTable::HasSufficientCapacityToAdd().
   return Word32Or(
-      //>>> //   50% is still free after adding number_of_additional_elements
-      //>>> //   elements and at most 50% of the free elements are deleted
-      //>>> //   elements.
-      //>>> if ((number_of_elements < capacity) && ((number_of_deleted <=
-      //>>>     (capacity - number_of_elements) >> 1))) {
       IntPtrGreaterThanOrEqual(number_of_elements, table_capacity),
       Word32Or(IntPtrGreaterThan(
                    number_of_deleted,
                    WordShr(IntPtrSub(table_capacity, number_of_elements), 1)),
-               //>>>   int needed_free = number_of_elements >> 1;
-               //>>>   if (number_of_elements + needed_free <= capacity)
-               // return true;
                IntPtrGreaterThan(IntPtrAdd(number_of_elements,
                                            WordShr(number_of_elements, 1)),
                                  table_capacity)));
@@ -1997,28 +1970,14 @@ TF_BUILTIN(WeakCollectionSet, WeakCollectionsBuiltinsAssembler) {
   TNode<Smi> hash = CallGetOrCreateHashRaw(key);
   TNode<IntPtrT> first_probe_entry = WordAnd(SmiUntag(hash), entry_mask);
 
-  //>>> int entry = table->FindEntry(key);
   // See HashTable::FindEntry().
   TNode<IntPtrT> existing_key_index =
       FindKeyIndex(table, first_probe_entry, entry_mask,
                    [&](TNode<Object> entry_key, Label* if_same) {
-                     //>>> // Empty entry. Uses raw unchecked accessors
-                     //>>> // because it is called by the string table during
-                     //>>> // bootstrapping.
-                     //>>> if (element == undefined) break;
                      GotoIf(IsUndefined(entry_key), &if_doesnt_exist);
-
-                     //>>> if (!(Shape::kNeedsHoleCheck && the_hole ==
-                     //>>>     element)) {
-                     //>>>   if (Shape::IsMatch(key, element)) return entry;
                      GotoIf(WordEqual(entry_key, key), if_same);
                    });
 
-  //>>> // Key is already in table, just overwrite value.
-  //>>> if (entry != kNotFound) {
-  //>>>   table->set(EntryToValueIndex(entry), *value);
-  //>>>   return table;
-  //>>> }
   StoreFixedArrayElement(table, ValueIndexFromKeyIndex(existing_key_index),
                          value);
   Goto(&done);
@@ -2032,32 +1991,7 @@ TF_BUILTIN(WeakCollectionSet, WeakCollectionsBuiltinsAssembler) {
     TNode<IntPtrT> number_of_deleted = SmiUntag(LoadFixedArrayElement(
         table, ObjectHashTable::kNumberOfDeletedElementsIndex));
 
-    //>>> // Rehash if more than 33% of the entries are deleted entries.
-    //>>> // TODO(jochen): Consider to shrink the fixed array in place.
-    //>>> if ((table->NumberOfDeletedElements() << 1) >
-    //>>>     table->NumberOfElements()) {
-    //>>>   table->Rehash();
-    //>>> }
-    //>>>
-    //>>> // If we're out of luck, we didn't get a GC recently, and so
-    //>>> // rehashing isn't enough to avoid a crash.
-    //>>> if (!table->HasSufficientCapacityToAdd(1)) {
-    //>>>   int nof = table->NumberOfElements() + 1;
-    //>>>   int capacity = ObjectHashTable::ComputeCapacity(nof * 2);
-    //>>>   if (capacity > ObjectHashTable::kMaxCapacity) {
-    //>>>     for (size_t i = 0; i < 2; ++i) {
-    //>>>       isolate->heap()->CollectAllGarbage(
-    //>>>           Heap::kFinalizeIncrementalMarkingMask,
-    //>>>           GarbageCollectionReason::kFullHashtable);
-    //>>>     }
-    //>>>     table->Rehash();
-    //>>>   }
-    //>>> }
-    //>>>
-    //>>> // Check whether the hash table should be extended.
-    //>>> table = EnsureCapacity(table, 1);
-
-    // TODO(pwong): Port HashTable's Rehash() and EnsureCapacity() to CSA
+    // TODO(pwong): Port HashTable's Rehash() and EnsureCapacity() to CSA.
     GotoIf(Word32Or(
                // Rely on runtime to rehash if more than 33% of the entries are
                // deleted entries.
@@ -2069,12 +2003,11 @@ TF_BUILTIN(WeakCollectionSet, WeakCollectionsBuiltinsAssembler) {
                                          number_of_deleted)),
            &call_runtime);
 
-    //>>> table->AddEntry(table->FindInsertionEntry(hash), *key, *value);
     // See HashTable::FindInsertionEntry().
     TNode<IntPtrT> insertion_key_index = FindKeyIndex(
         table, first_probe_entry, entry_mask,
         [&](TNode<Object> entry_key, Label* if_same) {
-          //>>> if (!Shape::IsLive(isolate, KeyAt(entry))) break;
+          // See BaseShape::IsLive().
           GotoIf(Word32Or(IsTheHole(entry_key), IsUndefined(entry_key)),
                  if_same);
         });
