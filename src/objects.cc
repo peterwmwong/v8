@@ -18549,7 +18549,7 @@ void JSWeakCollection::Initialize(Handle<JSWeakCollection> weak_collection,
 void JSWeakCollection::Set(Handle<JSWeakCollection> weak_collection,
                            Handle<Object> key, Handle<Object> value,
                            int32_t hash) {
-  DCHECK(key->IsJSReceiver());
+  DCHECK(key->IsJSReceiver() || key->IsSymbol());
   Handle<ObjectHashTable> table(
       ObjectHashTable::cast(weak_collection->table()));
   DCHECK(table->IsKey(table->GetIsolate(), *key));
