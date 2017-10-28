@@ -16,6 +16,63 @@ using compiler::Node;
 template <class T>
 using TNode = compiler::TNode<T>;
 
+namespace {
+
+// Load the identity hash of a JS Receciver.
+TNode<IntPtrT> LoadJSReceiverIdentityHash(
+    CodeStubAssembler* a, compiler::SloppyTNode<Object> receiver) {
+  compiler::TypedCodeAssemblerVariable<IntPtrT> var_hash(a);
+  CodeStubAssembler::Label done(a), if_smi(a), if_property_array(a),
+      if_property_dictionary(a), if_fixed_array(a);
+
+  TNode<Object> properties_or_hash =
+      a->LoadObjectField(TNode<HeapObject>::UncheckedCast(receiver),
+                         JSReceiver::kPropertiesOrHashOffset);
+  a->GotoIf(a->TaggedIsSmi(properties_or_hash), &if_smi);
+
+  TNode<HeapObject> properties =
+      TNode<HeapObject>::UncheckedCast(properties_or_hash);
+  TNode<Int32T> properties_instance_type = a->LoadInstanceType(properties);
+
+  a->GotoIf(a->InstanceTypeEqual(properties_instance_type, PROPERTY_ARRAY_TYPE),
+            &if_property_array);
+  a->Branch(a->InstanceTypeEqual(properties_instance_type, HASH_TABLE_TYPE),
+            &if_property_dictionary, &if_fixed_array);
+
+  a->BIND(&if_fixed_array);
+  {
+    var_hash = a->IntPtrConstant(PropertyArray::kNoHashSentinel);
+    a->Goto(&done);
+  }
+
+  a->BIND(&if_smi);
+  {
+    var_hash = a->SmiUntag(TNode<Smi>::UncheckedCast(properties_or_hash));
+    a->Goto(&done);
+  }
+
+  a->BIND(&if_property_array);
+  {
+    TNode<IntPtrT> length_and_hash = a->LoadAndUntagObjectField(
+        properties, PropertyArray::kLengthAndHashOffset);
+    var_hash = TNode<IntPtrT>::UncheckedCast(
+        a->DecodeWord<PropertyArray::HashField>(length_and_hash));
+    a->Goto(&done);
+  }
+
+  a->BIND(&if_property_dictionary);
+  {
+    var_hash = a->SmiUntag(
+        a->LoadFixedArrayElement(properties, NameDictionary::kObjectHashIndex));
+    a->Goto(&done);
+  }
+
+  a->BIND(&done);
+  return var_hash;
+}
+
+}  // namespace
+
 class CollectionsBuiltinsAssembler : public CodeStubAssembler {
  public:
   explicit CollectionsBuiltinsAssembler(compiler::CodeAssemblerState* state)
@@ -480,7 +537,7 @@ Node* CollectionsBuiltinsAssembler::GetHash(Node* const key) {
 
   BIND(&if_receiver);
   {
-    var_hash.Bind(LoadJSReceiverIdentityHash(key));
+    var_hash.Bind(LoadJSReceiverIdentityHash(this, key));
     Goto(&done);
   }
 
@@ -1836,7 +1893,7 @@ TF_BUILTIN(WeakMapLookupHashIndex, WeakCollectionsBuiltinsAssembler) {
   TNode<IntPtrT> table_capacity =
       SmiUntag(LoadFixedArrayElement(table, ObjectHashTable::kCapacityIndex));
   TNode<IntPtrT> entry_mask = IntPtrSub(table_capacity, IntPtrConstant(1));
-  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(key);
+  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(this, key);
   GotoIf(IntPtrEqual(hash, IntPtrConstant(PropertyArray::kNoHashSentinel)),
          &if_doesnt_exist);
   TNode<IntPtrT> first_probe_entry = WordAnd(hash, entry_mask);
@@ -1926,7 +1983,7 @@ TF_BUILTIN(WeakCollectionSet, WeakCollectionsBuiltinsAssembler) {
       SmiUntag(LoadFixedArrayElement(table, ObjectHashTable::kCapacityIndex));
   TNode<IntPtrT> entry_mask = IntPtrSub(table_capacity, IntPtrConstant(1));
 
-  TVARIABLE(IntPtrT, var_hash, LoadJSReceiverIdentityHash(key));
+  TVARIABLE(IntPtrT, var_hash, LoadJSReceiverIdentityHash(this, key));
   TVARIABLE(IntPtrT, var_first_probe_entry);
   Branch(IntPtrEqual(var_hash, IntPtrConstant(PropertyArray::kNoHashSentinel)),
          &if_no_existing_hash, &if_existing_hash);
