@@ -1806,12 +1806,14 @@ class WeakCollectionsBuiltinsAssembler : public CodeStubAssembler {
 void WeakCollectionsBuiltinsAssembler::AddEntry(
     TNode<Object> table, TNode<IntPtrT> key_index, TNode<Object> key,
     TNode<Object> value, TNode<IntPtrT> number_of_elements) {
+  // See ObjectHashTable::AddEntry().
   TNode<IntPtrT> value_index = ValueIndexFromKeyIndex(key_index);
   StoreFixedArrayElement(table, key_index, key);
   StoreFixedArrayElement(table, value_index, value);
 
+  // See HashTableBase::ElementAdded().
   StoreFixedArrayElement(table, ObjectHashTable::kNumberOfElementsIndex,
-                         SmiFromWord(number_of_elements));
+                         SmiFromWord(number_of_elements), SKIP_WRITE_BARRIER);
 }
 
 TNode<Smi> WeakCollectionsBuiltinsAssembler::CreateIdentityHash(
