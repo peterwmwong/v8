@@ -6526,6 +6526,16 @@ Object* JSReceiver::GetIdentityHash(Isolate* isolate) {
   return Smi::FromInt(hash);
 }
 
+// static
+Smi* JSReceiver::CreateIdentityHash(Isolate* isolate, JSReceiver* key) {
+  DisallowHeapAllocation no_gc;
+  int hash = isolate->GenerateIdentityHash(PropertyArray::HashField::kMax);
+  DCHECK_NE(PropertyArray::kNoHashSentinel, hash);
+
+  key->SetIdentityHash(hash);
+  return Smi::FromInt(hash);
+}
+
 Smi* JSReceiver::GetOrCreateIdentityHash(Isolate* isolate) {
   DisallowHeapAllocation no_gc;
 
@@ -6534,11 +6544,7 @@ Smi* JSReceiver::GetOrCreateIdentityHash(Isolate* isolate) {
     return Smi::cast(hash_obj);
   }
 
-  int hash = isolate->GenerateIdentityHash(PropertyArray::HashField::kMax);
-  DCHECK_NE(PropertyArray::kNoHashSentinel, hash);
-
-  SetIdentityHash(hash);
-  return Smi::FromInt(hash);
+  return JSReceiver::CreateIdentityHash(isolate, this);
 }
 
 Maybe<bool> JSObject::DeletePropertyWithInterceptor(LookupIterator* it,

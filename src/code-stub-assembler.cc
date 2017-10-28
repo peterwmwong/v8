@@ -1382,6 +1382,53 @@ Node* CodeStubAssembler::LoadMapEnumLength(SloppyTNode<Map> map) {
   return DecodeWordFromWord32<Map::EnumLengthBits>(bit_field3);
 }
 
+TNode<IntPtrT> CodeStubAssembler::LoadJSReceiverIdentityHash(
+    SloppyTNode<Object> receiver) {
+  TVARIABLE(IntPtrT, var_hash);
+  Label done(this), if_smi(this), if_property_array(this),
+      if_property_dictionary(this), if_fixed_array(this);
+
+  Node* properties_or_hash =
+      LoadObjectField(CAST(receiver), JSReceiver::kPropertiesOrHashOffset);
+  GotoIf(TaggedIsSmi(properties_or_hash), &if_smi);
+  Node* properties_instance_type = LoadInstanceType(properties_or_hash);
+  GotoIf(InstanceTypeEqual(properties_instance_type, PROPERTY_ARRAY_TYPE),
+         &if_property_array);
+  Branch(InstanceTypeEqual(properties_instance_type, HASH_TABLE_TYPE),
+         &if_property_dictionary, &if_fixed_array);
+
+  BIND(&if_fixed_array);
+  {
+    var_hash = IntPtrConstant(PropertyArray::kNoHashSentinel);
+    Goto(&done);
+  }
+
+  BIND(&if_smi);
+  {
+    var_hash = SmiUntag(properties_or_hash);
+    Goto(&done);
+  }
+
+  BIND(&if_property_array);
+  {
+    Node* length_and_hash = LoadAndUntagObjectField(
+        properties_or_hash, PropertyArray::kLengthAndHashOffset);
+    Node* hash = DecodeWord<PropertyArray::HashField>(length_and_hash);
+    var_hash = UncheckedCast<IntPtrT>(hash);
+    Goto(&done);
+  }
+
+  BIND(&if_property_dictionary);
+  {
+    var_hash = SmiUntag(LoadFixedArrayElement(
+        properties_or_hash, NameDictionary::kObjectHashIndex));
+    Goto(&done);
+  }
+
+  BIND(&done);
+  return var_hash;
+}
+
 TNode<Uint32T> CodeStubAssembler::LoadNameHashField(SloppyTNode<Name> name) {
   CSA_ASSERT(this, IsName(name));
   return LoadObjectField<Uint32T>(name, Name::kHashFieldOffset);
