@@ -1884,7 +1884,7 @@ TNode<Word32T> WeakCollectionsBuiltinsAssembler::InsufficientCapacityToAdd(
   // This is the negative form of HashTable::HasSufficientCapacityToAdd().
   // Return true if:
   //   - more than 50% of the available space are deleted elements
-  //   - less than 50% of will be available
+  //   - less than 50% will be available
   TNode<IntPtrT> available = IntPtrSub(table_capacity, number_of_elements);
   TNode<IntPtrT> half_available = WordShr(available, 1);
   TNode<IntPtrT> needed_available = WordShr(number_of_elements, 1);
