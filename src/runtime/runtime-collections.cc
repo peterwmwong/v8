@@ -137,6 +137,8 @@ RUNTIME_FUNCTION(Runtime_WeakCollectionSet) {
   DCHECK(ObjectHashTableShape::IsLive(isolate, *key));
   Handle<ObjectHashTable> table(
       ObjectHashTable::cast(weak_collection->table()));
+  // Should only be called when rehashing or resizing the table is necessary.
+  // See ObjectHashTable::Put() and HashTable::HasSufficientCapacityToAdd().
   DCHECK((table->NumberOfDeletedElements() << 1) > table->NumberOfElements() ||
          !table->HasSufficientCapacityToAdd(1));
 
