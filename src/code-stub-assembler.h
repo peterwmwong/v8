@@ -1033,6 +1033,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   Node* IsDictionary(Node* object);
   Node* IsExtensibleMap(Node* map);
   Node* IsExternalStringInstanceType(Node* instance_type);
+  TNode<BoolT> IsFastJSArray(SloppyTNode<Object> object,
+                             SloppyTNode<Context> context);
   Node* IsFeedbackVector(Node* object);
   Node* IsFixedArray(Node* object);
   Node* IsFixedArrayWithKind(Node* object, ElementsKind kind);

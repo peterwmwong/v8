@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function f() {
-  for (var x = 10; x > 5; x -= 16) {}
-}
-f();
+function f() { return Math.abs([][0]); }
 f();
 %OptimizeFunctionOnNextCall(f);
 f();
