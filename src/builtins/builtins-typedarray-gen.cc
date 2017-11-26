@@ -790,8 +790,16 @@ void TypedArrayBuiltinsAssembler::SetTypedArraySource(
   TNode<Word32T> target_el_kind = LoadElementsKind(target);
 
   Label call_memmove(this), fast_c_call(this), out(this);
-  Branch(Word32Equal(source_el_kind, target_el_kind), &call_memmove,
-         &fast_c_call);
+
+  // A fast memmove call can be used when the source and target types are are
+  // the same or either Uint8 or Uint8Clamped.
+  static const int32_t uint8_xor =
+      (UINT8_ELEMENTS - FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND) ^
+      (UINT8_CLAMPED_ELEMENTS - FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND);
+  Branch(Word32Or(Word32Equal(source_el_kind, target_el_kind),
+                  Word32Equal(Word32Xor(source_el_kind, target_el_kind),
+                              Int32Constant(uint8_xor))),
+         &call_memmove, &fast_c_call);
 
   BIND(&call_memmove);
   {
