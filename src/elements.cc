@@ -3241,7 +3241,9 @@ class TypedElementsAccessor
     size_t source_byte_length = NumberToSize(source->byte_length());
     size_t dest_byte_length = NumberToSize(destination->byte_length());
     CHECK(dest_data + dest_byte_length <= source_data ||
-          source_data + source_byte_length <= dest_data);
+          source_data + source_byte_length <= dest_data ||
+          (dest_data <= source_data &&
+           destination->element_size() <= source->element_size()));
 
     // We can simply copy the backing store if the types are the same, or if
     // we are converting e.g. Uint8 <-> Int8, as the binary representation

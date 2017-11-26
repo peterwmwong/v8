@@ -789,9 +789,9 @@ void TypedArrayBuiltinsAssembler::SetTypedArraySource(
   TNode<Word32T> source_el_kind = LoadElementsKind(source);
   TNode<Word32T> target_el_kind = LoadElementsKind(target);
 
-  Label call_memmove(this), fast_c_call(this), out(this);
+  Label call_memmove(this), if_different_kind(this), out(this);
   Branch(Word32Equal(source_el_kind, target_el_kind), &call_memmove,
-         &fast_c_call);
+         &if_different_kind);
 
   BIND(&call_memmove);
   {
@@ -802,12 +802,12 @@ void TypedArrayBuiltinsAssembler::SetTypedArraySource(
     Goto(&out);
   }
 
-  BIND(&fast_c_call);
+  BIND(&if_different_kind);
   {
-    // Overlapping backing stores of different element kinds are handled in
-    // runtime. We're a bit conservative here and bail to runtime if ranges
-    // overlap and element kinds differ.
+    // Fallback to runtime if there is an overlap and it's possible a source
+    // element will be overwritten before it has been written to the target.
 
+    Label fast_c_call(this);
     TNode<IntPtrT> target_byte_length =
         LoadAndUntagObjectField(target, JSTypedArray::kByteLengthOffset);
     TNode<IntPtrT> target_data_end_ptr =
@@ -815,16 +815,30 @@ void TypedArrayBuiltinsAssembler::SetTypedArraySource(
     TNode<IntPtrT> source_data_end_ptr =
         IntPtrAdd(source_data_ptr, source_byte_length);
 
-    GotoIfNot(
+    GotoIf(
         Word32Or(IntPtrLessThanOrEqual(target_data_end_ptr, source_data_ptr),
                  IntPtrLessThanOrEqual(source_data_end_ptr, target_data_ptr)),
-        call_runtime);
-
-    TNode<IntPtrT> source_length =
-        LoadAndUntagObjectField(source, JSTypedArray::kLengthOffset);
-    CallCCopyTypedArrayElementsToTypedArray(source, target, source_length,
-                                            offset);
-    Goto(&out);
+        &fast_c_call);
+    {
+      // Assuming elements are copied consecutively, source elements in the
+      // overlap that come after the target and are the same or smaller byte size
+      // can be guaranteed to be written to the target before being overwritten.
+      // This avoids the need to go to runtime that will allocate a temporary
+      // array for overlapping source elements.
+      TNode<IntPtrT> target_el_size = GetTypedArrayElementSize(target_el_kind);
+      TNode<IntPtrT> source_el_size = GetTypedArrayElementSize(source_el_kind);
+      Branch(Word32And(IntPtrLessThanOrEqual(target_data_ptr, source_data_ptr),
+                      IntPtrLessThanOrEqual(target_el_size, source_el_size)),
+            &fast_c_call, call_runtime);
+    }
+    BIND(&fast_c_call);
+    {
+      TNode<IntPtrT> source_length =
+          LoadAndUntagObjectField(source, JSTypedArray::kLengthOffset);
+      CallCCopyTypedArrayElementsToTypedArray(source, target, source_length,
+                                              offset);
+      Goto(&out);
+    }
   }
 
   BIND(&out);
