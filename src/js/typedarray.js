@@ -297,21 +297,6 @@ DEFINE_METHOD_LEN(
   1  /* Set function length. */
 );
 
-
-// ES6 draft 07-15-13, section 22.2.3.10
-DEFINE_METHOD_LEN(
-  GlobalTypedArray.prototype,
-  find(predicate, thisArg) {
-    ValidateTypedArray(this, "%TypedArray%.prototype.find");
-
-    var length = %_TypedArrayGetLength(this);
-
-    return InnerArrayFind(predicate, thisArg, this, length);
-  },
-  1  /* Set function length. */
-);
-
-
 // ES6 draft 07-15-13, section 22.2.3.11
 DEFINE_METHOD_LEN(
   GlobalTypedArray.prototype,
