@@ -9491,8 +9491,10 @@ void CodeStubAssembler::BranchIfSameValue(Node* lhs, Node* rhs, Label* if_true,
   }
 }
 
-Node* CodeStubAssembler::HasProperty(Node* object, Node* key, Node* context,
-                                     HasPropertyLookupMode mode) {
+TNode<BoolT> CodeStubAssembler::HasProperty(SloppyTNode<HeapObject> object,
+                                            SloppyTNode<Name> key,
+                                            SloppyTNode<Context> context,
+                                            HasPropertyLookupMode mode) {
   Label call_runtime(this, Label::kDeferred), return_true(this),
       return_false(this), end(this), if_proxy(this, Label::kDeferred);
 
@@ -9517,16 +9519,16 @@ Node* CodeStubAssembler::HasProperty(Node* object, Node* key, Node* context,
                           lookup_element_in_holder, &return_false,
                           &call_runtime, &if_proxy);
 
-  VARIABLE(result, MachineRepresentation::kTagged);
+  TVARIABLE(BoolT, result);
 
   BIND(&if_proxy);
   {
-    Node* name = ToName(context, key);
+    TNode<Name> name = CAST(ToName(context, key));
     switch (mode) {
       case kHasProperty:
         GotoIf(IsPrivateSymbol(name), &return_false);
 
-        result.Bind(
+        result = IsTrue(
             CallBuiltin(Builtins::kProxyHasProperty, context, object, name));
         Goto(&end);
         break;
@@ -9538,13 +9540,13 @@ Node* CodeStubAssembler::HasProperty(Node* object, Node* key, Node* context,
 
   BIND(&return_true);
   {
-    result.Bind(TrueConstant());
+    result = ReinterpretCast<BoolT>(Int32Constant(1));
     Goto(&end);
   }
 
   BIND(&return_false);
   {
-    result.Bind(FalseConstant());
+    result = ReinterpretCast<BoolT>(Int32Constant(0));
     Goto(&end);
   }
 
@@ -9560,13 +9562,13 @@ Node* CodeStubAssembler::HasProperty(Node* object, Node* key, Node* context,
         break;
     }
 
-    result.Bind(
-        CallRuntime(fallback_runtime_function_id, context, object, key));
+    result =
+        IsTrue(CallRuntime(fallback_runtime_function_id, context, object, key));
     Goto(&end);
   }
 
   BIND(&end);
-  return result.value();
+  return result;
 }
 
 Node* CodeStubAssembler::ClassOf(Node* value) {

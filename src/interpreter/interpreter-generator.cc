@@ -1905,7 +1905,8 @@ IGNITION_HANDLER(TestIn, InterpreterAssembler) {
   Node* object = GetAccumulator();
   Node* context = GetContext();
 
-  SetAccumulator(HasProperty(object, property, context, kHasProperty));
+  TNode<BoolT> result = HasProperty(object, property, context, kHasProperty);
+  SetAccumulator(SelectBooleanConstant(result));
   Dispatch();
 }
 

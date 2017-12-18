@@ -710,7 +710,8 @@ TF_BUILTIN(HasProperty, ObjectBuiltinsAssembler) {
   Node* object = Parameter(Descriptor::kObject);
   Node* context = Parameter(Descriptor::kContext);
 
-  Return(HasProperty(object, key, context, kHasProperty));
+  TNode<BoolT> result = HasProperty(object, key, context, kHasProperty);
+  Return(SelectBooleanConstant(result));
 }
 
 TF_BUILTIN(InstanceOf, ObjectBuiltinsAssembler) {
