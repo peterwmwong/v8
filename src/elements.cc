@@ -12,6 +12,8 @@
 #include "src/messages.h"
 #include "src/objects-inl.h"
 #include "src/utils.h"
+#include "src/zone/zone-containers.h"
+#include "src/zone/zone.h"
 
 // Each concrete ElementsAccessor can handle exactly one ElementsKind,
 // several abstract ElementsAccessor classes are used to allow sharing
@@ -3195,14 +3197,86 @@ class TypedElementsAccessor
   }
 
   template <typename SourceTraits>
-  static void CopyBetweenBackingStores(FixedTypedArrayBase* source,
-                                       BackingStore* dest, size_t length,
-                                       uint32_t offset) {
+  static void CopyBetweenNonOverlappingBackingStores(
+      FixedTypedArrayBase* source, BackingStore* dest, const uint32_t length,
+      const uint32_t offset) {
     FixedTypedArray<SourceTraits>* source_fta =
         FixedTypedArray<SourceTraits>::cast(source);
     for (uint32_t i = 0; i < length; i++) {
+      // We use scalar accessors to avoid boxing/unboxing, so there are no
+      // allocations.
       typename SourceTraits::ElementType elem = source_fta->get_scalar(i);
       dest->set(offset + i, dest->from(elem));
+    }
+  }
+
+  template <typename SourceTraits>
+  static void CopyBetweenOverlappingBackingStores(
+      FixedTypedArrayBase* source, const size_t source_elem_size,
+      uint8_t* source_data_ptr, BackingStore* dest, const size_t dest_elem_size,
+      uint8_t* dest_data_ptr, const uint32_t length, const uint32_t offset,
+      Zone* zone) {
+    DCHECK_GE(length, 1);
+
+    // We use scalar accessors below to avoid boxing/unboxing, so there are
+    // no allocations.
+    FixedTypedArray<SourceTraits>* source_fta =
+        FixedTypedArray<SourceTraits>::cast(source);
+
+    // Copy left part.
+    uint32_t left_index;
+    {
+      // First un-mutated byte after the next write
+      uint8_t* dest_ptr = dest_data_ptr + (offset + 1) * dest_elem_size;
+
+      // Next read at source_ptr. We do not care for memory changing before
+      // source_ptr - we have already copied it.
+      uint8_t* source_ptr = source_data_ptr;
+
+      for (left_index = 0; left_index < length && dest_ptr <= source_ptr;
+           left_index++) {
+        typename SourceTraits::ElementType elem =
+            source_fta->get_scalar(left_index);
+        dest->set(offset + left_index, dest->from(elem));
+
+        dest_ptr += dest_elem_size;
+        source_ptr += source_elem_size;
+      }
+    }
+
+    // Copy right part.
+    uint32_t right_index;
+    {
+      // First unmutated byte before the next write
+      uint8_t* dest_ptr =
+          dest_data_ptr + (offset + length - 1) * dest_elem_size;
+
+      // Next read before sourcePtr. We do not care for memory changing after
+      // sourcePtr - we have already copied it.
+      uint8_t* source_ptr = source_data_ptr + length * source_elem_size;
+
+      for (right_index = length - 1;
+           right_index > left_index && dest_ptr >= source_ptr; right_index--) {
+        typename SourceTraits::ElementType elem =
+            source_fta->get_scalar(right_index);
+        dest->set(offset + right_index, dest->from(elem));
+
+        dest_ptr -= dest_elem_size;
+        source_ptr -= source_elem_size;
+      }
+    }
+
+    // Copy overlap part.
+    {
+      ZoneVector<typename SourceTraits::ElementType> temp(
+          (right_index + 1 - left_index), zone);
+      for (uint32_t i = left_index; i <= right_index; i++) {
+        temp[i - left_index] = source_fta->get_scalar(i);
+      }
+
+      for (uint32_t i = left_index; i <= right_index; i++) {
+        dest->set(offset + i, dest->from(temp[i - left_index]));
+      }
     }
   }
 
@@ -3213,51 +3287,70 @@ class TypedElementsAccessor
     // side-effects, as the source elements will always be a number.
     DisallowHeapAllocation no_gc;
 
+    DCHECK_LE(length, kMaxUInt32);
+    const uint32_t int_length = static_cast<uint32_t>(length);
+
     FixedTypedArrayBase* source_elements =
         FixedTypedArrayBase::cast(source->elements());
     BackingStore* destination_elements =
         BackingStore::cast(destination->elements());
+
+    const size_t source_elem_size = source->element_size();
+    const size_t source_byte_length = NumberToSize(source->byte_length());
+
+    const size_t dest_elem_size = destination->element_size();
+    const size_t dest_byte_length = NumberToSize(destination->byte_length());
+
+    uint8_t* source_data = static_cast<uint8_t*>(source_elements->DataPtr());
+    InstanceType source_type = source_elements->map()->instance_type();
+
+    uint8_t* dest_data = static_cast<uint8_t*>(destination_elements->DataPtr());
+    InstanceType destination_type =
+        destination_elements->map()->instance_type();
 
     DCHECK_LE(offset, destination->length_value());
     DCHECK_LE(source->length_value(), destination->length_value() - offset);
     DCHECK(source->length()->IsSmi());
     DCHECK_EQ(length, source->length_value());
 
-    InstanceType source_type = source_elements->map()->instance_type();
-    InstanceType destination_type =
-        destination_elements->map()->instance_type();
-
-    bool same_type = source_type == destination_type;
-    bool same_size = source->element_size() == destination->element_size();
-    bool both_are_simple = HasSimpleRepresentation(source_type) &&
-                           HasSimpleRepresentation(destination_type);
-
-    // We assume the source and destination don't overlap, even though they
-    // can share the same buffer. This is always true for newly allocated
-    // TypedArrays.
-    uint8_t* source_data = static_cast<uint8_t*>(source_elements->DataPtr());
-    uint8_t* dest_data = static_cast<uint8_t*>(destination_elements->DataPtr());
-    size_t source_byte_length = NumberToSize(source->byte_length());
-    size_t dest_byte_length = NumberToSize(destination->byte_length());
-    CHECK(dest_data + dest_byte_length <= source_data ||
-          source_data + source_byte_length <= dest_data);
+    const bool same_type = source_type == destination_type;
+    const bool same_size = source_elem_size == dest_elem_size;
+    const bool both_are_simple = HasSimpleRepresentation(source_type) &&
+                                 HasSimpleRepresentation(destination_type);
 
     // We can simply copy the backing store if the types are the same, or if
     // we are converting e.g. Uint8 <-> Int8, as the binary representation
     // will be the same. This is not the case for floats or clamped Uint8,
     // which have special conversion operations.
     if (same_type || (same_size && both_are_simple)) {
-      size_t element_size = source->element_size();
-      std::memcpy(dest_data + offset * element_size, source_data,
-                  length * element_size);
-    } else {
-      // We use scalar accessors below to avoid boxing/unboxing, so there are
-      // no allocations.
+      std::memmove(dest_data + offset * source_elem_size, source_data,
+                   int_length * source_elem_size);
+
+    } else if (dest_data + dest_byte_length <= source_data ||
+               source_data + source_byte_length <= dest_data) {
+      // Source and destination do not overlap.
       switch (source->GetElementsKind()) {
-#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype, size)         \
-  case TYPE##_ELEMENTS:                                         \
-    CopyBetweenBackingStores<Type##ArrayTraits>(                \
-        source_elements, destination_elements, length, offset); \
+#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype, size)             \
+  case TYPE##_ELEMENTS:                                             \
+    CopyBetweenNonOverlappingBackingStores<Type##ArrayTraits>(      \
+        source_elements, destination_elements, int_length, offset); \
+    break;
+        TYPED_ARRAYS(TYPED_ARRAY_CASE)
+        default:
+          UNREACHABLE();
+          break;
+      }
+#undef TYPED_ARRAY_CASE
+    } else {
+      // Source and destination overlap.
+      Zone zone(source->GetIsolate()->allocator(), ZONE_NAME);
+
+      switch (source->GetElementsKind()) {
+#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype, size)                       \
+  case TYPE##_ELEMENTS:                                                       \
+    CopyBetweenOverlappingBackingStores<Type##ArrayTraits>(                   \
+        source_elements, source_elem_size, source_data, destination_elements, \
+        dest_elem_size, dest_data, int_length, offset, &zone);                \
     break;
         TYPED_ARRAYS(TYPED_ARRAY_CASE)
         default:
