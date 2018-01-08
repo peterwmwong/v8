@@ -3264,6 +3264,9 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                         BuiltinFunctionId::kMapSize);
     SimpleInstallFunction(prototype, "values", Builtins::kMapPrototypeValues, 0,
                           true);
+
+    native_context()->set_initial_map_prototype_map(prototype->map());
+
     InstallSpeciesGetter(js_map_fun);
   }
 
@@ -3315,6 +3318,9 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
     JSObject::AddProperty(prototype, factory->keys_string(), values, DONT_ENUM);
     JSObject::AddProperty(prototype, factory->iterator_symbol(), values,
                           DONT_ENUM);
+
+    native_context()->set_initial_set_prototype_map(prototype->map());
+
     InstallSpeciesGetter(js_set_fun);
   }
 
@@ -3388,6 +3394,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
         prototype, factory->to_string_tag_symbol(),
         factory->NewStringFromAsciiChecked("WeakMap"),
         static_cast<PropertyAttributes>(DONT_ENUM | READ_ONLY));
+
+    native_context()->set_initial_weakmap_prototype_map(prototype->map());
   }
 
   {  // -- W e a k S e t
@@ -3416,6 +3424,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
         prototype, factory->to_string_tag_symbol(),
         factory->NewStringFromAsciiChecked("WeakSet"),
         static_cast<PropertyAttributes>(DONT_ENUM | READ_ONLY));
+
+    native_context()->set_initial_weakset_prototype_map(prototype->map());
   }
 
   {  // -- P r o x y

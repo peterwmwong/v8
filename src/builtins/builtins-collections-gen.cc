@@ -43,7 +43,8 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
                              TNode<Context> native_context,
                              TNode<Object> collection,
                              TNode<Object> initial_entries,
-                             TNode<BoolT> is_fast_jsarray);
+                             TNode<BoolT> is_fast_jsarray,
+                             const int initial_collection_map_index);
 
   // Fast path for adding constructor entries.  Assumes the entries are a fast
   // JS array (see CodeStubAssembler::BranchIfFastJSArray()).
@@ -82,6 +83,7 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
   // Main entry point for a collection constructor builtin.
   void GenerateConstructor(Variant variant,
                            const int constructor_function_index,
+                           const int initial_collection_map_index,
                            Handle<String> constructor_function_name,
                            int collection_tableoffset);
 
@@ -159,12 +161,23 @@ TNode<Object> BaseCollectionsAssembler::AddConstructorEntry(
 void BaseCollectionsAssembler::AddConstructorEntries(
     Variant variant, TNode<Context> context, TNode<Context> native_context,
     TNode<Object> collection, TNode<Object> initial_entries,
-    TNode<BoolT> is_fast_jsarray) {
+    TNode<BoolT> is_fast_jsarray, const int initial_collection_map_index) {
   Label exit(this), slow_loop(this, Label::kDeferred);
   GotoIf(IsNullOrUndefined(initial_entries), &exit);
+  GotoIfNot(is_fast_jsarray, &slow_loop);
+  {
+    TNode<Map> initial_prototype_map =
+        CAST(LoadContextElement(native_context, initial_collection_map_index));
+    TNode<Map> collection_proto_map =
+        LoadMap(CAST(LoadMapPrototype(LoadMap(CAST(collection)))));
 
-  // TODO(mvstanton): Re-enable the fast path when a fix is found for
-  // crbug.com/798026.
+    GotoIfNot(WordEqual(collection_proto_map, initial_prototype_map),
+              &slow_loop);
+    AddConstructorEntriesFromFastJSArray(
+        variant, context, collection, UncheckedCast<JSArray>(initial_entries));
+    Goto(&exit);
+  }
+  BIND(&slow_loop);
   {
     AddConstructorEntriesFromIterable(variant, context, native_context,
                                       collection, initial_entries);
@@ -296,6 +309,7 @@ TNode<Object> BaseCollectionsAssembler::AllocateJSCollectionSlow(
 
 void BaseCollectionsAssembler::GenerateConstructor(
     Variant variant, const int constructor_function_index,
+    const int initial_collection_map_index,
     Handle<String> constructor_function_name, int collection_tableoffset) {
   const int kIterableArg = 0;
   CodeStubArguments args(
@@ -317,7 +331,7 @@ void BaseCollectionsAssembler::GenerateConstructor(
 
   StoreObjectField(collection, collection_tableoffset, table);
   AddConstructorEntries(variant, context, native_context, collection, iterable,
-                        is_fast_jsarray);
+                        is_fast_jsarray, initial_collection_map_index);
   Return(collection);
 
   BIND(&if_undefined);
@@ -679,11 +693,13 @@ TNode<Object> CollectionsBuiltinsAssembler::AllocateTable(
 
 TF_BUILTIN(MapConstructor, CollectionsBuiltinsAssembler) {
   GenerateConstructor(kMap, Context::JS_MAP_FUN_INDEX,
+                      Context::INITIAL_MAP_PROTOTYPE_MAP_INDEX,
                       isolate()->factory()->Map_string(), JSMap::kTableOffset);
 }
 
 TF_BUILTIN(SetConstructor, CollectionsBuiltinsAssembler) {
   GenerateConstructor(kSet, Context::JS_SET_FUN_INDEX,
+                      Context::INITIAL_SET_PROTOTYPE_MAP_INDEX,
                       isolate()->factory()->Set_string(), JSSet::kTableOffset);
 }
 
@@ -2224,12 +2240,14 @@ TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::ValueIndexFromKeyIndex(
 
 TF_BUILTIN(WeakMapConstructor, WeakCollectionsBuiltinsAssembler) {
   GenerateConstructor(kMap, Context::JS_WEAK_MAP_FUN_INDEX,
+                      Context::INITIAL_WEAKMAP_PROTOTYPE_MAP_INDEX,
                       isolate()->factory()->WeakMap_string(),
                       JSWeakMap::kTableOffset);
 }
 
 TF_BUILTIN(WeakSetConstructor, WeakCollectionsBuiltinsAssembler) {
   GenerateConstructor(kSet, Context::JS_WEAK_SET_FUN_INDEX,
+                      Context::INITIAL_WEAKSET_PROTOTYPE_MAP_INDEX,
                       isolate()->factory()->WeakSet_string(),
                       JSWeakSet::kTableOffset);
 }
