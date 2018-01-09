@@ -394,6 +394,8 @@ TNode<JSFunction> BaseCollectionsAssembler::GetConstructor(
     case kWeakSet:
       index = Context::JS_WEAK_SET_FUN_INDEX;
       break;
+    default:
+      UNREACHABLE();
   }
   return CAST(LoadContextElement(native_context, index));
 }
@@ -414,6 +416,8 @@ TNode<JSFunction> BaseCollectionsAssembler::GetInitialAddFunction(
     case kWeakSet:
       index = Context::WEAKSET_ADD_INDEX;
       break;
+    default:
+      UNREACHABLE();
   }
   return CAST(LoadContextElement(native_context, index));
 }
@@ -429,6 +433,7 @@ int BaseCollectionsAssembler::GetTableOffset(Variant variant) {
     case kWeakSet:
       return JSWeakSet::kTableOffset;
   }
+  UNREACHABLE();
 }
 
 TNode<IntPtrT> BaseCollectionsAssembler::EstimatedInitialSize(
@@ -461,6 +466,8 @@ TNode<BoolT> BaseCollectionsAssembler::HasCollectionPrototypeChange(
     case kWeakSet:
       initial_prototype_index = Context::INITIAL_WEAKSET_PROTOTYPE_MAP_INDEX;
       break;
+    default:
+      UNREACHABLE();
   }
   TNode<Map> initial_prototype_map =
       CAST(LoadContextElement(native_context, initial_prototype_index));
