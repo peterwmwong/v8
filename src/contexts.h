@@ -121,7 +121,10 @@ enum ContextLookupFlags {
   V(WASM_COMPILE_ERROR_FUNCTION_INDEX, JSFunction,                        \
     wasm_compile_error_function)                                          \
   V(WASM_LINK_ERROR_FUNCTION_INDEX, JSFunction, wasm_link_error_function) \
-  V(WASM_RUNTIME_ERROR_FUNCTION_INDEX, JSFunction, wasm_runtime_error_function)
+  V(WASM_RUNTIME_ERROR_FUNCTION_INDEX, JSFunction,                        \
+    wasm_runtime_error_function)                                          \
+  V(WEAKMAP_SET_INDEX, JSFunction, weakmap_set)                           \
+  V(WEAKSET_ADD_INDEX, JSFunction, weakset_add)
 
 #define NATIVE_CONTEXT_JS_ARRAY_ITERATOR_MAPS(V)                               \
   V(TYPED_ARRAY_KEY_ITERATOR_MAP_INDEX, Map, typed_array_key_iterator_map)     \

@@ -26,13 +26,13 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
   virtual ~BaseCollectionsAssembler() {}
 
  protected:
-  enum Variant { kMap, kSet };
+  enum Variant { kMap, kSet, kWeakMap, kWeakSet };
 
   // Adds an entry to a collection.  For Maps, properly handles extracting the
   // key and value from the entry (see LoadKeyValue()).
   TNode<Object> AddConstructorEntry(Variant variant, TNode<Context> context,
                                     TNode<Object> collection,
-                                    TNode<Object> add_function,
+                                    TNode<JSFunction> add_function,
                                     TNode<Object> key_value,
                                     Label* if_exception = nullptr,
                                     TVariable<Object>* var_exception = nullptr);
@@ -43,13 +43,13 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
                              TNode<Context> native_context,
                              TNode<Object> collection,
                              TNode<Object> initial_entries,
-                             TNode<BoolT> is_fast_jsarray,
-                             const int initial_collection_map_index);
+                             TNode<BoolT> is_fast_jsarray);
 
   // Fast path for adding constructor entries.  Assumes the entries are a fast
   // JS array (see CodeStubAssembler::BranchIfFastJSArray()).
   void AddConstructorEntriesFromFastJSArray(Variant variant,
                                             TNode<Context> context,
+                                            TNode<Context> native_context,
                                             TNode<Object> collection,
                                             TNode<JSArray> fast_jsarray);
 
@@ -62,8 +62,7 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
 
   // Constructs a collection instance. Choosing a fast path when possible.
   TNode<Object> AllocateJSCollection(TNode<Context> context,
-                                     TNode<Context> native_context,
-                                     int constructor_function_index,
+                                     TNode<JSFunction> constructor,
                                      TNode<Object> new_target);
 
   // Fast path for constructing a collection instance if the constructor
@@ -73,7 +72,7 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
   // Fallback for constructing a collection instance if the constructor function
   // has been modified.
   TNode<Object> AllocateJSCollectionSlow(TNode<Context> context,
-                                         TNode<HeapObject> constructor,
+                                         TNode<JSFunction> constructor,
                                          TNode<Object> new_target);
 
   // Allocates the backing store for a collection.
@@ -82,15 +81,25 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
 
   // Main entry point for a collection constructor builtin.
   void GenerateConstructor(Variant variant,
-                           const int constructor_function_index,
-                           const int initial_collection_map_index,
-                           Handle<String> constructor_function_name,
-                           int collection_tableoffset);
+                           Handle<String> constructor_function_name);
 
   // Retrieves the collection function that adds an entry. `set` for Maps and
   // `add` for Sets.
-  TNode<Object> GetAddFunction(Variant variant, TNode<Context> context,
-                               TNode<Object> collection);
+  TNode<JSFunction> GetAddFunction(Variant variant, TNode<Context> context,
+                                   TNode<Object> collection);
+
+  // Retrieves the collection constructor function.
+  TNode<JSFunction> GetConstructor(Variant variant,
+                                   TNode<Context> native_context);
+
+  // Retrieves the initial collection function that adds an entry. Should only
+  // be called when it is certain that a collection prototype's map hasn't been
+  // changed.
+  TNode<JSFunction> GetInitialAddFunction(Variant variant,
+                                          TNode<Context> native_context);
+
+  // Retrieves the offset to access the backing table from the collection.
+  int GetTableOffset(Variant variant);
 
   // Estimates the number of entries the collection will have after adding the
   // entries passed in the constructor. AllocateTable() can use this to avoid
@@ -99,6 +108,11 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
                                       TNode<BoolT> is_fast_jsarray);
 
   void GotoIfNotJSReceiver(Node* const obj, Label* if_not_receiver);
+
+  // Determines whether the collection's prototype has been modified.
+  TNode<BoolT> HasCollectionPrototypeChange(Variant variant,
+                                            TNode<Context> native_context,
+                                            TNode<Object> collection);
 
   // Loads an element from a fixed array.  If the element is the hole, returns
   // `undefined`.
@@ -120,10 +134,10 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
 
 TNode<Object> BaseCollectionsAssembler::AddConstructorEntry(
     Variant variant, TNode<Context> context, TNode<Object> collection,
-    TNode<Object> add_function, TNode<Object> key_value, Label* if_exception,
-    TVariable<Object>* var_exception) {
+    TNode<JSFunction> add_function, TNode<Object> key_value,
+    Label* if_exception, TVariable<Object>* var_exception) {
   CSA_ASSERT(this, Word32BinaryNot(IsTheHole(key_value)));
-  if (variant == kMap) {
+  if (variant == kMap || variant == kWeakMap) {
     Label exit(this), if_notobject(this, Label::kDeferred);
     GotoIfNotJSReceiver(key_value, &if_notobject);
 
@@ -151,8 +165,8 @@ TNode<Object> BaseCollectionsAssembler::AddConstructorEntry(
     BIND(&exit);
     return add_call;
 
-  } else {  // variant == kSet
-    DCHECK(variant == kSet);
+  } else {
+    DCHECK(variant == kSet || variant == kWeakSet);
     return UncheckedCast<Object>(CallJS(CodeFactory::Call(isolate()), context,
                                         add_function, collection, key_value));
   }
@@ -161,20 +175,17 @@ TNode<Object> BaseCollectionsAssembler::AddConstructorEntry(
 void BaseCollectionsAssembler::AddConstructorEntries(
     Variant variant, TNode<Context> context, TNode<Context> native_context,
     TNode<Object> collection, TNode<Object> initial_entries,
-    TNode<BoolT> is_fast_jsarray, const int initial_collection_map_index) {
+    TNode<BoolT> is_fast_jsarray) {
   Label exit(this), slow_loop(this, Label::kDeferred);
   GotoIf(IsNullOrUndefined(initial_entries), &exit);
   GotoIfNot(is_fast_jsarray, &slow_loop);
   {
-    TNode<Map> initial_prototype_map =
-        CAST(LoadContextElement(native_context, initial_collection_map_index));
-    TNode<Map> collection_proto_map =
-        LoadMap(CAST(LoadMapPrototype(LoadMap(CAST(collection)))));
-
-    GotoIfNot(WordEqual(collection_proto_map, initial_prototype_map),
-              &slow_loop);
+    CSA_ASSERT(this, IsFastJSArray(initial_entries, context));
+    GotoIf(HasCollectionPrototypeChange(variant, native_context, collection),
+           &slow_loop);
     AddConstructorEntriesFromFastJSArray(
-        variant, context, collection, UncheckedCast<JSArray>(initial_entries));
+        variant, context, native_context, collection,
+        UncheckedCast<JSArray>(initial_entries));
     Goto(&exit);
   }
   BIND(&slow_loop);
@@ -187,16 +198,18 @@ void BaseCollectionsAssembler::AddConstructorEntries(
 }
 
 void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
-    Variant variant, TNode<Context> context, TNode<Object> collection,
-    TNode<JSArray> fast_jsarray) {
+    Variant variant, TNode<Context> context, TNode<Context> native_context,
+    TNode<Object> collection, TNode<JSArray> fast_jsarray) {
   TNode<FixedArrayBase> elements = LoadElements(fast_jsarray);
   TNode<Int32T> elements_kind = LoadMapElementsKind(LoadMap(fast_jsarray));
   TNode<IntPtrT> length = SmiUntag(LoadFastJSArrayLength(fast_jsarray));
-  TNode<Object> add_func = GetAddFunction(variant, context, collection);
+  TNode<JSFunction> add_func = GetInitialAddFunction(variant, native_context);
 
   CSA_ASSERT(this, IsFastJSArray(fast_jsarray, context));
   CSA_ASSERT(this, IsFastElementsKind(elements_kind));
   CSA_ASSERT(this, IntPtrGreaterThanOrEqual(length, IntPtrConstant(0)));
+  CSA_ASSERT(this, Word32BinaryNot(HasCollectionPrototypeChange(
+                       variant, native_context, collection)));
 
   Label exit(this), if_doubles(this), if_smiorobjects(this);
   Branch(IsFastSmiOrTaggedElementsKind(elements_kind), &if_smiorobjects,
@@ -208,6 +221,11 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
           elements, UncheckedCast<IntPtrT>(index));
       AddConstructorEntry(variant, context, collection, add_func, element);
     };
+
+    // Instead of using the slower iteration protocol to iterate over the
+    // elements, a fast loop is used.  This assumes that adding an element
+    // to the collection does not call user code that could mutate the elements
+    // or collection.
     BuildFastLoop(IntPtrConstant(0), length, set_entry, 1,
                   ParameterMode::INTPTR_PARAMETERS, IndexAdvanceMode::kPost);
     Goto(&exit);
@@ -216,7 +234,7 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
   {
     // A Map constructor requires entries to be arrays (ex. [key, value]),
     // so a FixedDoubleArray can never succeed.
-    if (variant == kMap) {
+    if (variant == kMap || variant == kWeakMap) {
       TNode<Float64T> element =
           UncheckedCast<Float64T>(LoadFixedDoubleArrayElement(
               elements, IntPtrConstant(0), MachineType::Float64(), 0,
@@ -224,6 +242,7 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
       ThrowTypeError(context, MessageTemplate::kIteratorValueNotAnObject,
                      AllocateHeapNumberWithValue(element));
     } else {
+      DCHECK(variant == kSet || variant == kWeakSet);
       auto set_entry = [&](Node* index) {
         TNode<Object> entry = LoadAndNormalizeFixedDoubleArrayElement(
             elements, UncheckedCast<IntPtrT>(index));
@@ -243,7 +262,7 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromIterable(
   Label exit(this), loop(this), if_exception(this, Label::kDeferred);
   CSA_ASSERT(this, Word32BinaryNot(IsNullOrUndefined(iterable)));
 
-  TNode<Object> add_func = GetAddFunction(variant, context, collection);
+  TNode<JSFunction> add_func = GetAddFunction(variant, context, collection);
   IteratorBuiltinsAssembler iterator_assembler(this->state());
   TNode<Object> iterator =
       CAST(iterator_assembler.GetIterator(context, iterable));
@@ -276,10 +295,8 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromIterable(
 }
 
 TNode<Object> BaseCollectionsAssembler::AllocateJSCollection(
-    TNode<Context> context, TNode<Context> native_context,
-    int constructor_function_index, TNode<Object> new_target) {
-  TNode<HeapObject> constructor =
-      CAST(LoadContextElement(native_context, constructor_function_index));
+    TNode<Context> context, TNode<JSFunction> constructor,
+    TNode<Object> new_target) {
   TNode<BoolT> is_target_unmodified = WordEqual(constructor, new_target);
 
   return Select<Object>(is_target_unmodified,
@@ -300,7 +317,7 @@ TNode<Object> BaseCollectionsAssembler::AllocateJSCollectionFast(
 }
 
 TNode<Object> BaseCollectionsAssembler::AllocateJSCollectionSlow(
-    TNode<Context> context, TNode<HeapObject> constructor,
+    TNode<Context> context, TNode<JSFunction> constructor,
     TNode<Object> new_target) {
   ConstructorBuiltinsAssembler constructor_assembler(this->state());
   return CAST(constructor_assembler.EmitFastNewObject(context, constructor,
@@ -308,9 +325,7 @@ TNode<Object> BaseCollectionsAssembler::AllocateJSCollectionSlow(
 }
 
 void BaseCollectionsAssembler::GenerateConstructor(
-    Variant variant, const int constructor_function_index,
-    const int initial_collection_map_index,
-    Handle<String> constructor_function_name, int collection_tableoffset) {
+    Variant variant, Handle<String> constructor_function_name) {
   const int kIterableArg = 0;
   CodeStubArguments args(
       this, ChangeInt32ToIntPtr(Parameter(BuiltinDescriptor::kArgumentsCount)));
@@ -326,12 +341,12 @@ void BaseCollectionsAssembler::GenerateConstructor(
       EstimatedInitialSize(iterable, is_fast_jsarray);
   TNode<Context> native_context = LoadNativeContext(context);
   TNode<Object> collection = AllocateJSCollection(
-      context, native_context, constructor_function_index, new_target);
+      context, GetConstructor(variant, native_context), new_target);
   TNode<Object> table = AllocateTable(variant, context, at_least_space_for);
 
-  StoreObjectField(collection, collection_tableoffset, table);
+  StoreObjectField(collection, GetTableOffset(variant), table);
   AddConstructorEntries(variant, context, native_context, collection, iterable,
-                        is_fast_jsarray, initial_collection_map_index);
+                        is_fast_jsarray);
   Return(collection);
 
   BIND(&if_undefined);
@@ -339,12 +354,12 @@ void BaseCollectionsAssembler::GenerateConstructor(
                  HeapConstant(constructor_function_name));
 }
 
-TNode<Object> BaseCollectionsAssembler::GetAddFunction(
+TNode<JSFunction> BaseCollectionsAssembler::GetAddFunction(
     Variant variant, TNode<Context> context, TNode<Object> collection) {
   // TODO(pwong): Consider calling the builtin directly when the prototype is
   // unmodified.  This will require tracking WeakMap/WeakSet prototypes on the
   // native context.
-  Handle<String> add_func_name = variant == kMap
+  Handle<String> add_func_name = (variant == kMap || variant == kWeakMap)
                                      ? isolate()->factory()->set_string()
                                      : isolate()->factory()->add_string();
   TNode<Object> add_func =
@@ -360,7 +375,60 @@ TNode<Object> BaseCollectionsAssembler::GetAddFunction(
                  HeapConstant(add_func_name), collection);
 
   BIND(&exit);
-  return add_func;
+  return CAST(add_func);
+}
+
+TNode<JSFunction> BaseCollectionsAssembler::GetConstructor(
+    Variant variant, TNode<Context> native_context) {
+  int index;
+  switch (variant) {
+    case kMap:
+      index = Context::JS_MAP_FUN_INDEX;
+      break;
+    case kSet:
+      index = Context::JS_SET_FUN_INDEX;
+      break;
+    case kWeakMap:
+      index = Context::JS_WEAK_MAP_FUN_INDEX;
+      break;
+    case kWeakSet:
+      index = Context::JS_WEAK_SET_FUN_INDEX;
+      break;
+  }
+  return CAST(LoadContextElement(native_context, index));
+}
+
+TNode<JSFunction> BaseCollectionsAssembler::GetInitialAddFunction(
+    Variant variant, TNode<Context> native_context) {
+  int index;
+  switch (variant) {
+    case kMap:
+      index = Context::MAP_SET_INDEX;
+      break;
+    case kSet:
+      index = Context::SET_ADD_INDEX;
+      break;
+    case kWeakMap:
+      index = Context::WEAKMAP_SET_INDEX;
+      break;
+    case kWeakSet:
+      index = Context::WEAKSET_ADD_INDEX;
+      break;
+  }
+  return CAST(LoadContextElement(native_context, index));
+}
+
+int BaseCollectionsAssembler::GetTableOffset(Variant variant) {
+  switch (variant) {
+    case kMap:
+      return JSMap::kTableOffset;
+    case kSet:
+      return JSSet::kTableOffset;
+    case kWeakMap:
+      return JSWeakMap::kTableOffset;
+    case kWeakSet:
+      return JSWeakSet::kTableOffset;
+  }
 }
 
 TNode<IntPtrT> BaseCollectionsAssembler::EstimatedInitialSize(
@@ -375,6 +443,31 @@ void BaseCollectionsAssembler::GotoIfNotJSReceiver(Node* const obj,
                                                    Label* if_not_receiver) {
   GotoIf(TaggedIsSmi(obj), if_not_receiver);
   GotoIfNot(IsJSReceiver(obj), if_not_receiver);
+}
+
+TNode<BoolT> BaseCollectionsAssembler::HasCollectionPrototypeChange(
+    Variant variant, TNode<Context> native_context, TNode<Object> collection) {
+  int initial_prototype_index;
+  switch (variant) {
+    case kMap:
+      initial_prototype_index = Context::INITIAL_MAP_PROTOTYPE_MAP_INDEX;
+      break;
+    case kSet:
+      initial_prototype_index = Context::INITIAL_SET_PROTOTYPE_MAP_INDEX;
+      break;
+    case kWeakMap:
+      initial_prototype_index = Context::INITIAL_WEAKMAP_PROTOTYPE_MAP_INDEX;
+      break;
+    case kWeakSet:
+      initial_prototype_index = Context::INITIAL_WEAKSET_PROTOTYPE_MAP_INDEX;
+      break;
+  }
+  TNode<Map> initial_prototype_map =
+      CAST(LoadContextElement(native_context, initial_prototype_index));
+  TNode<Map> collection_proto_map =
+      LoadMap(CAST(LoadMapPrototype(LoadMap(CAST(collection)))));
+
+  return WordNotEqual(collection_proto_map, initial_prototype_map);
 }
 
 TNode<Object> BaseCollectionsAssembler::LoadAndNormalizeFixedArrayElement(
@@ -687,20 +780,17 @@ Node* CollectionsBuiltinsAssembler::AllocateJSCollectionIterator(
 TNode<Object> CollectionsBuiltinsAssembler::AllocateTable(
     Variant variant, TNode<Context> context,
     TNode<IntPtrT> at_least_space_for) {
-  return CAST(variant == kMap ? AllocateOrderedHashTable<OrderedHashMap>()
-                              : AllocateOrderedHashTable<OrderedHashSet>());
+  return CAST((variant == kMap || variant == kWeakMap)
+                  ? AllocateOrderedHashTable<OrderedHashMap>()
+                  : AllocateOrderedHashTable<OrderedHashSet>());
 }
 
 TF_BUILTIN(MapConstructor, CollectionsBuiltinsAssembler) {
-  GenerateConstructor(kMap, Context::JS_MAP_FUN_INDEX,
-                      Context::INITIAL_MAP_PROTOTYPE_MAP_INDEX,
-                      isolate()->factory()->Map_string(), JSMap::kTableOffset);
+  GenerateConstructor(kMap, isolate()->factory()->Map_string());
 }
 
 TF_BUILTIN(SetConstructor, CollectionsBuiltinsAssembler) {
-  GenerateConstructor(kSet, Context::JS_SET_FUN_INDEX,
-                      Context::INITIAL_SET_PROTOTYPE_MAP_INDEX,
-                      isolate()->factory()->Set_string(), JSSet::kTableOffset);
+  GenerateConstructor(kSet, isolate()->factory()->Set_string());
 }
 
 Node* CollectionsBuiltinsAssembler::CallGetOrCreateHashRaw(Node* const key) {
@@ -2239,17 +2329,11 @@ TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::ValueIndexFromKeyIndex(
 }
 
 TF_BUILTIN(WeakMapConstructor, WeakCollectionsBuiltinsAssembler) {
-  GenerateConstructor(kMap, Context::JS_WEAK_MAP_FUN_INDEX,
-                      Context::INITIAL_WEAKMAP_PROTOTYPE_MAP_INDEX,
-                      isolate()->factory()->WeakMap_string(),
-                      JSWeakMap::kTableOffset);
+  GenerateConstructor(kWeakMap, isolate()->factory()->WeakMap_string());
 }
 
 TF_BUILTIN(WeakSetConstructor, WeakCollectionsBuiltinsAssembler) {
-  GenerateConstructor(kSet, Context::JS_WEAK_SET_FUN_INDEX,
-                      Context::INITIAL_WEAKSET_PROTOTYPE_MAP_INDEX,
-                      isolate()->factory()->WeakSet_string(),
-                      JSWeakSet::kTableOffset);
+  GenerateConstructor(kWeakSet, isolate()->factory()->WeakSet_string());
 }
 
 TF_BUILTIN(WeakMapLookupHashIndex, WeakCollectionsBuiltinsAssembler) {
