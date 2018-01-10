@@ -460,8 +460,6 @@ TNode<BoolT> BaseCollectionsAssembler::HasInitialCollectionPrototype(
     case kWeakSet:
       initial_prototype_index = Context::INITIAL_WEAKSET_PROTOTYPE_MAP_INDEX;
       break;
-    default:
-      UNREACHABLE();
   }
   TNode<Map> initial_prototype_map =
       CAST(LoadContextElement(native_context, initial_prototype_index));
