@@ -110,9 +110,9 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
   void GotoIfNotJSReceiver(Node* const obj, Label* if_not_receiver);
 
   // Determines whether the collection's prototype has been modified.
-  TNode<BoolT> HasCollectionPrototypeChange(Variant variant,
-                                            TNode<Context> native_context,
-                                            TNode<Object> collection);
+  TNode<BoolT> HasInitialCollectionPrototype(Variant variant,
+                                             TNode<Context> native_context,
+                                             TNode<Object> collection);
 
   // Loads an element from a fixed array.  If the element is the hole, returns
   // `undefined`.
@@ -181,8 +181,9 @@ void BaseCollectionsAssembler::AddConstructorEntries(
   GotoIfNot(is_fast_jsarray, &slow_loop);
   {
     CSA_ASSERT(this, IsFastJSArray(initial_entries, context));
-    GotoIf(HasCollectionPrototypeChange(variant, native_context, collection),
-           &slow_loop);
+    GotoIfNot(
+        HasInitialCollectionPrototype(variant, native_context, collection),
+        &slow_loop);
     AddConstructorEntriesFromFastJSArray(
         variant, context, native_context, collection,
         UncheckedCast<JSArray>(initial_entries));
@@ -208,8 +209,8 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
   CSA_ASSERT(this, IsFastJSArray(fast_jsarray, context));
   CSA_ASSERT(this, IsFastElementsKind(elements_kind));
   CSA_ASSERT(this, IntPtrGreaterThanOrEqual(length, IntPtrConstant(0)));
-  CSA_ASSERT(this, Word32BinaryNot(HasCollectionPrototypeChange(
-                       variant, native_context, collection)));
+  CSA_ASSERT(
+      this, HasInitialCollectionPrototype(variant, native_context, collection));
 
   Label exit(this), if_doubles(this), if_smiorobjects(this);
   Branch(IsFastSmiOrTaggedElementsKind(elements_kind), &if_smiorobjects,
@@ -356,9 +357,6 @@ void BaseCollectionsAssembler::GenerateConstructor(
 
 TNode<JSFunction> BaseCollectionsAssembler::GetAddFunction(
     Variant variant, TNode<Context> context, TNode<Object> collection) {
-  // TODO(pwong): Consider calling the builtin directly when the prototype is
-  // unmodified.  This will require tracking WeakMap/WeakSet prototypes on the
-  // native context.
   Handle<String> add_func_name = (variant == kMap || variant == kWeakMap)
                                      ? isolate()->factory()->set_string()
                                      : isolate()->factory()->add_string();
@@ -394,8 +392,6 @@ TNode<JSFunction> BaseCollectionsAssembler::GetConstructor(
     case kWeakSet:
       index = Context::JS_WEAK_SET_FUN_INDEX;
       break;
-    default:
-      UNREACHABLE();
   }
   return CAST(LoadContextElement(native_context, index));
 }
@@ -416,8 +412,6 @@ TNode<JSFunction> BaseCollectionsAssembler::GetInitialAddFunction(
     case kWeakSet:
       index = Context::WEAKSET_ADD_INDEX;
       break;
-    default:
-      UNREACHABLE();
   }
   return CAST(LoadContextElement(native_context, index));
 }
@@ -450,7 +444,7 @@ void BaseCollectionsAssembler::GotoIfNotJSReceiver(Node* const obj,
   GotoIfNot(IsJSReceiver(obj), if_not_receiver);
 }
 
-TNode<BoolT> BaseCollectionsAssembler::HasCollectionPrototypeChange(
+TNode<BoolT> BaseCollectionsAssembler::HasInitialCollectionPrototype(
     Variant variant, TNode<Context> native_context, TNode<Object> collection) {
   int initial_prototype_index;
   switch (variant) {
@@ -474,7 +468,7 @@ TNode<BoolT> BaseCollectionsAssembler::HasCollectionPrototypeChange(
   TNode<Map> collection_proto_map =
       LoadMap(CAST(LoadMapPrototype(LoadMap(CAST(collection)))));
 
-  return WordNotEqual(collection_proto_map, initial_prototype_map);
+  return WordEqual(collection_proto_map, initial_prototype_map);
 }
 
 TNode<Object> BaseCollectionsAssembler::LoadAndNormalizeFixedArrayElement(
