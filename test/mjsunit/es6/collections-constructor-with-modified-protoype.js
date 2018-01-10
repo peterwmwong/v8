@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Flags: --allow-natives-syntax --opt
+
 function TestSetPrototypeModified(ctor) {
   const originalPrototypeAdd = ctor.prototype.add;
   const k1 = {};
@@ -23,7 +25,20 @@ function TestSetPrototypeModified(ctor) {
   ctor.prototype.add = originalPrototypeAdd;
 }
 TestSetPrototypeModified(Set);
+TestSetPrototypeModified(Set);
+TestSetPrototypeModified(Set);
+%OptimizeFunctionOnNextCall(TestSetPrototypeModified);
+%DeoptimizeFunction(TestSetPrototypeModified);
+TestSetPrototypeModified(Set);
+assertOptimized(TestSetPrototypeModified);
+
 TestSetPrototypeModified(WeakSet);
+TestSetPrototypeModified(WeakSet);
+TestSetPrototypeModified(WeakSet);
+%OptimizeFunctionOnNextCall(TestSetPrototypeModified);
+%DeoptimizeFunction(TestSetPrototypeModified);
+TestSetPrototypeModified(WeakSet);
+assertOptimized(TestSetPrototypeModified);
 
 function TestMapPrototypeModified(ctor) {
   const originalPrototypeSet = ctor.prototype.set;
@@ -46,4 +61,17 @@ function TestMapPrototypeModified(ctor) {
   ctor.prototype.set = originalPrototypeSet;
 }
 TestMapPrototypeModified(Map);
+TestMapPrototypeModified(Map);
+TestMapPrototypeModified(Map);
+%OptimizeFunctionOnNextCall(TestMapPrototypeModified);
+%DeoptimizeFunction(TestMapPrototypeModified);
+TestMapPrototypeModified(Map);
+assertOptimized(TestMapPrototypeModified);
+
 TestMapPrototypeModified(WeakMap);
+TestMapPrototypeModified(WeakMap);
+TestMapPrototypeModified(WeakMap);
+%OptimizeFunctionOnNextCall(TestMapPrototypeModified);
+%DeoptimizeFunction(TestMapPrototypeModified);
+TestMapPrototypeModified(WeakMap);
+assertOptimized(TestMapPrototypeModified);
