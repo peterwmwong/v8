@@ -602,6 +602,7 @@ namespace internal {
   /* Map */                                                                    \
   TFS(FindOrderedHashMapEntry, kTable, kKey)                                   \
   TFJ(MapConstructor, SharedFunctionInfo::kDontAdaptArgumentsSentinel)         \
+  TFS(MapConstructorContinuation, kMap, kSetFunction, kEntries, kIndex)        \
   TFJ(MapPrototypeSet, 2, kKey, kValue)                                        \
   TFJ(MapPrototypeDelete, 1, kKey)                                             \
   TFJ(MapPrototypeGet, 1, kKey)                                                \
@@ -1139,6 +1140,7 @@ namespace internal {
                                                                                \
   /* WeakMap */                                                                \
   TFJ(WeakMapConstructor, SharedFunctionInfo::kDontAdaptArgumentsSentinel)     \
+  TFS(WeakMapConstructorContinuation, kMap, kSetFunction, kEntries, kIndex)    \
   TFS(WeakMapLookupHashIndex, kTable, kKey)                                    \
   TFJ(WeakMapGet, 1, kKey)                                                     \
   TFJ(WeakMapHas, 1, kKey)                                                     \

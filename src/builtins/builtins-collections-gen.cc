@@ -53,6 +53,14 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
                                             TNode<Object> collection,
                                             TNode<JSArray> fast_jsarray);
 
+  // Main entry point for Map/WeakMap constructor continuation builtins.
+  // This is called when the Map/WeakMap Constructor's fast path detects a
+  // possible call to user code which could invalidate assumptions.  This
+  // continuation takes over in a slower but safer manner.
+  void GenerateMapConstructorContinuation(
+      Variant variant, TNode<Context> context, TNode<Object> map,
+      TNode<JSFunction> set_func, TNode<JSArray> entries, TNode<Smi> index);
+
   // Adds constructor entries to a collection using the iterator protocol.
   void AddConstructorEntriesFromIterable(Variant variant,
                                          TNode<Context> context,
@@ -198,17 +206,47 @@ void BaseCollectionsAssembler::AddConstructorEntries(
   BIND(&exit);
 }
 
+void BaseCollectionsAssembler::GenerateMapConstructorContinuation(
+    Variant variant, TNode<Context> context, TNode<Object> map,
+    TNode<JSFunction> set_func, TNode<JSArray> entries, TNode<Smi> index) {
+  VARIABLE(var_index_num, MachineRepresentation::kTagged, index);
+
+  CSA_ASSERT(this, IsJSArray(entries));
+  CSA_ASSERT(this, HasInstanceType(
+                       map, variant == kMap ? JS_MAP_TYPE : JS_WEAK_MAP_TYPE));
+  CSA_ASSERT(this, IsJSFunction(set_func));
+  CSA_ASSERT(this, TaggedIsSmi(var_index_num.value()));
+
+  Label exit(this), loop(this, &var_index_num);
+  Goto(&loop);
+  BIND(&loop);
+  {
+    TNode<Object> length = LoadJSArrayLength(entries);
+    GotoIf(IsTrue(CallBuiltin(Builtins::kLessThanOrEqual, context, length,
+                              var_index_num.value())),
+           &exit);
+    TNode<Object> entry =
+        CAST(GetProperty(context, entries, var_index_num.value()));
+    AddConstructorEntry(variant, context, map, set_func, entry);
+    var_index_num.Bind(CallBuiltin(Builtins::kAdd, context, SmiConstant(1),
+                                   var_index_num.value()));
+    Goto(&loop);
+  }
+  BIND(&exit);
+  Return(UndefinedConstant());
+}
+
 void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
     Variant variant, TNode<Context> context, TNode<Context> native_context,
     TNode<Object> collection, TNode<JSArray> fast_jsarray) {
   TNode<FixedArrayBase> elements = LoadElements(fast_jsarray);
   TNode<Int32T> elements_kind = LoadMapElementsKind(LoadMap(fast_jsarray));
-  TNode<IntPtrT> length = SmiUntag(LoadFastJSArrayLength(fast_jsarray));
   TNode<JSFunction> add_func = GetInitialAddFunction(variant, native_context);
+  TVARIABLE(IntPtrT, var_length, SmiUntag(LoadFastJSArrayLength(fast_jsarray)));
 
   CSA_ASSERT(this, IsFastJSArray(fast_jsarray, context));
   CSA_ASSERT(this, IsFastElementsKind(elements_kind));
-  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(length, IntPtrConstant(0)));
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(var_length, IntPtrConstant(0)));
   CSA_ASSERT(
       this, HasInitialCollectionPrototype(variant, native_context, collection));
 
@@ -217,19 +255,38 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
          &if_doubles);
   BIND(&if_smiorobjects);
   {
-    auto set_entry = [&](Node* index) {
-      TNode<Object> element = LoadAndNormalizeFixedArrayElement(
-          elements, UncheckedCast<IntPtrT>(index));
-      AddConstructorEntry(variant, context, collection, add_func, element);
-    };
-
     // Instead of using the slower iteration protocol to iterate over the
     // elements, a fast loop is used.  This assumes that adding an element
     // to the collection does not call user code that could mutate the elements
     // or collection.
-    BuildFastLoop(IntPtrConstant(0), length, set_entry, 1,
-                  ParameterMode::INTPTR_PARAMETERS, IndexAdvanceMode::kPost);
-    Goto(&exit);
+    TVARIABLE(IntPtrT, var_index, IntPtrConstant(0));
+    Label loop(this, {&var_index, &var_length});
+    Goto(&loop);
+    BIND(&loop);
+    {
+      TNode<Object> element =
+          LoadAndNormalizeFixedArrayElement(elements, var_index);
+      AddConstructorEntry(variant, context, collection, add_func, element);
+      Increment(&var_index);
+
+      // Accessing an Map's entry (key or value) may call user code, which
+      // may have changed the `fast_jsarray` (ex. length, elements kind).  In
+      // these rare cases, we bail out of the fast path and into a slower/safer
+      // continuation.
+      if (variant == kMap || variant == kWeakMap) {
+        Builtins::Name continuation =
+            variant == kMap ? Builtins::kMapConstructorContinuation
+                            : Builtins::kWeakMapConstructorContinuation;
+        Label skip_continuation(this);
+        GotoIf(IsFastJSArray(fast_jsarray, context), &skip_continuation);
+        CallBuiltin(continuation, context, collection, add_func, fast_jsarray,
+                    SmiTag(var_index));
+        Goto(&exit);
+        BIND(&skip_continuation);
+        var_length = SmiUntag(LoadFastJSArrayLength(fast_jsarray));
+      }
+      Branch(WordNotEqual(var_index, var_length), &loop, &exit);
+    }
   }
   BIND(&if_doubles);
   {
@@ -249,7 +306,7 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
             elements, UncheckedCast<IntPtrT>(index));
         AddConstructorEntry(kSet, context, collection, add_func, entry);
       };
-      BuildFastLoop(IntPtrConstant(0), length, set_entry, 1,
+      BuildFastLoop(IntPtrConstant(0), var_length, set_entry, 1,
                     ParameterMode::INTPTR_PARAMETERS, IndexAdvanceMode::kPost);
       Goto(&exit);
     }
@@ -782,6 +839,15 @@ TNode<Object> CollectionsBuiltinsAssembler::AllocateTable(
   return CAST((variant == kMap || variant == kWeakMap)
                   ? AllocateOrderedHashTable<OrderedHashMap>()
                   : AllocateOrderedHashTable<OrderedHashSet>());
+}
+
+TF_BUILTIN(MapConstructorContinuation, CollectionsBuiltinsAssembler) {
+  GenerateMapConstructorContinuation(kMap,
+                                     CAST(Parameter(Descriptor::kContext)),
+                                     CAST(Parameter(Descriptor::kMap)),
+                                     CAST(Parameter(Descriptor::kSetFunction)),
+                                     CAST(Parameter(Descriptor::kEntries)),
+                                     CAST(Parameter(Descriptor::kIndex)));
 }
 
 TF_BUILTIN(MapConstructor, CollectionsBuiltinsAssembler) {
@@ -2325,6 +2391,15 @@ TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::ValueIndexFromKeyIndex(
   return IntPtrAdd(key_index,
                    IntPtrConstant(ObjectHashTableShape::kEntryValueIndex -
                                   ObjectHashTable::kEntryKeyIndex));
+}
+
+TF_BUILTIN(WeakMapConstructorContinuation, CollectionsBuiltinsAssembler) {
+  GenerateMapConstructorContinuation(kWeakMap,
+                                     CAST(Parameter(Descriptor::kContext)),
+                                     CAST(Parameter(Descriptor::kMap)),
+                                     CAST(Parameter(Descriptor::kSetFunction)),
+                                     CAST(Parameter(Descriptor::kEntries)),
+                                     CAST(Parameter(Descriptor::kIndex)));
 }
 
 TF_BUILTIN(WeakMapConstructor, WeakCollectionsBuiltinsAssembler) {
