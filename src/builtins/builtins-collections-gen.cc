@@ -178,23 +178,23 @@ void BaseCollectionsAssembler::AddConstructorEntries(
     TNode<BoolT> is_fast_jsarray) {
   Label exit(this), slow_loop(this, Label::kDeferred);
   GotoIf(IsNullOrUndefined(initial_entries), &exit);
-  GotoIfNot(is_fast_jsarray, &slow_loop);
-  {
-    CSA_ASSERT(this, IsFastJSArray(initial_entries, context));
-    GotoIfNot(
-        HasInitialCollectionPrototype(variant, native_context, collection),
-        &slow_loop);
-    AddConstructorEntriesFromFastJSArray(
-        variant, context, native_context, collection,
-        UncheckedCast<JSArray>(initial_entries));
-    Goto(&exit);
+  if (variant == kSet || variant == kWeakSet) {
+    GotoIfNot(is_fast_jsarray, &slow_loop);
+    {
+        CSA_ASSERT(this, IsFastJSArray(initial_entries, context));
+        GotoIfNot(
+            HasInitialCollectionPrototype(variant, native_context, collection),
+            &slow_loop);
+        AddConstructorEntriesFromFastJSArray(
+            variant, context, native_context, collection,
+            UncheckedCast<JSArray>(initial_entries));
+        Goto(&exit);
+    }
+    BIND(&slow_loop);
   }
-  BIND(&slow_loop);
-  {
-    AddConstructorEntriesFromIterable(variant, context, native_context,
-                                      collection, initial_entries);
-    Goto(&exit);
-  }
+  AddConstructorEntriesFromIterable(variant, context, native_context,
+                                    collection, initial_entries);
+  Goto(&exit);
   BIND(&exit);
 }
 
