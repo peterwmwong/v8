@@ -51,7 +51,8 @@ class BaseCollectionsAssembler : public CodeStubAssembler {
                                             TNode<Context> context,
                                             TNode<Context> native_context,
                                             TNode<Object> collection,
-                                            TNode<JSArray> fast_jsarray);
+                                            TNode<JSArray> fast_jsarray,
+                                            Label* restart_into_slow_loop);
 
   // Adds constructor entries to a collection using the iterator protocol.
   void AddConstructorEntriesFromIterable(Variant variant,
@@ -176,34 +177,52 @@ void BaseCollectionsAssembler::AddConstructorEntries(
     Variant variant, TNode<Context> context, TNode<Context> native_context,
     TNode<Object> collection, TNode<Object> initial_entries,
     TNode<BoolT> is_fast_jsarray) {
-  Label exit(this), slow_loop(this, Label::kDeferred);
-  GotoIf(IsNullOrUndefined(initial_entries), &exit);
+  TNode<IntPtrT> at_least_space_for =
+      EstimatedInitialSize(initial_entries, is_fast_jsarray);
+  TVARIABLE(BoolT, use_fast_loop, is_fast_jsarray);
 
-  // TODO(pwong): Re-enable the fast path for Map/WeakMap when a fix for
-  // handling key/value access side-effects is found.
-  if (variant == kSet || variant == kWeakSet) {
-    GotoIfNot(is_fast_jsarray, &slow_loop);
-    {
-      CSA_ASSERT(this, IsFastJSArray(initial_entries, context));
-      GotoIfNot(
-          HasInitialCollectionPrototype(variant, native_context, collection),
-          &slow_loop);
-      AddConstructorEntriesFromFastJSArray(
-          variant, context, native_context, collection,
-          UncheckedCast<JSArray>(initial_entries));
-      Goto(&exit);
-    }
-    BIND(&slow_loop);
+  Label allocate_table(this, &use_fast_loop), exit(this), fast_loop(this),
+      restart_into_slow_loop(this, Label::kDeferred),
+      slow_loop(this, Label::kDeferred);
+  Goto(&allocate_table);
+  BIND(&allocate_table);
+  {
+    TNode<Object> table = AllocateTable(variant, context, at_least_space_for);
+    StoreObjectField(collection, GetTableOffset(variant), table);
+    GotoIf(IsNullOrUndefined(initial_entries), &exit);
+    Branch(use_fast_loop, &fast_loop, &slow_loop);
   }
-  AddConstructorEntriesFromIterable(variant, context, native_context,
-                                    collection, initial_entries);
-  Goto(&exit);
+  BIND(&fast_loop);
+  {
+    CSA_ASSERT(this, IsFastJSArray(initial_entries, context));
+    GotoIfNot(
+        HasInitialCollectionPrototype(variant, native_context, collection),
+        &slow_loop);
+    AddConstructorEntriesFromFastJSArray(
+        variant, context, native_context, collection,
+        UncheckedCast<JSArray>(initial_entries), &restart_into_slow_loop);
+    Goto(&exit);
+  }
+  BIND(&slow_loop);
+  {
+    AddConstructorEntriesFromIterable(variant, context, native_context,
+                                      collection, initial_entries);
+    Goto(&exit);
+  }
+  if (variant == kMap || variant == kWeakMap) {
+    BIND(&restart_into_slow_loop);
+    {
+      use_fast_loop = ReinterpretCast<BoolT>(Int32Constant(0));
+      Goto(&allocate_table);
+    }
+  }
   BIND(&exit);
 }
 
 void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
     Variant variant, TNode<Context> context, TNode<Context> native_context,
-    TNode<Object> collection, TNode<JSArray> fast_jsarray) {
+    TNode<Object> collection, TNode<JSArray> fast_jsarray,
+    Label* restart_into_slow_loop) {
   TNode<FixedArrayBase> elements = LoadElements(fast_jsarray);
   TNode<Int32T> elements_kind = LoadMapElementsKind(LoadMap(fast_jsarray));
   TNode<IntPtrT> length = SmiUntag(LoadFastJSArrayLength(fast_jsarray));
@@ -223,6 +242,12 @@ void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
     auto set_entry = [&](Node* index) {
       TNode<Object> element = LoadAndNormalizeFixedArrayElement(
           elements, UncheckedCast<IntPtrT>(index));
+      if (variant == kMap || variant == kWeakMap) {
+        // If the element is not a fast array, we cannot guarantee accessing the
+        // key and value won't execute user code that will break fast pat
+        // assumptions.
+        GotoIfNot(IsFastJSArray(element, context), restart_into_slow_loop);
+      }
       AddConstructorEntry(variant, context, collection, add_func, element);
     };
 
@@ -341,14 +366,10 @@ void BaseCollectionsAssembler::GenerateConstructor(
   GotoIf(IsUndefined(new_target), &if_undefined);
 
   TNode<BoolT> is_fast_jsarray = IsFastJSArray(iterable, context);
-  TNode<IntPtrT> at_least_space_for =
-      EstimatedInitialSize(iterable, is_fast_jsarray);
   TNode<Context> native_context = LoadNativeContext(context);
   TNode<Object> collection = AllocateJSCollection(
       context, GetConstructor(variant, native_context), new_target);
-  TNode<Object> table = AllocateTable(variant, context, at_least_space_for);
 
-  StoreObjectField(collection, GetTableOffset(variant), table);
   AddConstructorEntries(variant, context, native_context, collection, iterable,
                         is_fast_jsarray);
   Return(collection);
