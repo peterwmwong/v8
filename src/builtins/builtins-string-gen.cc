@@ -2535,5 +2535,17 @@ TF_BUILTIN(StringPrototypeSup, StringHtmlAssembler) {
   Generate(context, receiver, "String.prototype.sup", "sup");
 }
 
+TF_BUILTIN(StringNoop, CodeStubAssembler) {
+  Node* argc =
+      ChangeInt32ToIntPtr(Parameter(BuiltinDescriptor::kArgumentsCount));
+  CodeStubArguments args(this, argc);
+  args.PopAndReturn(SmiConstant(0));
+}
+
+TF_BUILTIN(StringNoopAdapt, CodeStubAssembler) {
+  TNode<Smi> value = CAST(Parameter(Descriptor::kValue));
+  Return(value);
+}
+
 }  // namespace internal
 }  // namespace v8

@@ -2012,6 +2012,11 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
     // Install the String.raw function.
     SimpleInstallFunction(string_fun, "raw", Builtins::kStringRaw, 1, false);
 
+    // TODO(pwong): REMOVE ME!!!
+    SimpleInstallFunction(string_fun, "noop", Builtins::kStringNoop, 0, false);
+    SimpleInstallFunction(string_fun, "noopAdapt", Builtins::kStringNoopAdapt,
+                          1, true);
+
     // Create the %StringPrototype%
     Handle<JSValue> prototype =
         Handle<JSValue>::cast(factory->NewJSObject(string_fun, TENURED));

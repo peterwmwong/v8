@@ -1039,6 +1039,8 @@ namespace internal {
   TFJ(StringPrototypeValueOf, 0)                                               \
   /* ES6 #sec-string.raw */                                                    \
   CPP(StringRaw)                                                               \
+  TFJ(StringNoop, SharedFunctionInfo::kDontAdaptArgumentsSentinel)             \
+  TFJ(StringNoopAdapt, 1, kValue)                                              \
   /* ES6 #sec-string.prototype-@@iterator */                                   \
   TFJ(StringPrototypeIterator, 0)                                              \
                                                                                \
