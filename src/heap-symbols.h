@@ -265,6 +265,7 @@
   V(iterator_symbol, Symbol.iterator)            \
   V(intl_fallback_symbol, IntlFallback)          \
   V(match_symbol, Symbol.match)                  \
+  V(match_all_symbol, Symbol.matchAll)           \
   V(replace_symbol, Symbol.replace)              \
   V(search_symbol, Symbol.search)                \
   V(species_symbol, Symbol.species)              \

@@ -462,6 +462,7 @@ const int kStubMinorKeyBits = kSmiValueSize - kStubMajorKeyBits - 1;
   V(JS_MESSAGE_OBJECT_TYPE)                                     \
   V(JS_PROMISE_TYPE)                                            \
   V(JS_REGEXP_TYPE)                                             \
+  V(JS_REGEXP_STRING_ITERATOR_TYPE)                             \
   V(JS_SET_TYPE)                                                \
   V(JS_SET_KEY_VALUE_ITERATOR_TYPE)                             \
   V(JS_SET_VALUE_ITERATOR_TYPE)                                 \
@@ -835,6 +836,7 @@ enum InstanceType : uint16_t {
   JS_MESSAGE_OBJECT_TYPE,
   JS_PROMISE_TYPE,
   JS_REGEXP_TYPE,
+  JS_REGEXP_STRING_ITERATOR_TYPE,
   JS_SET_TYPE,
   JS_SET_KEY_VALUE_ITERATOR_TYPE,
   JS_SET_VALUE_ITERATOR_TYPE,
@@ -1068,6 +1070,7 @@ template <class C> inline bool Is(Object* obj);
   V(JSProxy)                              \
   V(JSReceiver)                           \
   V(JSRegExp)                             \
+  V(JSRegExpStringIterator)               \
   V(JSSet)                                \
   V(JSSetIterator)                        \
   V(JSSloppyArgumentsObject)              \
@@ -3169,6 +3172,7 @@ enum BuiltinFunctionId {
   kGlobalIsFinite,
   kGlobalIsNaN,
   kNumberConstructor,
+  kRegExpStringIteratorPrototypeNext,
   kSymbolConstructor,
   kTypedArrayByteLength,
   kTypedArrayByteOffset,
