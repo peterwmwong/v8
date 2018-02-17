@@ -4,6 +4,8 @@
 
 // Flags: --allow-natives-syntax --stack-size=100 --harmony
 
+// TODO(pwong): Add tests for S.p.matchAll() / RegExpStringIterator.next()
+
 function test(f, expected, type) {
   try {
     f();

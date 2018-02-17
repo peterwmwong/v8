@@ -59,6 +59,7 @@
 #include "src/objects/debug-objects-inl.h"
 #include "src/objects/frame-array-inl.h"
 #include "src/objects/hash-table.h"
+#include "src/objects/js-regexp-string-iterator-inl.h"
 #include "src/objects/map.h"
 #include "src/parsing/preparsed-scope-data.h"
 #include "src/property-descriptor.h"
@@ -1491,6 +1492,8 @@ int JSObject::GetHeaderSize(InstanceType type,
       return JSPromise::kSize;
     case JS_REGEXP_TYPE:
       return JSRegExp::kSize;
+    case JS_REGEXP_STRING_ITERATOR_TYPE:
+      return JSRegExpStringIterator::kSize;
     case JS_CONTEXT_EXTENSION_OBJECT_TYPE:
       return JSObject::kHeaderSize;
     case JS_MESSAGE_OBJECT_TYPE:
@@ -3190,6 +3193,7 @@ VisitorId Map::GetVisitorId(Map* map) {
     case JS_MAP_KEY_VALUE_ITERATOR_TYPE:
     case JS_MAP_VALUE_ITERATOR_TYPE:
     case JS_STRING_ITERATOR_TYPE:
+    case JS_REGEXP_STRING_ITERATOR_TYPE:
 
 #define ARRAY_ITERATOR_CASE(type) case type:
       ARRAY_ITERATOR_TYPE_LIST(ARRAY_ITERATOR_CASE)

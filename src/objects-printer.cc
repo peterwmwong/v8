@@ -189,6 +189,9 @@ void HeapObject::HeapObjectPrint(std::ostream& os) {  // NOLINT
     case JS_MAP_TYPE:
       JSMap::cast(this)->JSMapPrint(os);
       break;
+    case JS_REGEXP_STRING_ITERATOR_TYPE:
+      JSRegExpStringIterator::cast(this)->JSRegExpStringIteratorPrint(os);
+      break;
     case JS_SET_KEY_VALUE_ITERATOR_TYPE:
     case JS_SET_VALUE_ITERATOR_TYPE:
       JSSetIterator::cast(this)->JSSetIteratorPrint(os);
@@ -984,6 +987,13 @@ void JSCollectionIterator::JSCollectionIteratorPrint(
   os << "\n";
 }
 
+void JSRegExpStringIterator::JSRegExpStringIteratorPrint(
+    std::ostream& os) {  // NOLINT
+  JSObjectPrintHeader(os, this, "JSRegExpStringIterator");
+  // os << "\n - table = " << Brief(table());
+  // os << "\n - index = " << Brief(index());
+  // os << "\n";
+}
 
 void JSSetIterator::JSSetIteratorPrint(std::ostream& os) {  // NOLINT
   JSObjectPrintHeader(os, this, "JSSetIterator");

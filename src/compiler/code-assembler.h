@@ -31,6 +31,7 @@ class JSCollection;
 class JSWeakCollection;
 class JSWeakMap;
 class JSWeakSet;
+class JSRegExpStringIterator;
 class Factory;
 class Zone;
 

@@ -6,6 +6,7 @@
 #define V8_BUILTINS_BUILTINS_REGEXP_H_
 
 #include "src/code-stub-assembler.h"
+#include "src/objects/js-regexp-string-iterator.h"
 
 namespace v8 {
 namespace internal {
@@ -18,6 +19,21 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   void BranchIfFastRegExp(Node* const context, Node* const object,
                           Node* const map, Label* const if_isunmodified,
                           Label* const if_ismodified);
+
+  // Create and initialize a RegExp object.
+  TNode<Object> RegExpCreate(TNode<Context> context,
+                             TNode<Context> native_context,
+                             TNode<Object> regexp_string, TNode<String> flags);
+
+  TNode<Object> RegExpCreate(TNode<Context> context,
+                             TNode<Context> native_context,
+                             TNode<Map> initial_map,
+                             TNode<Object> regexp_string, TNode<String> flags);
+
+  TNode<Object> MatchAllIterator(TNode<Context> context,
+                                 TNode<Context> native_context,
+                                 TNode<Object> regexp, TNode<Object> string,
+                                 char const* method_name);
 
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
@@ -80,15 +96,16 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   void BranchIfFastRegExpResult(Node* const context, Node* const object,
                                 Label* if_isunmodified, Label* if_ismodified);
 
-  Node* FlagsGetter(Node* const context, Node* const regexp, bool is_fastpath);
-
   Node* FastFlagGetter(Node* const regexp, JSRegExp::Flag flag);
   Node* SlowFlagGetter(Node* const context, Node* const regexp,
                        JSRegExp::Flag flag);
-  Node* FlagGetter(Node* const context, Node* const regexp, JSRegExp::Flag flag,
-                   bool is_fastpath);
   void FlagGetter(Node* context, Node* receiver, JSRegExp::Flag flag,
                   int counter, const char* method_name);
+
+  Node* FlagGetter(Node* const context, Node* const regexp, JSRegExp::Flag flag,
+                   bool is_fastpath);
+
+  Node* FlagsGetter(Node* const context, Node* const regexp, bool is_fastpath);
 
   Node* IsRegExp(Node* const context, Node* const maybe_receiver);
   Node* RegExpInitialize(Node* const context, Node* const regexp,

@@ -484,6 +484,7 @@ ReturnType BodyDescriptorApply(InstanceType type, T1 p1, T2 p2, T3 p3) {
     case JS_MAP_KEY_VALUE_ITERATOR_TYPE:
     case JS_MAP_VALUE_ITERATOR_TYPE:
     case JS_STRING_ITERATOR_TYPE:
+    case JS_REGEXP_STRING_ITERATOR_TYPE:
 
 #define ARRAY_ITERATOR_CASE(type) case type:
       ARRAY_ITERATOR_TYPE_LIST(ARRAY_ITERATOR_CASE)

@@ -41,6 +41,7 @@
 #include "src/objects/js-array-inl.h"
 #include "src/objects/js-collection-inl.h"
 #include "src/objects/js-regexp-inl.h"
+#include "src/objects/js-regexp-string-iterator-inl.h"
 #include "src/objects/literal-objects.h"
 #include "src/objects/module-inl.h"
 #include "src/objects/regexp-match-info.h"
@@ -102,6 +103,7 @@ TYPE_CHECKER(JSGlobalObject, JS_GLOBAL_OBJECT_TYPE)
 TYPE_CHECKER(JSMessageObject, JS_MESSAGE_OBJECT_TYPE)
 TYPE_CHECKER(JSPromise, JS_PROMISE_TYPE)
 TYPE_CHECKER(JSStringIterator, JS_STRING_ITERATOR_TYPE)
+TYPE_CHECKER(JSRegExpStringIterator, JS_REGEXP_STRING_ITERATOR_TYPE)
 TYPE_CHECKER(JSValue, JS_VALUE_TYPE)
 TYPE_CHECKER(MutableHeapNumber, MUTABLE_HEAP_NUMBER_TYPE)
 TYPE_CHECKER(Oddball, ODDBALL_TYPE)

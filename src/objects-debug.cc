@@ -220,6 +220,9 @@ void HeapObject::HeapObjectVerify() {
     case JS_REGEXP_TYPE:
       JSRegExp::cast(this)->JSRegExpVerify();
       break;
+    case JS_REGEXP_STRING_ITERATOR_TYPE:
+      JSRegExpStringIterator::cast(this)->JSRegExpStringIteratorVerify();
+      break;
     case FILLER_TYPE:
       break;
     case JS_PROXY_TYPE:
@@ -1026,6 +1029,13 @@ void JSStringIterator::JSStringIteratorVerify() {
 
   CHECK_GE(index(), 0);
   CHECK_LE(index(), String::kMaxLength);
+}
+
+void JSRegExpStringIterator::JSRegExpStringIteratorVerify() {
+  CHECK(IsJSRegExpStringIterator());
+  JSObjectVerify();
+  CHECK(string()->IsString());
+  // TODO(pwong): add more checks on other fields
 }
 
 void JSAsyncFromSyncIterator::JSAsyncFromSyncIteratorVerify() {

@@ -224,6 +224,7 @@ Type::bitset BitsetType::Lub(i::Map* map) {
     case JS_MODULE_NAMESPACE_TYPE:
     case JS_ARRAY_BUFFER_TYPE:
     case JS_REGEXP_TYPE:  // TODO(rossberg): there should be a RegExp type.
+    case JS_REGEXP_STRING_ITERATOR_TYPE:
     case JS_TYPED_ARRAY_TYPE:
     case JS_DATA_VIEW_TYPE:
     case JS_SET_TYPE:

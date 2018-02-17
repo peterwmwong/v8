@@ -2064,6 +2064,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           Builtins::kStringPrototypeLocaleCompare, 1, true);
     SimpleInstallFunction(prototype, "match", Builtins::kStringPrototypeMatch,
                           1, true);
+    SimpleInstallFunction(prototype, "matchAll",
+                          Builtins::kStringPrototypeMatchAll, 1, true);
 #ifdef V8_INTL_SUPPORT
     SimpleInstallFunction(prototype, "normalize",
                           Builtins::kStringPrototypeNormalizeIntl, 0, false);
@@ -2159,6 +2161,33 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
         string_iterator_function->initial_map());
   }
 
+  {  // --- R e g E x p S t r i n g  I t e r a t o r ---
+    Handle<JSObject> iterator_prototype(
+        native_context()->initial_iterator_prototype());
+
+    Handle<JSObject> regexp_string_iterator_prototype =
+        factory->NewJSObject(isolate->object_function(), TENURED);
+    JSObject::ForceSetPrototype(regexp_string_iterator_prototype,
+                                iterator_prototype);
+
+    JSObject::AddProperty(
+        regexp_string_iterator_prototype, factory->to_string_tag_symbol(),
+        factory->NewStringFromAsciiChecked("RegExp String Iterator"),
+        static_cast<PropertyAttributes>(DONT_ENUM | READ_ONLY));
+
+    SimpleInstallFunction(regexp_string_iterator_prototype, "next",
+                          Builtins::kRegExpStringIteratorPrototypeNext, 0, true,
+                          kRegExpStringIteratorPrototypeNext);
+
+    Handle<JSFunction> regexp_string_iterator_function = CreateFunction(
+        isolate, factory->NewStringFromAsciiChecked("RegExpStringIterator"),
+        JS_REGEXP_STRING_ITERATOR_TYPE, JSRegExpStringIterator::kSize, 0,
+        regexp_string_iterator_prototype, Builtins::kIllegal);
+    regexp_string_iterator_function->shared()->set_native(false);
+    native_context()->set_initial_regexp_string_iterator_prototype_map_index(
+        regexp_string_iterator_function->initial_map());
+  }
+
   {  // --- S y m b o l ---
     Handle<JSFunction> symbol_fun = InstallFunction(
         global, "Symbol", JS_VALUE_TYPE, JSValue::kSize, 0,
@@ -2185,6 +2214,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
     InstallConstant(isolate, symbol_fun, "iterator",
                     factory->iterator_symbol());
     InstallConstant(isolate, symbol_fun, "match", factory->match_symbol());
+    InstallConstant(isolate, symbol_fun, "matchAll",
+                    factory->match_all_symbol());
     InstallConstant(isolate, symbol_fun, "replace", factory->replace_symbol());
     InstallConstant(isolate, symbol_fun, "search", factory->search_symbol());
     InstallConstant(isolate, symbol_fun, "species", factory->species_symbol());
@@ -2560,6 +2591,10 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
       SimpleInstallFunction(prototype, factory->match_symbol(),
                             "[Symbol.match]", Builtins::kRegExpPrototypeMatch,
                             1, true);
+
+      SimpleInstallFunction(prototype, factory->match_all_symbol(),
+                            "[Symbol.matchAll]",
+                            Builtins::kRegExpPrototypeMatchAll, 1, true);
 
       SimpleInstallFunction(prototype, factory->replace_symbol(),
                             "[Symbol.replace]",
