@@ -104,15 +104,10 @@ TNode<Object> RegExpBuiltinsAssembler::RegExpCreate(
 TNode<Object> RegExpBuiltinsAssembler::RegExpCreate(
     TNode<Context> context, TNode<Context> native_context,
     TNode<Map> initial_map, TNode<Object> maybe_string, TNode<String> flags) {
+  TNode<String> const string = Select<String>(
+      IsUndefined(maybe_string), [=] { return EmptyStringConstant(); },
+      [=] { return ToString_Inline(context, maybe_string); });
 
-  TNode<String> const pattern = Select<String>(
-      IsUndefined(maybe_regexp), [=] { return EmptyStringConstant(); },
-      [=] { return ToString_Inline(context, maybe_regexp); });
-
-  // TNode<String> const string = Select<String>(
-  //     IsUndefined(maybe_string), [=] { return EmptyStringConstant(); },
-  //     [=] { return ToString_Inline(context, maybe_string); },
-  //     MachineRepresentation::kTagged);
   TNode<Object> regexp = CAST(AllocateJSObjectFromMap(initial_map));
   return CallRuntime(Runtime::kRegExpInitializeAndCompile, context, regexp,
                      string, flags);
