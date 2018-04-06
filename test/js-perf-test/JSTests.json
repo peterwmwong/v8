@@ -279,7 +279,7 @@
             "--harmony-string-matchall"
           ],
           "test_flags": [ "string-matchAll" ],
-          "results_regexp": "^%s\\-Strings\\(Score\\): (.)$",
+          "results_regexp": "^%s\\-Strings\\(Score\\): (.+)$",
           "run_count": 1,
           "tests": [
             {"name": "StringMatchAllBuiltinString"},
