@@ -8,46 +8,69 @@ function Internalize(s) {
   return Object.keys({[s]:0})[0];
 }
 
-const string = Internalize('a'.repeat(100));
+let string = Internalize('a'.repeat(100));
 let pattern;
 let result;
 
 const setupString = () => pattern = '.';
 const setupRegExp = () => pattern = /./g;
+const setupNoMatch = () => {
+  // setupRegExp();
+  // string = '';
+  string = 'a';
+  pattern = /\d/g;
+};
 
 Object.entries({
-  BuiltinString: {
-    setup: setupString,
+  // BuiltinString: {
+  //   setup: setupString,
+  //   bench() {
+  //     for (const match of string.matchAll(pattern)) {
+  //       result = match.index;
+  //     }
+  //   }
+  // },
+  // ManualString: {
+  //   setup: setupString,
+  //   bench() {
+  //     let regexp = new RegExp(pattern, 'g');
+  //     let match;
+  //     while((match = regexp.exec(string)) !== null) {
+  //       result = match[0];
+  //     }
+  //   }
+  // },
+  // BuiltinRegExp: {
+  //   setup: setupRegExp,
+  //   bench() {
+  //     for (const match of string.matchAll(pattern)) {
+  //       result = match[0];
+  //     }
+  //   }
+  // },
+  // ManualRegExp: {
+  //   setup: setupRegExp,
+  //   bench() {
+  //     let match;
+  //     while((match = pattern.exec(string)) !== null) {
+  //       result = match[0];
+  //     }
+  //   }
+  // },
+  BuiltinNoMatch: {
+    setup: setupNoMatch,
     bench() {
       for (const match of string.matchAll(pattern)) {
-        result = match.index;
+        result = match[0];
       }
     }
   },
-  ManualString: {
-    setup: setupString,
-    bench() {
-      let regexp = new RegExp(pattern, 'g');
-      let match;
-      while((match = regexp.exec(string)) !== null) {
-        result = match.index;
-      }
-    }
-  },
-  BuiltinRegExp: {
-    setup: setupRegExp,
-    bench() {
-      for (const match of string.matchAll(pattern)) {
-        result = match.index;
-      }
-    }
-  },
-  ManualRegExp: {
-    setup: setupRegExp,
+  ManualNoMatch: {
+    setup: setupNoMatch,
     bench() {
       let match;
       while((match = pattern.exec(string)) !== null) {
-        result = match.index;
+        result = match[0];
       }
     }
   }

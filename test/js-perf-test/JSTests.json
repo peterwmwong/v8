@@ -285,7 +285,9 @@
             {"name": "StringMatchAllBuiltinString"},
             {"name": "StringMatchAllManualString"},
             {"name": "StringMatchAllBuiltinRegExp"},
-            {"name": "StringMatchAllManualRegExp"}
+            {"name": "StringMatchAllManualRegExp"},
+            {"name": "StringMatchAllManualNoMatch"},
+            {"name": "StringMatchAllBuiltinNoMatch"}
           ]
         },
         {

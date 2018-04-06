@@ -1867,28 +1867,8 @@ void RegExpBuiltinsAssembler::RegExpPrototypeMatchBody(Node* const context,
 
         BIND(&load_match);
         {
-          Label fast_result(this), slow_result(this);
-          BranchIfFastRegExpResult(context, result, &fast_result, &slow_result);
-
-          BIND(&fast_result);
-          {
-            Node* const result_fixed_array = LoadElements(result);
-            Node* const match = LoadFixedArrayElement(result_fixed_array, 0);
-
-            // The match is guaranteed to be a string on the fast path.
-            CSA_ASSERT(this, IsString(match));
-
-            var_match.Bind(match);
-            Goto(&if_didmatch);
-          }
-
-          BIND(&slow_result);
-          {
-            // TODO(ishell): Use GetElement stub once it's available.
-            Node* const match = GetProperty(context, result, smi_zero);
-            var_match.Bind(ToString_Inline(context, match));
-            Goto(&if_didmatch);
-          }
+          var_match.Bind(LoadRegExpResultFirstMatch(context, result));
+          Goto(&if_didmatch);
         }
       }
 
@@ -3145,24 +3125,24 @@ TF_BUILTIN(RegExpStringIteratorPrototypeNext, RegExpStringIteratorAssembler) {
   // 9. Let match be ? RegExpExec(R, S).
   TVARIABLE(Object, var_match);
   {
-    Label if_fast(this), if_slow(this), next(this);
+    Label if_fast(this), if_slow(this, Label::kDeferred);
     BranchIfFastRegExp(context, iterating_regexp, &if_fast, &if_slow);
     BIND(&if_fast);
     {
-      var_match = CAST(RegExpPrototypeExecBody(context, iterating_regexp,
-                                               iterating_string, true));
-      Goto(&next);
+      TNode<Object> indices_or_null = CAST(RegExpPrototypeExecBodyWithoutResult(
+          context, iterating_regexp, iterating_string, &if_no_match, true));
+      var_match = CAST(ConstructNewResultFromMatchInfo(
+          context, iterating_regexp, indices_or_null, iterating_string));
+      Goto(&if_match);
     }
     BIND(&if_slow);
     {
       var_match = CAST(RegExpExec(context, iterating_regexp, iterating_string));
-      Goto(&next);
+      Branch(IsNull(var_match.value()), &if_no_match, &if_match);
     }
-    BIND(&next);
   }
 
   // 10. If match is null, then
-  Branch(IsNull(var_match.value()), &if_no_match, &if_match);
   BIND(&if_no_match);
   {
     // a. Set O.[[Done]] to true.
@@ -3181,11 +3161,8 @@ TF_BUILTIN(RegExpStringIteratorPrototypeNext, RegExpStringIteratorAssembler) {
     BIND(&if_global);
     {
       // i. Let matchStr be ? ToString(? Get(match, "0")).
-      // TODO(pwong): Add fast path for fast regexp results. See
-      // BranchIfFastRegExpResult().
-      TNode<Object> match_str = ToString_Inline(
-          context, GetProperty(context, var_match.value(),
-                               isolate()->factory()->zero_string()));
+      TNode<String> match_str =
+          LoadRegExpResultFirstMatch(context, CAST(var_match.value()));
 
       // ii. If matchStr is the empty string,
       {
