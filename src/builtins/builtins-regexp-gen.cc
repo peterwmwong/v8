@@ -1958,8 +1958,9 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
     TNode<Context> context, TNode<Context> native_context,
     TNode<Object> maybe_regexp, TNode<String> string,
     TNode<BoolT> is_fast_regexp, char const* method_name) {
-  Label create_iterator(this), if_fast_regexp(this), if_regexp(this),
-      if_not_regexp(this), throw_type_error(this, Label::kDeferred);
+  Label create_iterator(this), if_fast_regexp(this),
+      if_slow_regexp(this, Label::kDeferred), if_not_regexp(this),
+      throw_type_error(this, Label::kDeferred);
 
   // 1. Let S be ? ToString(O).
   // Handled by the caller of MatchAllIterator.
@@ -1971,7 +1972,7 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
 
   // 2. If ? IsRegExp(R) is true, then
   GotoIf(is_fast_regexp, &if_fast_regexp);
-  Branch(IsRegExp(context, maybe_regexp), &if_regexp, &if_not_regexp);
+  Branch(IsRegExp(context, maybe_regexp), &if_slow_regexp, &if_not_regexp);
   BIND(&if_fast_regexp);
   {
     CSA_ASSERT(this, IsFastRegExp(context, maybe_regexp));
@@ -1997,7 +1998,7 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
     FastStoreLastIndex(var_matcher.value(), FastLoadLastIndex(fast_regexp));
     Goto(&create_iterator);
   }
-  BIND(&if_regexp);
+  BIND(&if_slow_regexp);
   {
     // a. Let C be ? SpeciesConstructor(R, %RegExp%).
     TNode<Object> regexp_fun =
@@ -2042,20 +2043,27 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
     var_matcher = RegExpCreate(context, native_context, maybe_regexp,
                                StringConstant("g"));
 
-    // c. If ? IsRegExp(matcher) is not true, throw a TypeError exception.
-    GotoIfNot(IsRegExp(context, var_matcher.value()), &throw_type_error);
-
     // d. Let global be true.
     var_global = Int32Constant(1);
 
     // e. Let fullUnicode be false.
     var_unicode = Int32Constant(0);
 
-    // f. If ? Get(matcher, "lastIndex") is not 0, throw a TypeError exception.
-    TNode<Object> last_index =
-        CAST(LoadLastIndex(context, var_matcher.value(), false));
-    Branch(SmiEqual(SmiConstant(0), last_index), &create_iterator,
-           &throw_type_error);
+    Label is_matcher_slow_regexp(this, Label::kDeferred);
+    BranchIfFastRegExp(context, var_matcher.value(), &create_iterator,
+                       &is_matcher_slow_regexp);
+    BIND(&is_matcher_slow_regexp);
+    {
+      // c. If ? IsRegExp(matcher) is not true, throw a TypeError exception.
+      GotoIfNot(IsRegExp(context, var_matcher.value()), &throw_type_error);
+
+      // f. If ? Get(matcher, "lastIndex") is not 0, throw a TypeError
+      // exception.
+      TNode<Object> last_index =
+          CAST(LoadLastIndex(context, var_matcher.value(), false));
+      Branch(SmiEqual(SmiConstant(0), last_index), &create_iterator,
+             &throw_type_error);
+    }
   }
   BIND(&throw_type_error);
   {
@@ -2132,9 +2140,10 @@ TF_BUILTIN(RegExpPrototypeMatchAll, RegExpBuiltinsAssembler) {
                        "RegExp.prototype.@@matchAll");
 
   // 3. Return ? MatchAllIterator(R, string).
-  Return(MatchAllIterator(context, native_context, receiver,
-                          ToString_Inline(context, string),
-                          Int32FalseConstant(), "RegExp.prototype.@@matchAll"));
+  Return(MatchAllIterator(
+      context, native_context, receiver, ToString_Inline(context, string),
+      UncheckedCast<BoolT>(IsFastRegExp(context, receiver)),
+      "RegExp.prototype.@@matchAll"));
 }
 
 // Helper that skips a few initial checks. and assumes...

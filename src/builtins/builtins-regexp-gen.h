@@ -120,7 +120,7 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
 
       // The match is guaranteed to be a string on the fast path.
       CSA_ASSERT(this, IsString(first_match));
-      var_result = UncheckedCast<String>(first_match);
+      var_result = CAST(first_match);
       Goto(&exit);
     }
     BIND(&if_slow);
