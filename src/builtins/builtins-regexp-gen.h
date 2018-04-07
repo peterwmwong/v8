@@ -29,7 +29,8 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
 
   TNode<Object> MatchAllIterator(TNode<Context> context,
                                  TNode<Context> native_context,
-                                 TNode<Object> regexp, TNode<Object> string,
+                                 TNode<Object> regexp, TNode<String> string,
+                                 TNode<BoolT> is_fast_regexp,
                                  char const* method_name);
 
  protected:
