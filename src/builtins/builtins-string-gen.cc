@@ -1509,8 +1509,10 @@ TF_BUILTIN(StringPrototypeMatchAll, StringBuiltinsAssembler) {
   // 2. If regexp is neither undefined nor null, then
   Label return_match_all_iterator(this),
       tostring_and_return_match_all_iterator(this, Label::kDeferred);
-  TVARIABLE(BoolT, var_is_fast_regexp);
+  TVARIABLE(Object, var_regexp);
   TVARIABLE(String, var_receiver_string);
+  TVARIABLE(BoolT, var_is_fast_regexp);
+  TVARIABLE(BoolT, var_create_internal_regexp);
   GotoIf(IsNullOrUndefined(maybe_regexp),
          &tostring_and_return_match_all_iterator);
   {
@@ -1521,8 +1523,10 @@ TF_BUILTIN(StringPrototypeMatchAll, StringBuiltinsAssembler) {
       // MaybeCallFunctionAtSymbol guarantees fast path is chosen only if
       // maybe_regexp is a fast regexp and receiver is a string.
       CSA_ASSERT(this, IsString(receiver));
+      var_regexp = maybe_regexp;
       var_receiver_string = CAST(receiver);
       var_is_fast_regexp = Int32TrueConstant();
+      var_create_internal_regexp = Int32TrueConstant();
       Goto(&return_match_all_iterator);
     };
     auto if_generic_call = [=](Node* fn) {
@@ -1534,19 +1538,29 @@ TF_BUILTIN(StringPrototypeMatchAll, StringBuiltinsAssembler) {
                               if_regexp_call, if_generic_call);
     Goto(&tostring_and_return_match_all_iterator);
   }
+  RegExpBuiltinsAssembler regexp_asm(state());
   BIND(&tostring_and_return_match_all_iterator);
   {
+    // X 3. Let string be ? ToString(O).
     var_receiver_string = ToString_Inline(context, receiver);
-    var_is_fast_regexp = Int32FalseConstant();
+    // X 4. Let rx be ? RegExpCreate(regexp, `"g"`).
+    var_regexp = regexp_asm.RegExpCreate(context, native_context, maybe_regexp,
+                                         StringConstant("g"));
+
+    ThrowIfNotJSReceiver(context, var_regexp.value(),
+                         MessageTemplate::kFirstArgumentNotRegExp, method_name);
+
+    var_is_fast_regexp = regexp_asm.IsFastRegExp(context, var_regexp.value());
+    var_create_internal_regexp = Int32FalseConstant();
     Goto(&return_match_all_iterator);
   }
   BIND(&return_match_all_iterator);
   {
     // 3. Return ? MatchAllIterator(regexp, O).
-    RegExpBuiltinsAssembler regexp_asm(state());
     TNode<Object> iterator = regexp_asm.MatchAllIterator(
-        context, native_context, maybe_regexp, var_receiver_string.value(),
-        var_is_fast_regexp.value(), method_name);
+        context, native_context, var_regexp.value(),
+        var_receiver_string.value(), var_is_fast_regexp.value(),
+        var_create_internal_regexp.value());
     Return(iterator);
   }
 }

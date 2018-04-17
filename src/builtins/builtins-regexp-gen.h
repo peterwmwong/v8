@@ -31,7 +31,11 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
                                  TNode<Context> native_context,
                                  TNode<Object> regexp, TNode<String> string,
                                  TNode<BoolT> is_fast_regexp,
-                                 char const* method_name);
+                                 TNode<BoolT> create_internal_regexp);
+
+  // Analogous to BranchIfFastRegExp, for use in asserts.
+  TNode<BoolT> IsFastRegExp(SloppyTNode<Context> context,
+                            SloppyTNode<Object> object);
 
  protected:
   // Allocate a RegExpResult with the given length (the number of captures,
@@ -77,10 +81,6 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   Node* ThrowIfNotJSReceiver(Node* context, Node* maybe_receiver,
                              MessageTemplate::Template msg_template,
                              char const* method_name);
-
-  // Analogous to BranchIfFastRegExp, for use in asserts.
-  TNode<BoolT> IsFastRegExp(SloppyTNode<Context> context,
-                            SloppyTNode<Object> object);
 
   void BranchIfFastRegExp(Node* const context, Node* const object,
                           Label* const if_isunmodified,

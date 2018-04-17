@@ -1979,12 +1979,11 @@ TF_BUILTIN(RegExpPrototypeMatch, RegExpBuiltinsAssembler) {
 }
 
 TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
-    TNode<Context> context, TNode<Context> native_context,
-    TNode<Object> maybe_regexp, TNode<String> string,
-    TNode<BoolT> is_fast_regexp, char const* method_name) {
+    TNode<Context> context, TNode<Context> native_context, TNode<Object> regexp,
+    TNode<String> string, TNode<BoolT> is_fast_regexp,
+    TNode<BoolT> create_internal_regexp) {
   Label create_iterator(this), if_fast_regexp(this),
-      if_slow_regexp(this, Label::kDeferred), if_not_regexp(this),
-      throw_type_error(this, Label::kDeferred);
+      if_slow_regexp(this, Label::kDeferred);
 
   // 1. Let S be ? ToString(O).
   // Handled by the caller of MatchAllIterator.
@@ -1995,18 +1994,21 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
   TVARIABLE(Int32T, var_unicode);
 
   // 2. If ? IsRegExp(R) is true, then
-  GotoIf(is_fast_regexp, &if_fast_regexp);
-  Branch(IsRegExp(context, maybe_regexp), &if_slow_regexp, &if_not_regexp);
+  Branch(is_fast_regexp, &if_fast_regexp, &if_slow_regexp);
   BIND(&if_fast_regexp);
   {
-    CSA_ASSERT(this, IsFastRegExp(context, maybe_regexp));
-    TNode<JSRegExp> fast_regexp = CAST(maybe_regexp);
-    TNode<Object> source =
-        LoadObjectField(fast_regexp, JSRegExp::kSourceOffset);
-    TNode<String> flags = CAST(FlagsGetter(context, fast_regexp, true));
+    CSA_ASSERT(this, IsFastRegExp(context, regexp));
 
     // c. Let matcher be ? Construct(C, « R, flags »).
-    var_matcher = RegExpCreate(context, native_context, source, flags);
+    var_matcher = Select<Object>(
+        create_internal_regexp,
+        [&] {
+          TNode<Object> source =
+              LoadObjectField(CAST(regexp), JSRegExp::kSourceOffset);
+          TNode<String> flags = CAST(FlagsGetter(context, regexp, true));
+          return RegExpCreate(context, native_context, source, flags);
+        },
+        [&] { return regexp; });
     CSA_ASSERT(this, IsFastRegExp(context, var_matcher.value()));
 
     // d. Let global be ? ToBoolean(? Get(matcher, "global")).
@@ -2019,7 +2021,7 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
 
     // f. Let lastIndex be ? ToLength(? Get(R, "lastIndex")).
     // g. Perform ? Set(matcher, "lastIndex", lastIndex, true).
-    FastStoreLastIndex(var_matcher.value(), FastLoadLastIndex(fast_regexp));
+    FastStoreLastIndex(var_matcher.value(), FastLoadLastIndex(regexp));
     Goto(&create_iterator);
   }
   BIND(&if_slow_regexp);
@@ -2028,17 +2030,16 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
     TNode<Object> regexp_fun =
         LoadContextElement(native_context, Context::REGEXP_FUNCTION_INDEX);
     TNode<Object> species_constructor =
-        SpeciesConstructor(native_context, maybe_regexp, regexp_fun);
+        SpeciesConstructor(native_context, regexp, regexp_fun);
 
     // b. Let flags be ? ToString(? Get(R, "flags")).
-    TNode<Object> flags = GetProperty(context, maybe_regexp,
-                                      isolate()->factory()->flags_string());
+    TNode<Object> flags =
+        GetProperty(context, regexp, isolate()->factory()->flags_string());
     TNode<String> flags_string = ToString_Inline(context, flags);
 
     // c. Let matcher be ? Construct(C, « R, flags »).
-    var_matcher =
-        CAST(ConstructJS(CodeFactory::Construct(isolate()), context,
-                         species_constructor, maybe_regexp, flags_string));
+    var_matcher = CAST(ConstructJS(CodeFactory::Construct(isolate()), context,
+                                   species_constructor, regexp, flags_string));
 
     // d. Let global be ? ToBoolean(? Get(matcher, "global")).
     var_global = UncheckedCast<Int32T>(
@@ -2050,47 +2051,12 @@ TNode<Object> RegExpBuiltinsAssembler::MatchAllIterator(
 
     // f. Let lastIndex be ? ToLength(? Get(R, "lastIndex")).
     TNode<Number> last_index = UncheckedCast<Number>(
-        ToLength_Inline(context, SlowLoadLastIndex(context, maybe_regexp)));
+        ToLength_Inline(context, SlowLoadLastIndex(context, regexp)));
 
     // g. Perform ? Set(matcher, "lastIndex", lastIndex, true).
     SlowStoreLastIndex(context, var_matcher.value(), last_index);
 
     Goto(&create_iterator);
-  }
-  // 3. Else,
-  BIND(&if_not_regexp);
-  {
-    // a. Let flags be "g".
-    // b. Let matcher be ? RegExpCreate(R, flags).
-    var_matcher = RegExpCreate(context, native_context, maybe_regexp,
-                               StringConstant("g"));
-
-    // d. Let global be true.
-    var_global = Int32Constant(1);
-
-    // e. Let fullUnicode be false.
-    var_unicode = Int32Constant(0);
-
-    Label if_matcher_slow_regexp(this, Label::kDeferred);
-    BranchIfFastRegExp(context, var_matcher.value(), &create_iterator,
-                       &if_matcher_slow_regexp);
-    BIND(&if_matcher_slow_regexp);
-    {
-      // c. If ? IsRegExp(matcher) is not true, throw a TypeError exception.
-      GotoIfNot(IsRegExp(context, var_matcher.value()), &throw_type_error);
-
-      // f. If ? Get(matcher, "lastIndex") is not 0, throw a TypeError
-      // exception.
-      TNode<Object> last_index =
-          CAST(LoadLastIndex(context, var_matcher.value(), false));
-      Branch(SmiEqual(SmiConstant(0), last_index), &create_iterator,
-             &throw_type_error);
-    }
-  }
-  BIND(&throw_type_error);
-  {
-    ThrowTypeError(context, MessageTemplate::kIncompatibleMethodReceiver,
-                   StringConstant(method_name), maybe_regexp);
   }
   // 4. Return ! CreateRegExpStringIterator(matcher, S, global, fullUnicode).
   // CreateRegExpStringIterator ( R, S, global, fullUnicode )
@@ -2164,7 +2130,7 @@ TF_BUILTIN(RegExpPrototypeMatchAll, RegExpBuiltinsAssembler) {
   // 3. Return ? MatchAllIterator(R, string).
   Return(MatchAllIterator(
       context, native_context, receiver, ToString_Inline(context, string),
-      IsFastRegExp(context, receiver), "RegExp.prototype.@@matchAll"));
+      IsFastRegExp(context, receiver), Int32TrueConstant()));
 }
 
 // Helper that skips a few initial checks. and assumes...
