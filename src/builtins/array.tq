@@ -100,11 +100,11 @@ module array {
   javascript builtin ArraySpliceTorque(
       context: Context, receiver: Object, ...arguments): Object {
     // 1. Let O be ? ToObject(this value).
-    let o: Object = ToObject(context, receiver);
+    let o: JSReceiver = ToObject(context, receiver);
 
     // 2. Let len be ? ToLength(? Get(O, "length")).
     let len: Number =
-        ToLength_Inline(context, GetProperty(context, o, 'length'));
+        ToLength_Inline(context, GetProperty(context, o, LengthString));
 
     // 3. Let relativeStart be ? ToInteger(start).
     let start: Object = arguments[0];
@@ -186,7 +186,7 @@ module array {
     }
 
     // 12. Perform ? Set(A, "length", actualDeleteCount, true).
-    SetProperty(context, a, 'length', actualDeleteCount, kStrict);
+    SetProperty(context, a, LengthString, actualDeleteCount, kStrict);
 
     // 13. Let items be a List whose elements are, in left-to-right order,
     //     the portion of the actual argument list starting with the third
@@ -293,7 +293,7 @@ module array {
     // 19. Perform ? Set(O, "length", len - actualDeleteCount + itemCount,
     // true).
     SetProperty(
-        context, o, 'length', len - actualDeleteCount + itemCount, kStrict);
+        context, o, LengthString, len - actualDeleteCount + itemCount, kStrict);
 
     return a;
   }

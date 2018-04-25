@@ -4645,6 +4645,37 @@ Handle<JSArray> ElementsAccessor::Concat(Isolate* isolate, Arguments* args,
   return result_array;
 }
 
+void ElementsAccessor::CollectNumberDictionaryElementIndices(
+    Isolate* isolate, FixedArray* indices, FixedArray* values,
+    NumberDictionary* backing_store) {
+  HandleScope scope(isolate);
+  uint32_t nof_indices = 0;
+  Handle<NumberDictionary> handle_backing_store(backing_store, isolate);
+  Handle<FixedArray> handle_list(indices, isolate);
+
+  DCHECK_EQ(static_cast<uint32_t>(indices->length()),
+            backing_store->NumberOfElements());
+  DCHECK_EQ(static_cast<uint32_t>(values->length()),
+            backing_store->NumberOfElements());
+
+  DictionaryElementsAccessor::DirectCollectElementIndicesImpl(
+      isolate, Handle<JSObject>::null(), handle_backing_store,
+      GetKeysConversion::kKeepNumbers, PropertyFilter::ALL_PROPERTIES,
+      handle_list, &nof_indices);
+
+  SortIndices(isolate, handle_list, nof_indices, SKIP_WRITE_BARRIER);
+
+  for (uint32_t i = 0; i < nof_indices; i++) {
+    Object* key = indices->get(i);
+    DCHECK(key->IsSmi() || key->IsHeapNumber());
+    uint32_t key_uint = 0;
+    if (key->ToUint32(&key_uint)) {
+      const int entry = backing_store->FindEntry(key_uint);
+      values->set(i, backing_store->ValueAt(entry));
+    }
+  }
+}
+
 ElementsAccessor** ElementsAccessor::elements_accessors_ = nullptr;
 }  // namespace internal
 }  // namespace v8

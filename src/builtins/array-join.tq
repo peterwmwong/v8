@@ -1,0 +1,354 @@
+// Copyright 2018 the V8 project authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module array {
+  // Naming convention from elements.cc. We have a similar intent but implement
+  // fastpaths using generics instead of using a class hierarchy for elements
+  // kinds specific implementations.
+  type GenericElementsAccessor;
+  type FastHoleySmiElements;
+  type FastHoleyObjectElements;
+  type FastHoleyDoubleElements;
+  type DictionaryElements;
+
+  macro LoadReceiverElements<ElementsAccessor: type>(receiver: Object): Object {
+    assert(!TaggedIsSmi(receiver));
+    assert(IsJSArray(unsafe_cast<HeapObject>(receiver)));
+    let array: JSArray = unsafe_cast<JSArray>(receiver);
+    return array.elements;
+  }
+
+  LoadReceiverElements<GenericElementsAccessor>(receiver: Object): Object {
+    return receiver;
+  }
+
+  macro Load<ElementsAccessor: type>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: FixedArray = unsafe_cast<FixedArray>(elementsObj);
+    let el: Object = elements[index];
+    if (IsTheHole(el)) goto IfHole;
+    return el;
+  }
+
+  Load<GenericElementsAccessor>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let indexNumber: Number = convert<Number>(index);
+    let result: Object = GetProperty(context, elementsObj, indexNumber);
+    GotoIfException(result) otherwise IfException;
+    return result;
+  }
+
+  Load<FastHoleyDoubleElements>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: FixedDoubleArray = unsafe_cast<FixedDoubleArray>(elementsObj);
+    let el: float64 = LoadDoubleWithHoleCheck(elements, index) otherwise IfHole;
+    return AllocateHeapNumberWithValue(el);
+  }
+
+  Load<DictionaryElements>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: NumberDictionary = unsafe_cast<NumberDictionary>(elementsObj);
+    return BasicLoadNumberDictionaryElement(elements, index)
+    otherwise IfHole, IfHole;
+  }
+
+  macro JoinToLocaleString(context: Context, element: Object): never
+  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+    if (IsNullOrUndefined(element)) goto IfEmpty;
+
+    let prop: Object = GetProperty(context, element, 'toLocaleString');
+    GotoIfException(prop) otherwise IfException;
+    try {
+      let callable: Callable = cast<Callable>(prop) otherwise TypeError;
+      let result: Object = Call(context, callable, element);
+      GotoIfException(result) otherwise IfException;
+      result = ToString(context, result);
+      GotoIfException(result) otherwise IfException;
+      goto IfStringWithSideEffects(unsafe_cast<String>(result));
+    }
+    label TypeError {
+      goto IfException(NewTypeError(context, kCalledNonCallable, prop));
+    }
+  }
+
+  macro JoinToString<ElementsAccessor: type>(context: Context,
+                                             element: Object): never
+  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+    if (TaggedIsSmi(element)) {
+      goto IfString(SmiToString(unsafe_cast<Smi>(element)));
+    } else if (IsString(unsafe_cast<HeapObject>(element))) {
+      goto IfString(unsafe_cast<String>(element));
+    } else if (IsNullOrUndefined(element)) {
+      goto IfEmpty;
+    }
+    let result: Object = ToString(context, element);
+    GotoIfException(result) otherwise IfException;
+    goto IfStringWithSideEffects(unsafe_cast<String>(result));
+  }
+
+  JoinToString<FastHoleySmiElements>(context: Context, element: Object): never
+  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+    goto IfString(SmiToString(unsafe_cast<Smi>(element)));
+  }
+
+  JoinToString<FastHoleyDoubleElements>(
+      context: Context, element: Object): never
+  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+    goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)));
+  }
+
+  // Verifies the current element accessor can still be safely used
+  // (see Load<ElementsAccessor>). Otherwise go to Cannot.
+  macro CanUseSameAccessor<ElementsAccessor: type>(
+      originalMap: Object, originalLen: Object, receiver: Object): bool {
+    let array: JSArray = unsafe_cast<JSArray>(receiver);
+    if (originalMap != array.map) return false;
+    if (originalLen != array.length) return false;
+    if (IsNoElementsProtectorCellInvalid()) return false;
+    return true;
+  }
+
+  CanUseSameAccessor<GenericElementsAccessor>(
+      originalMap: Object, originalLen: Object, receiver: Object): bool {
+    return true;
+  }
+
+  macro ArrayJoinImpl<ElementsAccessor: type>(
+      useLocale: constexpr bool, context: Context, receiver: Object,
+      sep: String, initialString: String, initialIndex: intptr,
+      initialLen: Number, initialMap: Object): String
+  labels Continuation(intptr, String), IfException(Object) {
+    // 5. Let R be the empty String.
+    let r: String = initialString;
+
+    let elements: Object = LoadReceiverElements<ElementsAccessor>(receiver);
+    let len: intptr = convert<intptr>(initialLen);
+
+    // 6. Let kelements be 0.
+    // 7. Repeat, while k < len
+    for (let k: intptr = initialIndex; k < len; k++) {
+      try {
+        // a. If k > 0, let R be the string-concatenation of R and sep.
+        if (k > 0) {
+          // TODO(pwong): See if this optimization actually needed
+          // if (nonEmptySep) r = StringAdd_CheckNone_NotTenured(context, r, sep);
+          r = StringAdd_CheckNone_NotTenured(context, r, sep);
+        }
+
+        // b. Let element be ? Get(O, ! ToString(k)).
+        let element: Object = Load<ElementsAccessor>(context, elements, k)
+        otherwise Skip, IfException;
+
+        // c. If element is undefined or null, let next be the empty String;
+        //    otherwise, let next be ? ToString(element).
+        if constexpr (useLocale) {
+          JoinToLocaleString(context, element)
+          otherwise Skip, IfString, IfStringWithSideEffects, IfException;
+        } else {
+          JoinToString<ElementsAccessor>(context, element)
+          otherwise Skip, IfString, IfStringWithSideEffects, IfException;
+        }
+      }
+      label Skip {}
+      label IfString(next: String) {
+        r = StringAdd_CheckNone_NotTenured(context, r, next);
+      }
+      label IfStringWithSideEffects(next: String) {
+        r = StringAdd_CheckNone_NotTenured(context, r, next);
+
+        // If JS code may have been called, there's a possibility the receiver
+        // was mutated in a way the current element accessor no longer
+        // applies.
+        if (!CanUseSameAccessor<ElementsAccessor>(
+                initialMap, initialLen, receiver)) {
+          goto Continuation(k + 1, r);
+        }
+      }
+
+      // d. Increment k by 1.
+    }
+
+    // 8. Return R.
+    return r;
+  }
+
+  macro JSArrayJoin(
+    context: Context, receiver: JSArray, sep: String, len: Number,
+    useLocale: constexpr bool): String
+  labels Continuation(intptr, String), IfException(Object) {
+    let map: Map = receiver.map;
+    let kind: ElementsKind = map.elements_kind;
+    let lenObj: Object = len;
+    if (IsPrototypeInitialArrayPrototype(context, map) &&
+        !IsNoElementsProtectorCellInvalid() && lenObj == receiver.length) {
+      if (TaggedIsSmi(len)) {
+        if (kind <= HOLEY_SMI_ELEMENTS) {
+          return ArrayJoinImpl<FastHoleySmiElements>(
+              useLocale, context, receiver, sep, EmptyString, 0, len, map)
+          otherwise Continuation, IfException;
+        } else if (kind <= HOLEY_ELEMENTS) {
+          return ArrayJoinImpl<FastHoleyObjectElements>(
+              useLocale, context, receiver, sep, EmptyString, 0, len, map)
+          otherwise Continuation, IfException;
+        } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
+          return ArrayJoinImpl<FastHoleyDoubleElements>(
+              useLocale, context, receiver, sep, EmptyString, 0, len, map)
+          otherwise Continuation, IfException;
+        }
+      }
+      if (kind == DICTIONARY_ELEMENTS &&
+          HasComplexElements(context, receiver) == False) {
+        let elements: NumberDictionary =
+            unsafe_cast<NumberDictionary>(receiver.elements);
+        return ArrayJoinImpl<DictionaryElements>(
+                useLocale, context, receiver, sep, EmptyString, 0, len, map)
+        otherwise Continuation, IfException;
+      }
+    }
+    goto Continuation(0, EmptyString);
+  }
+
+  macro NormalizeJoinSeperator(context: Context, obj: Object): String {
+    // 3. If separator is undefined, let sep be the single-element String ",".
+    // 4. Else, let sep be ? ToString(separator).
+    return obj == Undefined ? from_constexpr<String>(',')
+                            : ToString_Inline(context, obj);
+  }
+
+  macro ArrayJoin(context: Context, receiverObj: Object, sepObj: Object,
+      useLocale: constexpr bool): Object {
+    // 1. Let O be ? ToObject(this value).
+    let receiver: JSReceiver = ToObject(context, receiverObj);
+    let result: Object = Undefined;
+    let exception: Object = Undefined;
+    try {
+      let len: Number;
+      let sep: String;
+      try {
+        if (IsJSArray(receiver)) {
+          let receiverArray: JSArray = unsafe_cast<JSArray>(receiver);
+
+          // 2. Let len be ? ToLength(? Get(O, "length")).
+          len = receiverArray.length;
+          sep = NormalizeJoinSeperator(context, sepObj);
+          JoinStackPush(receiverObj) otherwise CycleDetected;
+          result = JSArrayJoin(context, receiverArray, sep, len, useLocale)
+              otherwise Continuation, IfException;
+        } else {
+          // 2. Let len be ? ToLength(? Get(O, "length")).
+          let lenObj: Object = GetProperty(context, receiver, LengthString);
+          len = ToLength_Inline(context, lenObj);
+          sep = NormalizeJoinSeperator(context, sepObj);
+          goto Continuation(0, EmptyString);
+        }
+      }
+      label Continuation(continueIndex: intptr, initialString: String) {
+        try {
+          result = ArrayJoinImpl<GenericElementsAccessor>(
+              useLocale, context, receiver, sep, initialString, continueIndex,
+              len, Undefined)
+          otherwise Continuation, IfException;
+        }
+        label Continuation(continueIndex: intptr, initialString: String) {
+          // By design, ArrayJoinImpl's GenericElementsAccessor element accessor
+          // handles all cases and never bails out (see
+          // CanUseSameAccessor<GenericElementsAccessor>).
+          unreachable;
+        }
+      }
+      label CycleDetected { return EmptyString; }
+    }
+    label IfException(e: Object) { exception = e; }
+    JoinStackPop(receiverObj);
+    if (exception != Undefined) ReThrowError(context, exception);
+    return result;
+  }
+
+  javascript builtin ArrayPrototypeToLocaleString(
+      context: Context, receiver: Object): Object {
+    return ArrayJoin(context, receiver, Undefined, true);
+  }
+
+  javascript builtin ArrayPrototypeJoin(
+      context: Context, receiver: Object, sepObj: Object): Object {
+    return ArrayJoin(context, receiver, sepObj, false);
+  }
+
+  // The Join Stack detects cyclical calls to Array.p.join.  This FixedArray
+  // holds a stack of JSArrays that are receivers to the current call
+  // to Array.p.join. The Array.p.join builtin is responsible for calling
+  // JoinStackPush and JoinStackPop when visiting and leaving a JSArray,
+  // respectively.
+  extern macro LoadJoinStack(): FixedArray;
+  extern macro SetJoinStack(FixedArray): void;
+  const kMinJoinStackSize: constexpr int32 generates
+  'JSArray::kMinJoinStackSize';
+
+  // Adds a receiver to the stack. The FixedArray will automaticlly grow to
+  // accomadate the receiver. If the receiver already exists on the stack,
+  // this indicates a cyclical call and CycleDetected will be taken.
+  macro JoinStackPush(receiver: Object)
+  labels CycleDetected {
+    let stack: FixedArray = LoadJoinStack();
+    // Fast path the common non-nested join call case.
+    if (stack[0] == Hole) {
+      stack[0] = receiver;
+      return;
+    }
+
+    let len: intptr = stack.length_intptr;
+    for (let i: intptr = 0; i < len; i++) {
+      let previouslyVisited: Object = stack[i];
+
+      // Add `receiver` to the first open slot
+      if (previouslyVisited == Hole) {
+        stack[i] = receiver;
+        return;
+      }
+
+      // Detect cycles
+      if (receiver == previouslyVisited) goto CycleDetected;
+    }
+
+    // If no open slots were found, grow the stack and add receiver to the end.
+    // Growth rate is analog to JSObject::NewElementsCapacity:
+    // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
+    let capacity: intptr = (len + (len >>> 1)) + 16;
+    let newStack: FixedArray =
+        ExtractFixedArray(stack, 0, len, capacity, kFixedArrays);
+    newStack[len] = receiver;
+    SetJoinStack(newStack);
+  }
+
+  // Removes a receiver from the stack. The FixedArray will automaticlly shrink
+  // to Heap::kMinJoinStackSize once the stack becomes empty.
+  macro JoinStackPop(receiver: Object): void {
+    let stack: FixedArray = LoadJoinStack();
+    let len: intptr = stack.length_intptr;
+    try {
+      for (let i: intptr = 0; i < len; i++) {
+        let el: Object = stack[i];
+        if (el == receiver) goto RemoveAndShrink(i);
+        if (el == Hole) return;
+      }
+      unreachable;
+    }
+    label RemoveAndShrink(i: intptr) {
+      stack[i] = Hole;
+      if (i == 0 && len > kMinJoinStackSize) {
+        // TODO(pwong): Should be passing AllocationFlags, torque compiler error
+        let newStack: FixedArray =
+            AllocateFixedArray(PACKED_ELEMENTS, IntPtrConstant(kMinJoinStackSize));
+        assert(kMinJoinStackSize == 2);
+        newStack[0] = Hole;
+        newStack[1] = Hole;
+        SetJoinStack(newStack);
+      }
+    }
+  }
+}

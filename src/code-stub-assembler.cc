@@ -940,6 +940,12 @@ TNode<Float64T> CodeStubAssembler::LoadDoubleWithHoleCheck(
                                      SMI_PARAMETERS, if_hole);
 }
 
+TNode<Float64T> CodeStubAssembler::LoadDoubleWithHoleCheck(
+    TNode<FixedDoubleArray> array, TNode<IntPtrT> index, Label* if_hole) {
+  return LoadFixedDoubleArrayElement(array, index, MachineType::Float64(), 0,
+                                     INTPTR_PARAMETERS, if_hole);
+}
+
 void CodeStubAssembler::BranchIfPrototypesHaveNoElements(
     Node* receiver_map, Label* definitely_no_elements,
     Label* possibly_elements) {
@@ -4966,6 +4972,13 @@ void CodeStubAssembler::ThrowTypeError(Node* context,
   Unreachable();
 }
 
+TNode<Object> CodeStubAssembler::NewTypeError(TNode<Context> context,
+                                              MessageTemplate::Template message,
+                                              TNode<Object> arg0) {
+  Node* template_index = SmiConstant(message);
+  return CallRuntime(Runtime::kNewTypeError, context, template_index, arg0);
+}
+
 TNode<BoolT> CodeStubAssembler::InstanceTypeEqual(
     SloppyTNode<Int32T> instance_type, int type) {
   return Word32Equal(instance_type, Int32Constant(type));
@@ -6355,8 +6368,14 @@ TNode<Number> CodeStubAssembler::StringToNumber(TNode<String> input) {
 }
 
 TNode<String> CodeStubAssembler::NumberToString(TNode<Number> input) {
+  return Select<String>(TaggedIsSmi(input),
+                        [&] { return SmiToString(CAST(input)); },
+                        [&] { return HeapNumberToString(CAST(input)); });
+}
+
+TNode<String> CodeStubAssembler::HeapNumberToString(TNode<HeapNumber> input) {
   TVARIABLE(String, result);
-  Label runtime(this, Label::kDeferred), smi(this), done(this, &result);
+  Label runtime(this, Label::kDeferred), done(this, &result);
 
   // Load the number string cache.
   Node* number_string_cache = LoadRoot(Heap::kNumberStringCacheRootIndex);
@@ -6369,15 +6388,10 @@ TNode<String> CodeStubAssembler::NumberToString(TNode<Number> input) {
   TNode<IntPtrT> one = IntPtrConstant(1);
   mask = IntPtrSub(mask, one);
 
-  GotoIf(TaggedIsSmi(input), &smi);
-
-  TNode<HeapNumber> heap_number_input = CAST(input);
-
   // Make a hash from the two 32-bit values of the double.
-  TNode<Int32T> low =
-      LoadObjectField<Int32T>(heap_number_input, HeapNumber::kValueOffset);
-  TNode<Int32T> high = LoadObjectField<Int32T>(
-      heap_number_input, HeapNumber::kValueOffset + kIntSize);
+  TNode<Int32T> low = LoadObjectField<Int32T>(input, HeapNumber::kValueOffset);
+  TNode<Int32T> high =
+      LoadObjectField<Int32T>(input, HeapNumber::kValueOffset + kIntSize);
   TNode<Word32T> hash = Word32Xor(low, high);
   TNode<WordT> word_hash = WordShl(ChangeInt32ToIntPtr(hash), one);
   TNode<WordT> index =
@@ -6407,25 +6421,46 @@ TNode<String> CodeStubAssembler::NumberToString(TNode<Number> input) {
     // No cache entry, go to the runtime.
     result = CAST(CallRuntime(Runtime::kNumberToStringSkipCache,
                               NoContextConstant(), input));
-  }
-  Goto(&done);
-
-  BIND(&smi);
-  {
-    // Load the smi key, make sure it matches the smi we're looking for.
-    Node* smi_index = BitcastWordToTagged(
-        WordAnd(WordShl(BitcastTaggedToWord(input), one), mask));
-    Node* smi_key = LoadFixedArrayElement(number_string_cache, smi_index, 0,
-                                          SMI_PARAMETERS);
-    GotoIf(WordNotEqual(smi_key, input), &runtime);
-
-    // Smi match, return value from cache entry.
-    IncrementCounter(isolate()->counters()->number_to_string_native(), 1);
-    result = CAST(LoadFixedArrayElement(number_string_cache, smi_index,
-                                        kPointerSize, SMI_PARAMETERS));
     Goto(&done);
   }
+  BIND(&done);
+  return result.value();
+}
 
+TNode<String> CodeStubAssembler::SmiToString(TNode<Smi> input) {
+  TVARIABLE(String, result);
+  Label runtime(this, Label::kDeferred), done(this, &result);
+
+  // Load the number string cache.
+  Node* number_string_cache = LoadRoot(Heap::kNumberStringCacheRootIndex);
+
+  // Make the hash mask from the length of the number string cache. It
+  // contains two elements (number and string) for each cache entry.
+  // TODO(ishell): cleanup mask handling.
+  Node* mask =
+      BitcastTaggedToWord(LoadFixedArrayBaseLength(number_string_cache));
+  TNode<IntPtrT> one = IntPtrConstant(1);
+  mask = IntPtrSub(mask, one);
+
+  // Load the smi key, make sure it matches the smi we're looking for.
+  Node* smi_index = BitcastWordToTagged(
+      WordAnd(WordShl(BitcastTaggedToWord(input), one), mask));
+  Node* smi_key =
+      LoadFixedArrayElement(number_string_cache, smi_index, 0, SMI_PARAMETERS);
+  GotoIf(WordNotEqual(smi_key, input), &runtime);
+
+  // Smi match, return value from cache entry.
+  IncrementCounter(isolate()->counters()->number_to_string_native(), 1);
+  result = CAST(LoadFixedArrayElement(number_string_cache, smi_index,
+                                      kPointerSize, SMI_PARAMETERS));
+  Goto(&done);
+  BIND(&runtime);
+  {
+    // No cache entry, go to the runtime.
+    result = CAST(CallRuntime(Runtime::kNumberToStringSkipCache,
+                              NoContextConstant(), input));
+    Goto(&done);
+  }
   BIND(&done);
   return result.value();
 }
@@ -6851,6 +6886,8 @@ TNode<String> CodeStubAssembler::ToString(SloppyTNode<Context> context,
   Label not_heap_number(this);
   Branch(IsHeapNumberMap(input_map), &is_number, &not_heap_number);
 
+  // TODO(pwong): Remove NumberToString, go straight to SmiToString and
+  // HeapNumberToString.
   BIND(&is_number);
   TNode<Number> number_input = CAST(input);
   result.Bind(NumberToString(number_input));
@@ -11896,6 +11933,11 @@ Node* CodeStubAssembler::IsHoleyFastElementsKind(Node* elements_kind) {
 Node* CodeStubAssembler::IsElementsKindGreaterThan(
     Node* target_kind, ElementsKind reference_kind) {
   return Int32GreaterThan(target_kind, Int32Constant(reference_kind));
+}
+
+TNode<BoolT> CodeStubAssembler::IsElementsKindLessThanOrEqual(
+    TNode<Int32T> target_kind, ElementsKind reference_kind) {
+  return Int32LessThanOrEqual(target_kind, Int32Constant(reference_kind));
 }
 
 Node* CodeStubAssembler::IsDebugActive() {
