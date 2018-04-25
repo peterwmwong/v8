@@ -324,42 +324,9 @@ function SimpleMove(array, start_i, del_count, len, num_additional_args) {
 
 // -------------------------------------------------------------------
 
-var ArrayJoin;
-DEFINE_METHOD(
-  GlobalArray.prototype,
-  toString() {
-    var array;
-    var func;
-    if (IS_ARRAY(this)) {
-      func = this.join;
-      if (func === ArrayJoin) {
-        return Join(this, this.length, ',', false);
-      }
-      array = this;
-    } else {
-      array = TO_OBJECT(this);
-      func = array.join;
-    }
-    if (!IS_CALLABLE(func)) {
-      return %_Call(ObjectToString, array);
-    }
-    return %_Call(func, array);
-  }
-);
-
 function InnerArrayToLocaleString(array, length) {
   return Join(array, TO_LENGTH(length), ',', true);
 }
-
-
-DEFINE_METHOD(
-  GlobalArray.prototype,
-  toLocaleString() {
-    var array = TO_OBJECT(this);
-    var arrayLen = array.length;
-    return InnerArrayToLocaleString(array, arrayLen);
-  }
-);
 
 
 function InnerArrayJoin(separator, array, length) {
@@ -380,15 +347,6 @@ function InnerArrayJoin(separator, array, length) {
 }
 
 
-DEFINE_METHOD(
-  GlobalArray.prototype,
-  join(separator) {
-    var array = TO_OBJECT(this);
-    var length = TO_LENGTH(array.length);
-
-    return InnerArrayJoin(separator, array, length);
-  }
-);
 
 
 // For implementing reverse() on large, sparse arrays.

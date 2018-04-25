@@ -77,6 +77,27 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     return StoreFixedArrayElement(array, index, value);
   }
 
+  TNode<FixedArray> LoadJoinStack() {
+    return TNode<FixedArray>::UncheckedCast(
+        LoadRoot(Heap::kArrayJoinStackRootIndex));
+  }
+
+  void SetJoinStack(TNode<FixedArray> stack) {
+    StoreRoot(Heap::kArrayJoinStackRootIndex, stack);
+  }
+
+  void CallCCollectNumberDictionaryElementIndices(
+      TNode<FixedArray> indices, TNode<FixedArray> values,
+      TNode<NumberDictionary> backing_store) {
+    TNode<ExternalReference> f = ExternalConstant(
+        ExternalReference::collect_number_dictionary_element_indices());
+    TNode<ExternalReference> isolate_ptr =
+        ExternalConstant(ExternalReference::isolate_address(isolate()));
+    MachineType type_tagged = MachineType::AnyTagged();
+    CallCFunction4(type_tagged, type_tagged, type_tagged, type_tagged,
+                   type_tagged, f, isolate_ptr, indices, values, backing_store);
+  }
+
  protected:
   TNode<Context> context() { return context_; }
   TNode<Object> receiver() { return receiver_; }

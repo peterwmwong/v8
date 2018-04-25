@@ -792,6 +792,12 @@ ExternalReference ExternalReference::check_object_type() {
   return ExternalReference(Redirect(FUNCTION_ADDR(CheckObjectType)));
 }
 
+ExternalReference
+ExternalReference::collect_number_dictionary_element_indices() {
+  return ExternalReference(Redirect(
+      FUNCTION_ADDR(ElementsAccessor::CollectNumberDictionaryElementIndices)));
+}
+
 #ifdef V8_INTL_SUPPORT
 ExternalReference ExternalReference::intl_convert_one_byte_to_lower() {
   return ExternalReference(Redirect(FUNCTION_ADDR(ConvertOneByteToLower)));

@@ -226,6 +226,7 @@ namespace internal {
   V(FixedArray, single_character_string_cache, SingleCharacterStringCache)   \
   V(FixedArray, string_split_cache, StringSplitCache)                        \
   V(FixedArray, regexp_multiple_cache, RegExpMultipleCache)                  \
+  V(FixedArray, array_join_stack, ArrayJoinStack)                            \
   /* Lists and dictionaries */                                               \
   V(NameDictionary, empty_property_dictionary, EmptyPropertyDictionary)      \
   V(NameDictionary, public_symbol_table, PublicSymbolTable)                  \
