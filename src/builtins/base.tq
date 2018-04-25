@@ -68,6 +68,8 @@ const BIGINT64_ELEMENTS: constexpr ElementsKind = 'BIGINT64_ELEMENTS';
 
 const kAllFixedArrays: constexpr ExtractFixedArrayFlags =
     'ExtractFixedArrayFlag::kAllFixedArrays';
+const kFixedArrays: constexpr ExtractFixedArrayFlags =
+    'ExtractFixedArrayFlag::kFixedArrays';
 
 const kCOWMap: Map = 'LoadRoot(Heap::kFixedCOWArrayMapRootIndex)';
 const kEmptyFixedArray: FixedArrayBase =
@@ -95,6 +97,7 @@ const Null: Oddball = 'NullConstant()';
 const Undefined: Oddball = 'UndefinedConstant()';
 const True: Boolean = 'TrueConstant()';
 const False: Boolean = 'FalseConstant()';
+const EmptyString: String = 'EmptyStringConstant()';
 const true: constexpr bool = 'true';
 const false: constexpr bool = 'false';
 
@@ -112,6 +115,7 @@ extern macro HasProperty(HeapObject, Object, Context, HasPropertyFlag): Oddball;
 extern macro ThrowRangeError(Context, MessageTemplate): never;
 extern macro ThrowTypeError(Context, MessageTemplate): never;
 extern macro ThrowTypeError(Context, MessageTemplate, Object): never;
+extern macro ReThrowException(Context, Object): never;
 extern macro ArraySpeciesCreate(Context, Object, Number): Object;
 extern macro EnsureArrayPushable(Map): ElementsKind labels Bailout;
 
@@ -138,6 +142,10 @@ extern operator '<=' macro SmiLessThanOrEqual(Smi, Smi): bool;
 extern operator '>' macro SmiGreaterThan(Smi, Smi): bool;
 extern operator '>=' macro SmiGreaterThanOrEqual(Smi, Smi): bool;
 
+
+extern operator '==' macro ElementsKindEqual(ElementsKind, ElementsKind): bool;
+extern operator '==' macro ElementsKindEqual(
+    ElementsKind, constexpr ElementsKind): bool;
 extern operator '==' macro ElementsKindEqual(
     constexpr ElementsKind, constexpr ElementsKind): constexpr bool;
 extern macro IsFastElementsKind(constexpr ElementsKind): constexpr bool;
@@ -202,6 +210,8 @@ extern operator
 extern operator 'cast<>' macro TaggedToSmi(Object): Smi labels CastError;
 extern operator
 'cast<>' macro TaggedToJSArray(Object): JSArray labels CastError;
+extern operator
+'cast<>' macro TaggedToString(Object): String labels CastError;
 extern operator
 'cast<>' macro TaggedToCallable(Object): Callable labels CastError;
 extern operator 'cast<>' macro ConvertFixedArrayBaseToFixedArray(
@@ -296,6 +306,26 @@ extern macro ExtractFixedArray(
 
 extern builtin ExtractFastJSArray(Context, JSArray, Smi, Smi): JSArray;
 
+macro LoadFixedArrayElementNoHole<T: type, ElementType: type>(a: T, index: Smi): ElementType
+labels IfHole {
+  unreachable;
+}
+
+LoadFixedArrayElementNoHole<FixedArray, Object>(
+    elements: FixedArray, index: Smi): Object
+labels IfHole {
+  let e: Object = elements[index];
+  if (e == Hole) goto IfHole;
+  return e;
+}
+
+LoadFixedArrayElementNoHole<FixedDoubleArray, HeapNumber>(
+    elements: FixedDoubleArray, index: Smi): HeapNumber
+labels IfHole {
+  let e: float64 = LoadDoubleWithHoleCheck(elements, index) otherwise IfHole;
+  return AllocateHeapNumberWithValue(e);
+}
+
 macro LoadElementNoHole<T : type>(a: JSArray, index: Smi): Object
 labels IfHole {
   unreachable;
@@ -306,11 +336,8 @@ labels IfHole {
   try {
     let elements: FixedArray =
         cast<FixedArray>(a.elements) otherwise Unexpected;
-    let e: Object = elements[index];
-    if (e == Hole) {
-      goto IfHole;
-    }
-    return e;
+    return LoadFixedArrayElementNoHole<FixedArray, Object>(elements, index)
+    otherwise IfHole;
   }
   label Unexpected {
     unreachable;
@@ -322,8 +349,8 @@ labels IfHole {
   try {
     let elements: FixedDoubleArray =
         cast<FixedDoubleArray>(a.elements) otherwise Unexpected;
-    let e: float64 = LoadDoubleWithHoleCheck(elements, index) otherwise IfHole;
-    return AllocateHeapNumberWithValue(e);
+    return LoadFixedArrayElementNoHole<FixedDoubleArray, HeapNumber>(elements, index)
+    otherwise IfHole;
   }
   label Unexpected {
     unreachable;
@@ -343,3 +370,9 @@ macro HasPropertyObject(
 extern macro IsCallable(HeapObject): bool;
 extern macro TaggedIsCallable(Object): bool;
 extern macro IsDetachedBuffer(JSArrayBuffer): bool;
+extern macro HeapNumberToString(HeapNumber): String;
+extern macro SmiToString(Smi): String;
+extern macro GotoIfException(Object): void labels IfException(Object);
+
+extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
+extern builtin ToString(Context, Object): String;

@@ -3,6 +3,9 @@
 // found in the LICENSE file.
 
 module array {
+  extern macro LoadJoinStack(): FixedArray;
+  extern macro SetJoinStack(FixedArray): void;
+
   macro FastArraySplice(
       context: Context, args: Arguments, o: Object,
       originalLengthNumber: Number, actualStartNumber: Number, insertCount: Smi,
@@ -465,5 +468,255 @@ module array {
       ThrowTypeError(
           context, kCalledOnNullOrUndefined, 'Array.prototype.forEach');
     }
+  }
+
+  macro NormalizeJoinSeperator(context: Context, obj: Object): String {
+    // 3. If separator is undefined, let sep be the single-element String ",".
+    // 4. Else, let sep be ? ToString(separator).
+    return obj == Undefined ? ',' : ToString_Inline(context, obj);
+  }
+
+  macro JoinToStringElement<T: type>(context: Context, element: T): String
+  labels IfJSCall(String), IfNullOrUndefined {
+    unreachable;
+  }
+
+  JoinToStringElement<Object>(context: Context, element: Object): String
+  labels IfJSCall(String), IfNullOrUndefined {
+    try { return SmiToString(cast<Smi>(element) otherwise Next); }
+    label Next {}
+    try { return cast<String>(element) otherwise Next; }
+    label Next {}
+
+    if (IsNullOrUndefined(element)) goto IfNullOrUndefined;
+    goto IfJSCall(ToString(context, element));
+  }
+
+  JoinToStringElement<HeapNumber>(context: Context, element: HeapNumber): String
+  labels IfJSCall(String), IfNullOrUndefined {
+    return HeapNumberToString(element);
+  }
+
+  macro JoinElements<T : type, ElementType: type>(
+      context: Context, len: Smi, array: JSArray, sep: String): String
+  labels ContinueSlow(Smi, String) {
+    try {
+      let map: Map = array.map;
+      let elements: T = cast<T>(array.elements) otherwise Unexpected;
+
+      // 5. Let R be the empty String.
+      let r: String = EmptyString;
+
+      // 6. Let k be 0.
+      // 7. Repeat, while k < len
+      assert(len <= elements.length);
+      for (let k: Smi = 0; k < len; k++) {
+        // a. If k > 0, let R be the string-concatenation of R and sep.
+        if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
+
+        // b. Let element be ? Get(O, ! ToString(k)).
+        try {
+          let next: String;
+          let element: ElementType =
+              LoadFixedArrayElementNoHole<T, ElementType>(elements, k)
+              otherwise Skip;
+          try {
+            // c. If element is undefined or null, let next be the empty String;
+            //    otherwise, let next be ? ToString(element).
+            next = JoinToStringElement<ElementType>(context, element)
+                otherwise IfJSCall, Skip;
+          }
+          label IfJSCall(s: String) {
+            // Ensure that the map didn't change.
+            // Ensure that we haven't walked beyond a possibly updated length.
+            if (map == array.map && k < cast<Smi>(array.length) otherwise Unexpected) {
+              next = s;
+            } else {
+              goto ContinueSlow(k + 1, StringAdd_CheckNone_NotTenured(context, r, s));
+            }
+          }
+
+          // d. Set R to the string-concatenation of R and next.
+          r = StringAdd_CheckNone_NotTenured(context, r, next);
+        }
+        label Skip() {}
+
+        // e. Increase k by 1.
+      }
+
+      // 8. Return R.
+      return r;
+    }
+    label Unexpected {
+      unreachable;
+    }
+  }
+
+  builtin ArrayJoinSlow(
+      context: Context, o: Object, len: Number, sep: String, startIndex: Number,
+      initialString: String): String {
+    let r: String = initialString;
+
+    // 6. Let k be 0.
+    // 7. Repeat, while k < len
+    for (let k: Number = startIndex; k < len; k++) {
+      // a. If k > 0, let R be the string-concatenation of R and sep.
+      if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
+
+      // b. Let element be ? Get(O, ! ToString(k)).
+      let element: Object = GetProperty(context, o, k);
+
+      // c. If element is undefined or null, let next be the empty String;
+      //    otherwise, let next be ? ToString(element).
+      if (!IsNullOrUndefined(element)) {
+        // d. Set R to the string-concatenation of R and next.
+        r = StringAdd_CheckNone_NotTenured(context, r, ToString_Inline(context, element));
+      }
+
+      // e. Increase k by 1.
+    }
+
+    // 8. Return R.
+    return r;
+  }
+
+  // TODO(pwong): Rename to ArrayJoinFast
+  builtin ArrayJoin(
+      context: Context, array: JSArray, sep: String, len: Smi): String {
+    try {
+      let map: Map = array.map;
+      if (!IsPrototypeInitialArrayPrototype(context, map)) goto RestartInSlow;
+      if (IsNoElementsProtectorCellInvalid()) goto RestartInSlow;
+      if (IsArraySpeciesProtectorCellInvalid()) goto RestartInSlow;
+
+      let elementsKind: ElementsKind = map.elements_kind;
+      if (!IsFastElementsKind(elementsKind)) goto RestartInSlow;
+
+      let elements: FixedArrayBase = array.elements;
+
+      // - Getting the seperator may have a side-effect that mutated the array.
+      // - Fast JSArrays always have smi lengths.
+      let actualLength: Smi = cast<Smi>(array.length) otherwise Unexpected;
+      let minLength: Smi = len < actualLength ? len : actualLength;
+      let r: String;
+      if (IsElementsKindGreaterThan(elementsKind, HOLEY_ELEMENTS)) {
+        r = JoinElements<FixedDoubleArray, HeapNumber>(
+            context, minLength, array, sep)
+        otherwise ContinueSlow;
+      }
+      else {
+        r = JoinElements<FixedArray, Object>(context, minLength, array, sep)
+        otherwise ContinueSlow;
+      }
+
+      // If a side-effect caused length to be decreased, fill the rest with
+      // seperators.
+      while (minLength < len) {
+        r = StringAdd_CheckNone_NotTenured(context, r, sep);
+        minLength++;
+      }
+      return r;
+    }
+    label ContinueSlow(index: Smi, curResult: String) {
+      return ArrayJoinSlow(context, array, len, sep, index, curResult);
+    }
+    label RestartInSlow {
+      return ArrayJoinSlow(context, array, len, sep, 0, EmptyString);
+    }
+    label Unexpected {
+      unreachable;
+    }
+  }
+
+  javascript builtin ArrayPrototypeJoin(
+      context: Context, receiver: Object, sepObj: Object): Object {
+    // 1. Let O be ? ToObject(this value).
+    let o: Object = ToObject(context, receiver);
+    let stackIndex: Smi;
+    try {
+      let array: JSArray = cast<JSArray>(o) otherwise Slow;
+
+      // 2. Let len be ? ToLength(? Get(O, "length")).
+      let len: Smi = cast<Smi>(array.length) otherwise Slow;
+      let sep: String = NormalizeJoinSeperator(context, sepObj);
+
+      stackIndex = JoinStackPush(array) otherwise CycleDetected;
+      let result: Object = ArrayJoin(context, array, sep, len);
+      GotoIfException(result) otherwise IfException;
+      JoinStackPop(stackIndex);
+      return result;
+    }
+    label Slow {
+      // 2. Let len be ? ToLength(? Get(O, "length")).
+      let lenObj: Object = GetProperty(context, o, 'length');
+      let len: Number = ToLength_Inline(context, lenObj);
+      let sep: String = NormalizeJoinSeperator(context, sepObj);
+
+      return ArrayJoinSlow(context, o, len, sep, 0, EmptyString);
+    }
+    label CycleDetected {
+      return EmptyString;
+    }
+    label IfException(exception: Object) {
+      JoinStackPop(stackIndex);
+      ReThrowException(context, exception);
+    }
+  }
+
+  // The Join Stack is a FixedArray that holds a stack of JSArrays that have
+  // been visited by Array.p.join() and used to avoid a recursive loop.
+  // Array.p.join() is responsible for calling JoinStackPush and JoinStackPop
+  // when visiting and leaving a JSArray, respectively.
+
+  // Adds a JSArray to the stack and returns it's index in the stack. If the
+  // JSArray already exists in the stack, CycleDetected will be taken. The
+  // FixedArray will automaticlly grow to accomadate the JSArray if need be.
+  macro JoinStackPush(array: JSArray): Smi
+  labels CycleDetected {
+    let stack: FixedArray = LoadJoinStack();
+    let length: Smi = stack.length;
+    for (let i: Smi = 0; i < length; i++) {
+      let previouslyVisited:Object = stack[i];
+
+      // Add `array` to the first open slot
+      if (previouslyVisited == Hole) {
+        stack[i] = array;
+        return i;
+      }
+
+      // Detect cycles
+      if (array == previouslyVisited) goto CycleDetected;
+    }
+
+    // If no open slots were found, to grow the stack and `array` to the end.
+    // Growth rate is analog to JSObject::NewElementsCapacity:
+    // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
+    let capacity:Smi = (length + (length >>> 1)) + 16;
+    stack = ExtractFixedArray(stack, 0, length, capacity, kFixedArrays);
+    stack[length] = array;
+    SetJoinStack(stack);
+
+    // TODO(pwong): FOR DEVELOPMENT, REMOVE ME
+    Print(capacity);
+
+    return length;
+  }
+
+  // Removes a JSArray from the stack at the specified `stackIndex` (see
+  // JoinStackPush). The FixedArray will automaticlly shrink to
+  // Heap::kInitialStringJoinStackSize when the stack becomes empty.
+  macro JoinStackPop(stackIndex: Smi): void {
+    let stack: FixedArray = LoadJoinStack();
+
+    // Should not "pop" outside of the FixedArray.
+    assert(stackIndex < stack.length);
+
+    // Should only "pop" the top. If this assertion fails, this indicates not
+    // all exit cases were covered (return, exceptions, fast/slow paths).
+    assert(stackIndex == (stack.length - 1) || stack[stackIndex + 1] == Hole);
+
+    stack[stackIndex] = Hole;
+
+    // TODO(pwong): Shrink
   }
 }

@@ -12,6 +12,15 @@ namespace internal {
 
 class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
  public:
+  TNode<FixedArray> LoadJoinStack() {
+    return TNode<FixedArray>::UncheckedCast(
+        LoadRoot(Heap::kStringJoinStackRootIndex));
+  }
+
+  void SetJoinStack(TNode<FixedArray> stack) {
+    StoreRoot(Heap::kStringJoinStackRootIndex, stack);
+  }
+
   explicit ArrayBuiltinsAssembler(compiler::CodeAssemblerState* state);
 
   typedef std::function<void(ArrayBuiltinsAssembler* masm)>

@@ -720,6 +720,14 @@ void Heap::CreateInitialObjects() {
   set_regexp_multiple_cache(*factory->NewFixedArray(
       RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
 
+  // String join uses a fixed array to keep track of visited array-like objects
+  // that were previously called to avoid cycles
+  {
+    Handle<FixedArray> string_join_stack =
+        factory->NewFixedArrayWithHoles(kInitialStringJoinStackSize, TENURED);
+    set_string_join_stack(*string_join_stack);
+  }
+
   // Allocate FeedbackCell for builtins.
   Handle<FeedbackCell> many_closures_cell =
       factory->NewManyClosuresCell(factory->undefined_value());

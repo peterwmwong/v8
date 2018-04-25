@@ -168,6 +168,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
     return UncheckedCast<HeapObject>(value);
   }
 
+  TNode<HeapObject> TaggedToString(TNode<Object> value, Label* fail) {
+    TNode<HeapObject> obj = TaggedToHeapObject(value, fail);
+    GotoIfNot(IsString(obj), fail);
+    return UncheckedCast<String>(obj);
+  }
+
   TNode<JSArray> TaggedToJSArray(TNode<Object> value, Label* fail) {
     GotoIf(TaggedIsSmi(value), fail);
     TNode<HeapObject> heap_object = CAST(value);
@@ -775,6 +781,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                                      needs_poisoning);
   }
 
+  bool ElementsKindEqual(ElementsKind a, ElementsKind b) { return a == b; }
+
+  TNode<BoolT> ElementsKindEqual(TNode<Int32T> a, ElementsKind b) {
+    return Word32Equal(a, Int32Constant(b));
+  }
+
   // Load an array element from a FixedDoubleArray.
   Node* LoadFixedDoubleArrayElement(
       Node* object, Node* index, MachineType machine_type,
@@ -1361,6 +1373,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   void ThrowTypeError(Node* context, MessageTemplate::Template message,
                       Node* arg0, Node* arg1 = nullptr, Node* arg2 = nullptr);
 
+  void ReThrowException(TNode<Context> context, TNode<Object> exception);
+
   // Type checks.
   // Check whether the map is for an object with special properties, such as a
   // JSProxy or an object with interceptors.
@@ -1549,6 +1563,11 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Number> StringToNumber(TNode<String> input);
   // Convert a Number to a String.
   TNode<String> NumberToString(TNode<Number> input);
+  // Convert a HeapNumber to a String.
+  // TODO(pwong): I really want a Float64ToString to avoid HeapNumber allocation
+  // do a supa-fast fast c call.
+  TNode<String> HeapNumberToString(TNode<HeapNumber> input);
+  TNode<String> SmiToString(TNode<Smi> input);
   // Convert an object to a name.
   TNode<Name> ToName(SloppyTNode<Context> context, SloppyTNode<Object> value);
   // Convert a Non-Number object to a Number.
