@@ -186,6 +186,10 @@ class ElementsAccessor {
                                            JSTypedArray* destination,
                                            size_t start, size_t end) = 0;
 
+  static void SortIndices(
+      Isolate* isolate, Handle<FixedArray> indices, uint32_t sort_size,
+      WriteBarrierMode write_barrier_mode = UPDATE_WRITE_BARRIER);
+
  protected:
   friend class LookupIterator;
 

@@ -1331,14 +1331,14 @@ UNINITIALIZED_TEST(OneByteArrayJoin) {
     LocalContext context(isolate);
     v8::HandleScope scope(isolate);
     v8::TryCatch try_catch(isolate);
-    CHECK(CompileRun(
-              "var two_14 = Math.pow(2, 14);"
-              "var two_17 = Math.pow(2, 17);"
-              "var s = Array(two_17 + 1).join('c');"
-              "var a = ['bad'];"
-              "for (var i = 1; i <= two_14; i++) a.push(s);"
-              "a.join("
-              ");").IsEmpty());
+    CHECK(CompileRun("var two_6 = Math.pow(2, 6);"
+                     "var two_25 = Math.pow(2, 25);"
+                     "var s = Array(two_25 + 1).join('c');"
+                     "var a = ['bad'];"
+                     "for (var i = 1; i <= two_6; i++) a.push(s);"
+                     "a.join("
+                     ");")
+              .IsEmpty());
     CHECK(try_catch.HasCaught());
   }
   isolate->Exit();

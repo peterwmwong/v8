@@ -1,0 +1,657 @@
+// Copyright 2018 the V8 project authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module array {
+  type SparseElementsAccessor;
+
+  macro Load<ElementsAccessor: type>(context: Context, elements: HeapObject,
+                                     k: uintptr): Object
+  labels IfHole {
+    return GetProperty(context, elements, convert<Number>(k));
+  }
+
+  Load<FastHoleyObjectElements>(context: Context, elements: HeapObject,
+                                k: uintptr): Object
+  labels IfHole {
+    assert(IsFixedArraySubclass(elements));
+    const fixedArray: FixedArray = unsafe_cast<FixedArray>(elements);
+    const element: Object = fixedArray[k];
+    if (element == Hole) {
+      goto IfHole;
+    }
+    return element;
+  }
+
+  Load<FastHoleyDoubleElements>(context: Context, elements: HeapObject,
+                                k: uintptr): Object
+  labels IfHole {
+    assert(IsFixedDoubleArray(elements));
+    const fixedDoubleArray: FixedDoubleArray =
+        unsafe_cast<FixedDoubleArray>(elements);
+    const element: float64 =
+        LoadDoubleWithHoleCheck(fixedDoubleArray, k) otherwise IfHole;
+    return AllocateHeapNumberWithValue(element);
+  }
+
+  // TODO(pwong): Remove these, go back to a constexpr bool
+  type UseToString;
+  type UseToLocaleString;
+
+  macro IsUseToLocaleString<ToStringStrategy: type>(): constexpr bool;
+  IsUseToLocaleString<UseToString>(): constexpr bool { return false; }
+  IsUseToLocaleString<UseToLocaleString>(): constexpr bool { return true; }
+
+  macro ConvertToLocaleString(context: Context, element: Object,
+                              locales: Object, options: Object): never
+  labels IfString(String, bool), IfEmpty {
+    if (IsNullOrUndefined(element)) {
+      goto IfEmpty;
+    }
+    const prop: Object = GetProperty(context, element, 'toLocaleString');
+    try {
+      const callable: Callable = cast<Callable>(prop) otherwise TypeError;
+      const result: Object =
+          IsNullOrUndefined(locales) ? Call(context, callable, element)
+        : IsNullOrUndefined(options) ? Call(context, callable, element, locales)
+        : Call(context, callable, element, locales, options);
+      goto IfString(ToString(context, result), true);
+    }
+    label TypeError {
+      ThrowTypeError(context, kCalledNonCallable, prop);
+    }
+  }
+
+  // Specialized ToString() for Array.p.join(), allowing optimized handling for
+  // the following cases:
+  //   - IfEmpty: null or undefined
+  //   - IfString(String, bool): converted to a string and whether JS may have
+  //                             been executed.
+  macro ConvertToString<ElementsAccessor: type>(context: Context,
+                                                element: Object): never
+  labels IfString(String, bool), IfEmpty{
+    // TODO(pwong): Use type switch
+    if (TaggedIsSmi(element)) {
+      goto IfString(SmiToString(unsafe_cast<Smi>(element)), false);
+    }
+
+    const elementObj: HeapObject = unsafe_cast<HeapObject>(element);
+    if (IsString(elementObj)) {
+      goto IfString(unsafe_cast<String>(element), false);
+    } else if (IsHeapNumber(elementObj)) {
+      goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)), false);
+    } else if (IsNullOrUndefined(element)) {
+      goto IfEmpty;
+    } else {
+      goto IfString(ToString(context, element), true);
+    }
+  }
+
+  ConvertToString<FastHoleyDoubleElements>(
+      context: Context, element: Object): never
+  labels IfString(String, bool), IfEmpty {
+    // TODO(pwong): Further optimize by  creating a Float64ToString helper. This
+    // would avoid allocating the heap number (see
+    // Load<FastHoleyDoubleElements>.
+    goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)), false);
+  }
+
+  // Verifies the current element accessor can still be safely used
+  // (see Load<ElementsAccessor>). As an optimization, this is only called when
+  // ToString() may have had side-effects (see
+  // ConvertToString<ElementsAccessor> label IfStringWithSideEffects).
+  macro CannotUseSameAccessor<ElementsAccessor: type>(
+      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
+  labels Cannot, Can {
+    const array: JSArray = unsafe_cast<JSArray>(receiver);
+    if (originalMap != array.map || originalLen != array.length ||
+        IsNoElementsProtectorCellInvalid()) {
+      goto Cannot;
+    }
+    goto Can;
+  }
+
+  CannotUseSameAccessor<GenericElementsAccessor>(
+      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
+  labels Cannot, Can {
+    // The GenericElementsAccessor element accessor is designed to handle all
+    // cases when loading an element from a receiver (see
+    // Load<GenericElementsAccessor>).
+    goto Can;
+  }
+
+  CannotUseSameAccessor<SparseElementsAccessor>(
+      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
+  labels Cannot, Can {
+    // To simplify the specialization of dictionary elements, we simply bailout
+    // if any dictionary element called JS code during `ToString`.
+    // TODO(pwong): This useless identity check is to fake out Torque so it can
+    // generate the Can (else branch) in ArrayJoinImpl.
+    if (receiver == receiver) {
+      goto Cannot;
+    }
+    goto Can;
+  }
+
+  struct KeyIterator {
+    done: bool;
+    k: uintptr;
+    nofSeps: uintptr;
+    elements: HeapObject;
+
+    // Implementation details for SparseElementsAccessor specialization.
+    // Current index in `sparseKeys` that yielded the value `k`.
+    sparseKeysIndex: intptr;
+    // FixedArray of keys of the receiver (see runtime GetSortedArrayKeys).
+    sparseKeys: FixedArrayBase;
+  }
+
+  macro KeyIteratorInit<ElementsAccessor: type>(
+      context: Context, receiver: JSReceiver, len: uintptr,
+      initialK: uintptr): KeyIterator {
+    assert(IsJSArray(receiver));
+    const array: JSArray = unsafe_cast<JSArray>(receiver);
+    const elements: FixedArrayBase = array.elements;
+    // Only the GenericElementsAccessor specialization (handles continuation)
+    // is a non-zero `initialK` possible.
+    assert(initialK == 0);
+    return KeyIterator{false, 0, 0, elements, 0, kEmptyFixedArray};
+  }
+
+  KeyIteratorInit<GenericElementsAccessor>(
+      context: Context, receiver: JSReceiver, len: uintptr,
+      initialK: uintptr): KeyIterator {
+    const done: bool = initialK >= len;
+    const nofSeps: uintptr = initialK == 0 ? convert<uintptr>(0)
+      : convert<uintptr>(1);
+    return KeyIterator{done, initialK, nofSeps, receiver, 0, kEmptyFixedArray};
+  }
+
+  KeyIteratorInit<SparseElementsAccessor>(
+      context: Context, receiver: JSReceiver, len: uintptr,
+      initialK: uintptr): KeyIterator {
+    assert(IsJSArray(receiver));
+    const array: JSArray = unsafe_cast<JSArray>(receiver);
+    // Only the GenericElementsAccessor specialization (handles continuation)
+    // is a non-zero `initialK` possible.
+    assert(initialK == 0);
+    const sparseKeys: FixedArray =
+      GetSortedArrayKeys(context, array, convert<Number>(len));
+    const done: bool = IsEmptyFixedArray(sparseKeys);
+    const k: uintptr = done ? (len - 1)
+      : convert<uintptr>(unsafe_cast<Number>(sparseKeys[0]));
+
+    return KeyIterator{done, k, k, array, 0, sparseKeys};
+  }
+
+  macro KeyIteratorNext<ElementsAccessor: type>(
+      len: uintptr, iter: KeyIterator): KeyIterator {
+    const k: uintptr = iter.k + 1;
+    const done: bool = k >= len;
+    const nofSeps: uintptr = done ? from_constexpr<uintptr>(0)
+      : from_constexpr<uintptr>(1);
+    return KeyIterator{done, k, nofSeps, iter.elements, 0, iter.sparseKeys};
+  }
+
+  KeyIteratorNext<SparseElementsAccessor>(
+      len: uintptr, iter: KeyIterator): KeyIterator {
+    const sparseKeysIndex: intptr = iter.sparseKeysIndex + 1;
+    const sparseKeys: FixedArray =
+      unsafe_cast<FixedArray>(iter.sparseKeys);
+    const done: bool = sparseKeysIndex >= sparseKeys.length_intptr;
+    const k: uintptr = done ? (len - 1)
+      : convert<uintptr>(unsafe_cast<Number>(sparseKeys[sparseKeysIndex]));
+    assert(iter.k <= k);
+    const nofSeps: uintptr = k - iter.k;
+    return KeyIterator{
+      done, k, nofSeps, iter.elements, sparseKeysIndex, sparseKeys};
+  }
+
+  macro EstimateBufferSize<ElementsAccessor: type>(iter: KeyIterator,
+                                                   len: uintptr): intptr {
+    return Signed(len - iter.k + 1);
+  }
+
+  EstimateBufferSize<SparseElementsAccessor>(iter: KeyIterator,
+                                             len: uintptr): intptr {
+    const sparseKeys: FixedArray = unsafe_cast<FixedArray>(iter.sparseKeys);
+    return (sparseKeys.length_intptr << 1) + 1;
+  }
+
+  // TODO(pwong): Add more documentation.
+  //   1) Add Translation Example
+  //      - Input JS Array: [,'hello',,'world',]
+  //      - Output:         [1,'hello',1,'world',1]
+  struct Buffer {
+    // Fixed array holding elements that are either:
+    //   1) String result of `ToString(element)`
+    //   2) Smi (> 1) representing the number of consecutive seperators
+    // `BufferJoin()` iterates over and writes these entries into a flatten
+    // string.
+    fixedArray: FixedArray;
+
+    // Index to insert a new entry into `fixedArray`.
+    index: intptr;
+
+    // Running total of the resulting string length when `BufferJoin()` is
+    // called.
+    stringLen: intptr;
+
+    // `true` if all strings in the buffer are one-byte, otherwise `false`.
+    isOneByte: bool;
+  }
+
+  macro BufferInit(len: intptr, sep: String): Buffer {
+    assert(len > 0);
+    // TODO(pwong): Welp, vvv No longer sound! String max > FixedArray max!!!
+    // Implement buffer full algo in ArrayJoinImpl:
+    //
+    //    if (buffer.isFull) {
+    //      r = BufferJoin();
+    //      buffer = BufferInit();
+    //    }
+    //
+    // TODO(pwong): Write test
+    // TODO(pwong): Update vvv comment!
+    // Note about the capped length: Eventhough the receiver's length may exceed
+    // `FixedArray::kMaxLength`, because this only holds the strings (and gaps)
+    // to be rendered to a string, this is sound as long as `String::kMaxLength`
+    // is less than `FixedArray::kMaxLength`.
+    const cappedLen: intptr =
+      len < from_constexpr<intptr>(kFixedArrayMaxLength) ? len
+        : from_constexpr<intptr>(kFixedArrayMaxLength);
+    const fixedArray: FixedArray =
+      AllocateFixedArrayWithHoles(PACKED_ELEMENTS, cappedLen,
+                                  kAllowLargeObjectAllocation);
+    const sepIsOneByte: bool = IsOneByteStringInstanceType(sep.instanceType);
+    return Buffer{fixedArray, 0, 0, sepIsOneByte};
+  }
+
+  macro TryAddStringLength(context: Context, curLength: intptr,
+                           addLength: intptr): intptr {
+    try {
+      return TryIntPtrAdd(curLength, addLength) otherwise IfOverflow;
+    }
+    label IfOverflow {
+      ThrowRangeError(context, kInvalidStringLength);
+    }
+  }
+
+  macro BufferAdd(context: Context, buf: Buffer, str: String): Buffer {
+    const stringLen: intptr = TryAddStringLength(context, buf.stringLen,
+                                                 str.length);
+    const index: intptr = buf.index;
+    assert(index < buf.fixedArray.length_intptr);
+    StoreFixedArrayElement(buf.fixedArray, index, str, SKIP_WRITE_BARRIER);
+    const isOneByte: bool =
+      IsOneByteStringInstanceType(str.instanceType) & buf.isOneByte;
+    const nextIndex: intptr = index + 1;
+    return Buffer{buf.fixedArray, nextIndex, stringLen, isOneByte};
+  }
+
+  macro BufferAddSeperators(context: Context, buf: Buffer, nofSeps: uintptr,
+                            sepLen: intptr, writeAny: constexpr bool): Buffer {
+    if (nofSeps == 0 || sepLen == 0) {
+      return buf;
+    }
+    const nofSepsInt: intptr = Signed(nofSeps);
+    const sepsLen: intptr = sepLen * nofSepsInt;
+    // Detect overflow
+    if (nofSepsInt < 0 || sepsLen < 0) {
+      ThrowRangeError(context, kInvalidStringLength);
+    }
+
+    const stringLen: intptr = TryAddStringLength(context, buf.stringLen,
+                                                 sepsLen);
+    let index: intptr = buf.index;
+    if (from_constexpr<bool>(writeAny) || index == 0 || nofSepsInt > 1) {
+      assert(index < buf.fixedArray.length_intptr);
+      StoreFixedArrayElement(buf.fixedArray, index++, convert<Smi>(nofSepsInt),
+                            SKIP_WRITE_BARRIER);
+    }
+    return Buffer{buf.fixedArray, index, stringLen, buf.isOneByte};
+  }
+
+  extern macro CallWriteFixedArrayToFlatSeq(FixedArray, intptr, String,
+                                            String): String;
+  macro BufferJoin(context: Context, buf: Buffer, sep: String): String {
+    if (buf.stringLen > kStringMaxLength) {
+      ThrowRangeError(context, kInvalidStringLength);
+    }
+    assert(IsValidPositiveSmi(buf.stringLen));
+    if (buf.stringLen == 0) {
+      return EmptyString;
+    }
+    const r: String =
+      buf.isOneByte
+        ? AllocateSeqOneByteString(context, convert<Smi>(buf.stringLen))
+        : AllocateSeqTwoByteString(context, convert<Smi>(buf.stringLen));
+    return CallWriteFixedArrayToFlatSeq(buf.fixedArray, buf.index, sep, r);
+  }
+
+  macro ArrayJoinImpl<ElementsAccessor: type, ToStringStrategy: type>(
+      context: Context, receiver: JSReceiver, sep: String, lenNum: Number,
+      initialK: uintptr, locales: Object, options: Object): String
+  labels Continuation(uintptr, String) {
+    const initialMap: Map = receiver.map;
+    const len: uintptr = convert<uintptr>(lenNum);
+    assert(len > 0);
+    const sepLen: intptr = sep.length;
+    let nofSeps: uintptr = 0;
+
+    // 5. Let R be the empty String.
+    // 6. Let k be 0.
+    let iter: KeyIterator =
+      KeyIteratorInit<ElementsAccessor>(context, receiver, len, initialK);
+    const bufferLen: intptr = EstimateBufferSize<ElementsAccessor>(iter, len);
+    let buf: Buffer = BufferInit(bufferLen, sep);
+
+    // 7. Repeat, while k < len
+    while(!iter.done) {
+      let k: uintptr = iter.k;
+
+      // a. If k > 0, let R be the string-concatenation of R and sep.
+      nofSeps = nofSeps + iter.nofSeps;
+
+      try {
+        // b. Let element be ? Get(O, ! ToString(k)).
+        const element: Object =
+          Load<ElementsAccessor>(context, iter.elements, k) otherwise Skip;
+
+        // c. If element is undefined or null, let next be the empty String;
+        //    otherwise, let next be ? ToString(element).
+        if constexpr (IsUseToLocaleString<ToStringStrategy>()) {
+          ConvertToLocaleString(
+            context, element, locales, options)
+          otherwise IfString, Skip;
+        } else {
+          ConvertToString<ElementsAccessor>(context, element)
+          otherwise IfString, Skip;
+        }
+      }
+      label IfString(next: String, mayHaveCalledJS: bool) {
+        buf = BufferAddSeperators(context, buf, nofSeps, sepLen, false);
+        nofSeps = 0;
+
+        // d. Set R to the string-concatenation of R and next.
+        buf = BufferAdd(context, buf, next);
+        ++k;
+
+        if (mayHaveCalledJS && k < len) {
+          if (CannotUseSameAccessor<ElementsAccessor>(initialMap, lenNum,
+                                                      receiver)) {
+            const r: String = BufferJoin(context, buf, sep);
+            goto Continuation(k, r);
+          }
+        }
+      }
+      label Skip {}
+
+      // e. Increment k by 1.
+      iter = KeyIteratorNext<ElementsAccessor>(len, iter);
+    }
+
+    // Add any seperators at the end.
+    buf = BufferAddSeperators(context, buf, (nofSeps + iter.nofSeps), sepLen,
+                              true);
+
+    // 8. Return R.
+    return BufferJoin(context, buf, sep);
+  }
+
+  builtin ArrayJoinContinuation<ToStringStrategy: type>(
+      context: Context, receiver: JSReceiver, sep: String, len: Number,
+      initialString: String, initialK: Number, locales: Object,
+      options: Object): Object {
+    try {
+      const r: String =
+        ArrayJoinImpl<GenericElementsAccessor, ToStringStrategy>(
+          context, receiver, sep, len, convert<uintptr>(initialK), locales,
+          options)
+        otherwise Continuation;
+      tail StringAdd_CheckNone_NotTenured(context, initialString, r);
+    }
+    label Continuation(i: uintptr, r: String) {
+      // The GenericElementsAccessor element accessor is designed to handle all
+      // cases and never bails out (see Load<GenericElementsAccessor>).
+      unreachable;
+    }
+  }
+
+  // TODO(pwong): Measure performance impact of using GetLengthProperty (array.tq)
+  macro GetPropertyLength(context: Context, obj: HeapObject): Number {
+    if (IsJSArray(obj)) {
+      const array: JSArray = unsafe_cast<JSArray>(obj);
+      return array.length;
+    } else {
+      const lenObj: Object = GetProperty(context, obj, LengthString);
+      return ToLength_Inline(context, lenObj);
+    }
+  }
+
+  macro IsSparse(context: Context, array: JSArray, kind: ElementsKind,
+                 len: Number): bool {
+    if (kind == DICTIONARY_ELEMENTS &&
+        HasComplexElements(context, array) == False) {
+      const elements: NumberDictionary =
+        unsafe_cast<NumberDictionary>(array.elements);
+      const estimated_nof: uintptr =
+        convert<uintptr>(GetNumberDictionaryNumberOfElements(elements));
+      const lenInt: uintptr = convert<uintptr>(len);
+      // No more than 75% holes
+      return estimated_nof < (lenInt >>> 2);
+    }
+    return false;
+  }
+
+  builtin ArrayJoin<ToStringStrategy: type>(
+      context: Context, receiver: JSReceiver, len: Number, sep: String,
+      locales: Object, options: Object): Object {
+    try {
+      const map: Map = receiver.map;
+      if (IsJSArrayMap(map)) {
+        assert(IsJSArray(receiver));
+        const array: JSArray = unsafe_cast<JSArray>(receiver);
+
+        // TODO(pwong): Create a struct for passing all the args to ArrayJoinImpl.
+        if (convert<Object>(array.length) == len) {
+          const kind: ElementsKind = map.elements_kind;
+          if(IsPrototypeInitialArrayPrototype(context, map) &&
+             !IsNoElementsProtectorCellInvalid()) {
+            const elements: FixedArrayBase = array.elements;
+
+            if (kind <= HOLEY_ELEMENTS) {
+              return ArrayJoinImpl<FastHoleyObjectElements, ToStringStrategy>(
+                context, array, sep, len, 0, locales, options)
+              otherwise Continuation;
+            } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
+              return ArrayJoinImpl<FastHoleyDoubleElements, ToStringStrategy>(
+                context, array, sep, len, 0, locales, options)
+              otherwise Continuation;
+            }
+          }
+          if (IsSparse(context, array, kind, len)) {
+            return ArrayJoinImpl<SparseElementsAccessor, ToStringStrategy>(
+              context, array, sep, len, 0, locales, options)
+            otherwise Continuation;
+          }
+        }
+      }
+      goto Continuation(0, EmptyString);
+    }
+    label Continuation(k: uintptr, r: String) {
+      tail ArrayJoinContinuation<ToStringStrategy>(
+        context, receiver, sep, len, r, convert<Number>(k), locales, options);
+    }
+  }
+
+  // The Join Stack detects cyclical calls to Array.p.join.  This FixedArray
+  // holds a stack of JSArrays that are receivers to the current call
+  // to Array.p.join. The Array.p.join builtin is responsible for calling
+  // JoinStackPush and JoinStackPop when visiting and leaving a JSArray,
+  // respectively.
+  const kMinJoinStackSize: constexpr int31 generates
+    'JSArray::kMinJoinStackSize';
+  const kArrayJoinStackRootIndex: constexpr RootListIndex generates
+    'Heap::kArrayJoinStackRootIndex';
+  macro LoadJoinStack(): FixedArray {
+    return unsafe_cast<FixedArray>(LoadRoot(kArrayJoinStackRootIndex));
+  }
+  macro SetJoinStack(stack: FixedArray): void {
+    StoreRoot(kArrayJoinStackRootIndex, stack);
+  }
+
+  // Adds a receiver to the stack. The FixedArray will automaticlly grow to
+  // accomadate the receiver. If the receiver already exists on the stack,
+  // this indicates a cyclical call and False is returned.
+  builtin JoinStackPush(
+      context: Context, stack: FixedArray, receiver: Object): Boolean {
+    const len: intptr = stack.length_intptr;
+    for (let i: intptr = 0; i < len; i++) {
+      const previouslyVisited: Object = stack[i];
+
+      // Add `receiver` to the first open slot
+      if (previouslyVisited == Hole) {
+        stack[i] = receiver;
+        return True;
+      }
+
+      // Detect cycles
+      if (receiver == previouslyVisited) {
+        return False;
+      }
+    }
+
+    // If no open slots were found, grow the stack and add receiver to the end.
+    // Growth rate is analog to JSObject::NewElementsCapacity:
+    // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
+    const capacity: intptr = (len + (len >> 1)) + 16;
+    const newStack: FixedArray =
+      ExtractFixedArray(stack, 0, len, capacity, kFixedArrays);
+    newStack[len] = receiver;
+    SetJoinStack(newStack);
+    return True;
+  }
+
+  macro JoinStackPush_Inline(context: Context, receiver: Object)
+  labels CycleDetected {
+    const stack: FixedArray = LoadJoinStack();
+    assert(stack.length_intptr >= kMinJoinStackSize);
+
+    // Fast path the common non-nested join call case.
+    if (stack[0] == Hole) {
+      stack[0] = receiver;
+    } else if (JoinStackPush(context, stack, receiver) == False) {
+      goto CycleDetected;
+    }
+  }
+
+  // Removes a receiver from the stack. The FixedArray will automaticlly shrink
+  // to Heap::kMinJoinStackSize once the stack becomes empty.
+  builtin JoinStackPop(
+      context: Context, stack: FixedArray, receiver: Object): Object {
+    const len: intptr = stack.length_intptr;
+    for (let i: intptr = 0; i < len; i++) {
+      const element: Object = stack[i];
+      if (element == receiver) {
+        stack[i] = Hole;
+        if (i == 0 && len > kMinJoinStackSize) {
+          const newStack: FixedArray =
+            AllocateFixedArray(PACKED_ELEMENTS, kMinJoinStackSize);
+          assert(kMinJoinStackSize == from_constexpr<int31>(2));
+          newStack[0] = Hole;
+          newStack[1] = Hole;
+          SetJoinStack(newStack);
+        }
+        return Undefined;
+      } else if (element == Hole) {
+        return Undefined;
+      }
+    }
+    unreachable;
+  }
+
+  macro JoinStackPop_Inline(context: Context, receiver: Object) {
+    const stack: FixedArray = LoadJoinStack();
+    const len: intptr = stack.length_intptr;
+    assert(len >= kMinJoinStackSize);
+
+    // Fast path the common non-nested join call case.
+    if (stack[0] == receiver && len == kMinJoinStackSize) {
+      stack[0] = Hole;
+    } else {
+      JoinStackPop(context, stack, receiver);
+    }
+  }
+
+  macro CycleProtectedArrayJoin<ToStringStrategy: type>(
+      context: Context, receiver: JSReceiver, sepObj: Object, locales: Object,
+      options: Object): Object {
+    // 1. Let O be ? ToObject(this value).
+    // 2. Let len be ? ToLength(? Get(O, "length")).
+    const len: Number = GetPropertyLength(context, receiver);
+    const sep: String =
+      // 3. If separator is undefined, let sep be the single-element String ",".
+      sepObj == Undefined ? from_constexpr<String>(',')
+      // 4. Else, let sep be ? ToString(separator).
+                          : ToString_Inline(context, sepObj);
+    try {
+      // Fast paths for zero and one elements
+      if (len == from_constexpr<Object>(0)) {
+        goto IfReturnEmpty;
+      }
+
+      JoinStackPush_Inline(context, receiver) otherwise IfReturnEmpty;
+      const result: Object = EnsureNotException(
+        ArrayJoin<ToStringStrategy>(context, receiver, len, sep, locales,
+                                    options)
+      ) otherwise IfException;
+      JoinStackPop_Inline(context, receiver);
+      return result;
+    }
+    label IfReturnEmpty {
+      return EmptyString;
+    }
+    label IfException(e: Object) {
+      JoinStackPop_Inline(context, receiver);
+      ReThrowError(context, e);
+    }
+  }
+
+  // https://tc39.github.io/ecma262/#sec-array.prototype.join
+  javascript builtin ArrayPrototypeJoin(
+      context: Context, receiver: Object, sepObj: Object): Object {
+    return CycleProtectedArrayJoin<UseToString>(
+      context, ToObject(context, receiver), sepObj, Undefined, Undefined);
+  }
+
+  // https://tc39.github.io/ecma262/#sec-array.prototype.toLocaleString
+  javascript builtin ArrayPrototypeToLocaleString(
+      context: Context, receiver: Object, ...arguments): Object {
+    const locales: Object = arguments.length > 0 ? arguments[0] : Undefined;
+    const options: Object = arguments.length > 1 ? arguments[1] : Undefined;
+    return CycleProtectedArrayJoin<UseToLocaleString>(
+      context, ToObject(context, receiver), ',', locales, options);
+  }
+
+  // https://tc39.github.io/ecma262/#sec-array.prototype.toString
+  javascript builtin ArrayPrototypeToString(
+      context: Context, receiver: Object, ...arguments): Object {
+    // 1. Let array be ? ToObject(this value).
+    const array: JSReceiver = ToObject(context, receiver);
+
+    // 2. Let func be ? Get(array, "join").
+    const prop: Object = GetProperty(context, array, 'join');
+    try {
+      // 3. If IsCallable(func) is false, let func be the intrinsic function
+      //    %ObjProto_toString%.
+      const func: Callable = cast<Callable>(prop) otherwise NotCallable;
+
+      // 4. Return ? Call(func, array).
+      return Call(context, func, array);
+    }
+    label NotCallable {
+      tail ObjectToString(context, array);
+    }
+  }
+}
