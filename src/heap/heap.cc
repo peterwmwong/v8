@@ -1915,6 +1915,7 @@ void Heap::MarkCompactPrologue() {
   isolate_->descriptor_lookup_cache()->Clear();
   RegExpResultsCache::Clear(string_split_cache());
   RegExpResultsCache::Clear(regexp_multiple_cache());
+  // TODO(pwong): Does String Join need to do this ^^^
 
   isolate_->compilation_cache()->MarkCompactPrologue();
 
@@ -2700,6 +2701,7 @@ bool Heap::RootCanBeWrittenAfterInitialization(Heap::RootListIndex root_index) {
     case kScriptListRootIndex:
     case kMaterializedObjectsRootIndex:
     case kMicrotaskQueueRootIndex:
+    case kArrayJoinStackRootIndex:
     case kDetachedContextsRootIndex:
     case kRetainedMapsRootIndex:
     case kRetainingPathTargetsRootIndex:

@@ -240,6 +240,7 @@ namespace internal {
   V(WeakArrayList, detached_contexts, DetachedContexts)                      \
   V(WeakArrayList, retaining_path_targets, RetainingPathTargets)             \
   V(WeakArrayList, retained_maps, RetainedMaps)                              \
+  V(FixedArray, array_join_stack, ArrayJoinStack)                            \
   /* Indirection lists for isolate-independent builtins */                   \
   V(FixedArray, builtins_constants_table, BuiltinsConstantsTable)            \
   /* Feedback vectors that we need for code coverage or type profile */      \

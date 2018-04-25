@@ -652,6 +652,15 @@ TNode<Smi> CodeStubAssembler::SmiMin(TNode<Smi> a, TNode<Smi> b) {
   return SelectConstant<Smi>(SmiLessThan(a, b), a, b);
 }
 
+TNode<IntPtrT> CodeStubAssembler::TryIntPtrAdd(TNode<IntPtrT> a,
+                                               TNode<IntPtrT> b,
+                                               Label* if_overflow) {
+  TNode<PairT<IntPtrT, BoolT>> pair = IntPtrAddWithOverflow(a, b);
+  TNode<BoolT> overflow = Projection<1>(pair);
+  GotoIf(overflow, if_overflow);
+  return Projection<0>(pair);
+}
+
 TNode<Smi> CodeStubAssembler::TrySmiAdd(TNode<Smi> lhs, TNode<Smi> rhs,
                                         Label* if_overflow) {
   if (SmiValuesAre32Bits()) {
@@ -988,6 +997,12 @@ TNode<Float64T> CodeStubAssembler::LoadDoubleWithHoleCheck(
     TNode<FixedDoubleArray> array, TNode<Smi> index, Label* if_hole) {
   return LoadFixedDoubleArrayElement(array, index, MachineType::Float64(), 0,
                                      SMI_PARAMETERS, if_hole);
+}
+
+TNode<Float64T> CodeStubAssembler::LoadDoubleWithHoleCheck(
+    TNode<FixedDoubleArray> array, TNode<IntPtrT> index, Label* if_hole) {
+  return LoadFixedDoubleArrayElement(array, index, MachineType::Float64(), 0,
+                                     INTPTR_PARAMETERS, if_hole);
 }
 
 void CodeStubAssembler::BranchIfPrototypesHaveNoElements(
@@ -5402,6 +5417,16 @@ TNode<BoolT> CodeStubAssembler::IsOneByteStringInstanceType(
       Int32Constant(kOneByteStringTag));
 }
 
+TNode<BoolT> CodeStubAssembler::HasOnlyOneByteChars(
+    TNode<Int32T> instance_type) {
+  CSA_ASSERT(this, IsStringInstanceType(instance_type));
+  TNode<BoolT> is_one_byte_type = IsOneByteStringInstanceType(instance_type);
+  TNode<BoolT> is_one_byte_hint =
+      Word32Equal(Word32And(instance_type, Int32Constant(kOneByteDataHintMask)),
+                  Int32Constant(kOneByteDataHintTag));
+  return UncheckedCast<BoolT>(Word32Or(is_one_byte_type, is_one_byte_hint));
+}
+
 TNode<BoolT> CodeStubAssembler::IsSequentialStringInstanceType(
     SloppyTNode<Int32T> instance_type) {
   CSA_ASSERT(this, IsStringInstanceType(instance_type));
@@ -6653,12 +6678,9 @@ TNode<Number> CodeStubAssembler::StringToNumber(TNode<String> input) {
   return var_result.value();
 }
 
-TNode<String> CodeStubAssembler::NumberToString(TNode<Number> input) {
-  TVARIABLE(String, result);
-  TVARIABLE(Smi, smi_input);
-  Label runtime(this, Label::kDeferred), if_smi(this), if_heap_number(this),
-      done(this, &result);
-
+TNode<String> CodeStubAssembler::HeapNumberToString(TNode<HeapNumber> input) {
+  TVARIABLE(String, var_result);
+  Label runtime(this, Label::kDeferred), done(this, &var_result);
   // Load the number string cache.
   Node* number_string_cache = LoadRoot(Heap::kNumberStringCacheRootIndex);
 
@@ -6670,69 +6692,102 @@ TNode<String> CodeStubAssembler::NumberToString(TNode<Number> input) {
   TNode<IntPtrT> one = IntPtrConstant(1);
   mask = IntPtrSub(mask, one);
 
+  // Make a hash from the two 32-bit values of the double.
+  TNode<Int32T> low = LoadObjectField<Int32T>(input, HeapNumber::kValueOffset);
+  TNode<Int32T> high =
+      LoadObjectField<Int32T>(input, HeapNumber::kValueOffset + kIntSize);
+  TNode<Word32T> hash = Word32Xor(low, high);
+  TNode<WordT> word_hash = WordShl(ChangeInt32ToIntPtr(hash), one);
+  TNode<WordT> index =
+      WordAnd(word_hash, WordSar(mask, SmiShiftBitsConstant()));
+
+  // Cache entry's key must be a heap number
+  Node* number_key = LoadFixedArrayElement(CAST(number_string_cache), index);
+  GotoIf(TaggedIsSmi(number_key), &runtime);
+  GotoIfNot(IsHeapNumber(number_key), &runtime);
+
+  // Cache entry's key must match the heap number value we're looking for.
+  Node* low_compare = LoadObjectField(number_key, HeapNumber::kValueOffset,
+                                      MachineType::Int32());
+  Node* high_compare = LoadObjectField(
+      number_key, HeapNumber::kValueOffset + kIntSize, MachineType::Int32());
+  GotoIfNot(Word32Equal(low, low_compare), &runtime);
+  GotoIfNot(Word32Equal(high, high_compare), &runtime);
+
+  // Heap number match, return value from cache entry.
+  var_result = CAST(
+      LoadFixedArrayElement(CAST(number_string_cache), index, kPointerSize));
+  Goto(&done);
+  BIND(&runtime);
+  {
+    // No cache entry, go to the runtime.
+    var_result =
+        CAST(CallRuntime(Runtime::kNumberToString, NoContextConstant(), input));
+    Goto(&done);
+  }
+  BIND(&done);
+  return var_result.value();
+}
+
+TNode<String> CodeStubAssembler::SmiToString(TNode<Smi> input) {
+  TVARIABLE(String, var_result);
+  Label runtime(this, Label::kDeferred), done(this, &var_result);
+  // Load the number string cache.
+  Node* number_string_cache = LoadRoot(Heap::kNumberStringCacheRootIndex);
+
+  // Make the hash mask from the length of the number string cache. It
+  // contains two elements (number and string) for each cache entry.
+  // TODO(ishell): cleanup mask handling.
+  Node* mask =
+      BitcastTaggedToWord(LoadFixedArrayBaseLength(number_string_cache));
+  TNode<IntPtrT> one = IntPtrConstant(1);
+  mask = IntPtrSub(mask, one);
+
+  // Load the smi key, make sure it matches the smi we're looking for.
+  Node* smi_index = BitcastWordToTagged(
+      WordAnd(WordShl(BitcastTaggedToWord(input), one), mask));
+  Node* smi_key = LoadFixedArrayElement(CAST(number_string_cache), smi_index, 0,
+                                        SMI_PARAMETERS);
+  GotoIf(WordNotEqual(smi_key, input), &runtime);
+
+  // Smi match, return value from cache entry.
+  var_result = CAST(LoadFixedArrayElement(CAST(number_string_cache), smi_index,
+                                          kPointerSize, SMI_PARAMETERS));
+  Goto(&done);
+  BIND(&runtime);
+  {
+    // No cache entry, go to the runtime.
+    var_result =
+        CAST(CallRuntime(Runtime::kNumberToString, NoContextConstant(), input));
+    Goto(&done);
+  }
+  BIND(&done);
+  return var_result.value();
+}
+
+TNode<String> CodeStubAssembler::NumberToString(TNode<Number> input) {
+  TVARIABLE(String, var_result);
+  TVARIABLE(Smi, smi_input);
+  Label if_smi(this), if_heap_number(this), done(this, &var_result);
+
   GotoIfNot(TaggedIsSmi(input), &if_heap_number);
   smi_input = CAST(input);
   Goto(&if_smi);
-
   BIND(&if_heap_number);
   {
     TNode<HeapNumber> heap_number_input = CAST(input);
     // Try normalizing the HeapNumber.
     TryHeapNumberToSmi(heap_number_input, smi_input, &if_smi);
-
-    // Make a hash from the two 32-bit values of the double.
-    TNode<Int32T> low =
-        LoadObjectField<Int32T>(heap_number_input, HeapNumber::kValueOffset);
-    TNode<Int32T> high = LoadObjectField<Int32T>(
-        heap_number_input, HeapNumber::kValueOffset + kIntSize);
-    TNode<Word32T> hash = Word32Xor(low, high);
-    TNode<WordT> word_hash = WordShl(ChangeInt32ToIntPtr(hash), one);
-    TNode<WordT> index =
-        WordAnd(word_hash, WordSar(mask, SmiShiftBitsConstant()));
-
-    // Cache entry's key must be a heap number
-    Node* number_key = LoadFixedArrayElement(CAST(number_string_cache), index);
-    GotoIf(TaggedIsSmi(number_key), &runtime);
-    GotoIfNot(IsHeapNumber(number_key), &runtime);
-
-    // Cache entry's key must match the heap number value we're looking for.
-    Node* low_compare = LoadObjectField(number_key, HeapNumber::kValueOffset,
-                                        MachineType::Int32());
-    Node* high_compare = LoadObjectField(
-        number_key, HeapNumber::kValueOffset + kIntSize, MachineType::Int32());
-    GotoIfNot(Word32Equal(low, low_compare), &runtime);
-    GotoIfNot(Word32Equal(high, high_compare), &runtime);
-
-    // Heap number match, return value from cache entry.
-    result = CAST(
-        LoadFixedArrayElement(CAST(number_string_cache), index, kPointerSize));
+    var_result = HeapNumberToString(heap_number_input);
     Goto(&done);
   }
-
   BIND(&if_smi);
   {
-    // Load the smi key, make sure it matches the smi we're looking for.
-    Node* smi_index = BitcastWordToTagged(
-        WordAnd(WordShl(BitcastTaggedToWord(smi_input.value()), one), mask));
-    Node* smi_key = LoadFixedArrayElement(CAST(number_string_cache), smi_index,
-                                          0, SMI_PARAMETERS);
-    GotoIf(WordNotEqual(smi_key, smi_input.value()), &runtime);
-
-    // Smi match, return value from cache entry.
-    result = CAST(LoadFixedArrayElement(CAST(number_string_cache), smi_index,
-                                        kPointerSize, SMI_PARAMETERS));
-    Goto(&done);
-  }
-
-  BIND(&runtime);
-  {
-    // No cache entry, go to the runtime.
-    result =
-        CAST(CallRuntime(Runtime::kNumberToString, NoContextConstant(), input));
+    var_result = SmiToString(smi_input.value());
     Goto(&done);
   }
   BIND(&done);
-  return result.value();
+  return var_result.value();
 }
 
 Node* CodeStubAssembler::NonNumberToNumberOrNumeric(
@@ -12202,6 +12257,11 @@ Node* CodeStubAssembler::IsHoleyFastElementsKind(Node* elements_kind) {
 Node* CodeStubAssembler::IsElementsKindGreaterThan(
     Node* target_kind, ElementsKind reference_kind) {
   return Int32GreaterThan(target_kind, Int32Constant(reference_kind));
+}
+
+TNode<BoolT> CodeStubAssembler::IsElementsKindLessThanOrEqual(
+    TNode<Int32T> target_kind, ElementsKind reference_kind) {
+  return Int32LessThanOrEqual(target_kind, Int32Constant(reference_kind));
 }
 
 Node* CodeStubAssembler::IsDebugActive() {

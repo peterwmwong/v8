@@ -12,6 +12,8 @@ module array {
   type FastPackedDoubleElements;
   type FastSmiOrObjectElements;
   type FastDoubleElements;
+  type FastHoleyObjectElements;
+  type FastHoleyDoubleElements;
   type DictionaryElements;
 
   macro GetLengthProperty(context: Context, o: Object): Number {

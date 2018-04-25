@@ -11544,6 +11544,100 @@ Handle<FixedArray> String::CalculateLineEnds(Isolate* isolate,
   return array;
 }
 
+String* String::WriteFixedArrayToFlatSeq(FixedArray* fixed_array,
+                                         intptr_t length, String* separator,
+                                         String* dest) {
+  DCHECK(StringShape(dest).IsSequential());
+  if (StringShape(dest).IsSequentialOneByte()) {
+    String::WriteFixedArrayToFlat(fixed_array, static_cast<int>(length),
+                                  separator,
+                                  SeqOneByteString::cast(dest)->GetChars());
+  } else {
+    DCHECK(StringShape(dest).IsSequentialTwoByte());
+    String::WriteFixedArrayToFlat(fixed_array, static_cast<int>(length),
+                                  separator,
+                                  SeqTwoByteString::cast(dest)->GetChars());
+  }
+  return dest;
+}
+
+template <typename sinkchar>
+void String::WriteFixedArrayToFlat(FixedArray* fixed_array, int length,
+                                   String* separator, sinkchar* sink) {
+  DisallowHeapAllocation no_allocation;
+  DCHECK_GT(length, 0);
+  DCHECK_LE(length, fixed_array->length());
+
+#ifdef DEBUG
+  sinkchar* sink_start = sink;
+// sinkchar* sink_end = sink_start + length;
+#endif
+  const int separator_length = separator->length();
+  const bool use_one_byte_seperator_fast_path =
+      separator_length == 1 && sizeof(sinkchar) == 1 &&
+      StringShape(separator).IsSequentialOneByte();
+  uint8_t seperator_one_char;
+  if (use_one_byte_seperator_fast_path) {
+    DCHECK(StringShape(separator).IsSequentialOneByte());
+    seperator_one_char = SeqOneByteString::cast(separator)->GetChars()[0];
+  }
+
+  uint32_t num_seperators = 0;
+  for (int i = 0; i < length; i++) {
+    Object* element = fixed_array->get(i);
+    const bool is_smi = element->IsSmi();
+
+    // If element is a Smi, it represents the number of seperators to write.
+    if (is_smi) {
+      CHECK(element->ToUint32(&num_seperators));
+      // Verify that Smis (number of seperators) only occur when necessary:
+      //   1) at the beginning
+      //   2) at the end
+      //   3) when the number of seperators > 1
+      //     - It is assumed that consecutive Strings will have one seperator,
+      //       so there is no need for a Smi.
+      DCHECK(i == 0 || (i == length - 1) || num_seperators > 1);
+    }
+
+    // Write seperator(s) if necessary.
+    if (num_seperators > 0 && separator_length > 0) {
+// TODO(pwong): Consider doubling strategy employed by runtime-strings.cc
+//              WriteRepeatToFlat().
+// Fast path for single character, single byte seperators
+#ifdef DEBUG
+      DCHECK_LE(sink_start, sink);
+// DCHECK(sink < sink_end);
+#endif
+      if (use_one_byte_seperator_fast_path) {
+        memset(sink, seperator_one_char, num_seperators);
+        sink += separator_length * num_seperators;
+      } else {
+        for (uint32_t j = 0; j < num_seperators; j++) {
+          String::WriteToFlat(separator, sink, 0, separator_length);
+          sink += separator_length;
+        }
+      }
+    }
+
+    // If element is a String
+    if (!is_smi) {
+      DCHECK(element->IsString());
+      String* string = String::cast(element);
+      int string_length = string->length();
+#ifdef DEBUG
+      DCHECK_LE(sink_start, sink);
+// DCHECK(sink < sink_end);
+#endif
+      String::WriteToFlat(string, sink, 0, string_length);
+      sink += string_length;
+
+      // Next string element, needs atleast one seperator preceding it.
+      num_seperators = 1;
+    } else {
+      num_seperators = 0;
+    }
+  }
+}
 
 // Compares the contents of two strings by reading and comparing
 // int-sized blocks of characters.
