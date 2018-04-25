@@ -254,6 +254,7 @@ using v8::MemoryPressureLevel;
   V(FixedArray, single_character_string_cache, SingleCharacterStringCache)     \
   V(FixedArray, string_split_cache, StringSplitCache)                          \
   V(FixedArray, regexp_multiple_cache, RegExpMultipleCache)                    \
+  V(FixedArray, string_join_stack, StringJoinStack)                            \
   /* Lists and dictionaries */                                                 \
   V(NameDictionary, empty_property_dictionary, EmptyPropertyDictionary)        \
   V(NameDictionary, public_symbol_table, PublicSymbolTable)                    \
@@ -1805,6 +1806,7 @@ class Heap {
   static const int kInitialStringTableSize = StringTable::kMinCapacity;
   static const int kInitialEvalCacheSize = 64;
   static const int kInitialNumberStringCacheSize = 256;
+  static const int kInitialStringJoinStackSize = 2;
 
   static const int kRememberedUnmappedPages = 128;
 

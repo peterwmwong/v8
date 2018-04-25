@@ -79,6 +79,7 @@ class Type : public Declarable {
   bool IsVoid() const { return name() == VOID_TYPE_STRING; }
   bool IsNever() const { return name() == NEVER_TYPE_STRING; }
   bool IsBool() const { return name() == BOOL_TYPE_STRING; }
+  bool IsBoolConstant() const { return name() == CONSTEXPR_BOOL_TYPE_STRING; }
   bool IsVoidOrNever() const { return IsVoid() || IsNever(); }
   bool IsConstexpr() const {
     return name().substr(0, strlen(CONSTEXPR_TYPE_PREFIX)) ==

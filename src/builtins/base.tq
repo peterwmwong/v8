@@ -66,10 +66,14 @@ const BIGINT64_ELEMENTS: constexpr ElementsKind = 'BIGINT64_ELEMENTS';
 
 const kAllFixedArrays: constexpr ExtractFixedArrayFlags =
     'ExtractFixedArrayFlag::kAllFixedArrays';
+const kFixedArrays: constexpr ExtractFixedArrayFlags =
+    'ExtractFixedArrayFlag::kFixedArrays';
 
 const kCOWMap: Map = 'LoadRoot(Heap::kFixedCOWArrayMapRootIndex)';
 const kEmptyFixedArray: FixedArrayBase =
     'UncheckedCast<FixedArrayBase>(LoadRoot(Heap::kEmptyFixedArrayRootIndex))';
+const kEmptyFixedFloat64Array: FixedDoubleArray =
+    'UncheckedCast<FixedDoubleArray>(LoadRoot(Heap::kEmptyFixedFloat64ArrayRootIndex))';
 
 const kInvalidArrayLengthMessage: MessageTemplate =
     'MessageTemplate::kInvalidArrayLength';
@@ -93,6 +97,7 @@ const Null: Oddball = 'NullConstant()';
 const Undefined: Oddball = 'UndefinedConstant()';
 const True: Boolean = 'TrueConstant()';
 const False: Boolean = 'FalseConstant()';
+const EmptyString: String = 'EmptyStringConstant()';
 const true: constexpr bool = 'true';
 const false: constexpr bool = 'false';
 
@@ -105,11 +110,13 @@ extern macro ToInteger_Inline(Context, Object): Number;
 extern macro ToLength_Inline(Context, Object): Number;
 extern macro ToNumber_Inline(Context, Object): Number;
 extern macro ToString_Inline(Context, Object): String;
+extern macro ToString_InlineOrException(Context, Object): Object;
 extern macro GetProperty(Context, Object, Object): Object;
 extern macro HasProperty(HeapObject, Object, Context, HasPropertyFlag): Oddball;
 extern macro ThrowRangeError(Context, MessageTemplate): never;
 extern macro ThrowTypeError(Context, MessageTemplate): never;
 extern macro ThrowTypeError(Context, MessageTemplate, Object): never;
+extern macro ReThrowException(Context, Object): never;
 extern macro ArraySpeciesCreate(Context, Object, Number): Object;
 extern macro EnsureArrayPushable(Map): ElementsKind labels Bailout;
 
@@ -176,6 +183,13 @@ extern operator 'min' macro NumberMin(Number, Number): Number;
 extern operator 'max' macro NumberMax(Number, Number): Number;
 
 extern operator '!' macro Word32BinaryNot(bool): bool;
+extern operator '==' macro ElementsKindEqual(ElementsKind, ElementsKind): bool;
+extern operator '==' macro ElementsKindEqual(ElementsKind, constexpr ElementsKind): bool;
+extern operator '==' macro ElementsKindEqual(constexpr ElementsKind, constexpr ElementsKind): constexpr bool;
+
+// TODO(pwong): How do I do this (pass context)? Maybe it's not worth it as it
+// may also require specifying AllocationFlags.
+// extern operator '+' macro StringAdd(Context, String, String): String;
 
 extern operator '.map' macro LoadMap(HeapObject): Map;
 extern operator '.map=' macro StoreMap(HeapObject, Map);
@@ -202,10 +216,10 @@ extern operator 'cast<>' macro ConvertFixedArrayBaseToFixedArray(
 extern operator 'cast<>' macro ConvertFixedArrayBaseToFixedDoubleArray(
     FixedArrayBase): FixedDoubleArray labels CastError;
 
-extern macro AllocateHeapNumberWithValue(float64): HeapNumber;
-
 extern implicit operator
 'convert<>' macro AllocateHeapNumberWithValue(constexpr float64): Number;
+extern implicit operator
+'convert<>' macro AllocateHeapNumberWithValue(float64): HeapNumber;
 extern implicit operator
 'convert<>' macro IntPtrConstant(constexpr int31): intptr;
 extern implicit operator
@@ -302,3 +316,13 @@ macro HasPropertyObject(
 extern macro IsCallable(HeapObject): bool;
 extern macro TaggedIsCallable(Object): bool;
 extern macro IsDetachedBuffer(JSArrayBuffer): bool;
+
+extern macro NumberToString(Number): String;
+extern macro StringAdd(Context, String, String): String;
+extern macro LoadStringJoinStack(): FixedArray;
+extern macro SetStringJoinStack(FixedArray): void;
+extern macro GetException(Object): Object labels NoException;
+extern macro IsString(Object): bool;
+extern macro UncheckedString(Object): String;
+extern macro JoinStackPop(Smi): void;
+extern macro ArrayJoinToString(Context, Object, Smi): String;

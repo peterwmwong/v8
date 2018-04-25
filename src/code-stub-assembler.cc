@@ -4676,6 +4676,12 @@ void CodeStubAssembler::ThrowTypeError(Node* context,
   Unreachable();
 }
 
+void CodeStubAssembler::ReThrowException(TNode<Context> context,
+                                         TNode<Object> exception) {
+  CallRuntime(Runtime::kReThrow, context, exception);
+  Unreachable();
+}
+
 TNode<BoolT> CodeStubAssembler::InstanceTypeEqual(
     SloppyTNode<Int32T> instance_type, int type) {
   return Word32Equal(instance_type, Int32Constant(type));
@@ -6518,20 +6524,43 @@ TNode<String> CodeStubAssembler::ToString(SloppyTNode<Context> context,
   return CAST(result.value());
 }
 
-TNode<String> CodeStubAssembler::ToString_Inline(SloppyTNode<Context> context,
-                                                 SloppyTNode<Object> input) {
-  VARIABLE(var_result, MachineRepresentation::kTagged, input);
+TNode<String> CodeStubAssembler::ToString_Inline(
+    SloppyTNode<Context> context, SloppyTNode<Object> input,
+    Label* if_exception, TVariable<Object>* var_exception) {
+  TVARIABLE(Object, var_result, input);
   Label stub_call(this, Label::kDeferred), out(this);
 
   GotoIf(TaggedIsSmi(input), &stub_call);
   Branch(IsString(CAST(input)), &out, &stub_call);
 
   BIND(&stub_call);
-  var_result.Bind(CallBuiltin(Builtins::kToString, context, input));
+  TNode<Object> result = CallBuiltin(Builtins::kToString, context, input);
+  GotoIfException(result, if_exception, var_exception);
+  var_result = result;
   Goto(&out);
-
   BIND(&out);
   return CAST(var_result.value());
+}
+
+TNode<Object> CodeStubAssembler::ToString_InlineOrException(
+    SloppyTNode<Context> context, SloppyTNode<Object> input) {
+  TVARIABLE(Object, var_result, input);
+  Label stub_call(this, Label::kDeferred), out(this), if_no_exception(this);
+
+  GotoIf(TaggedIsSmi(input), &stub_call);
+  Branch(IsString(CAST(input)), &out, &stub_call);
+
+  BIND(&stub_call);
+  TNode<Object> result = CallBuiltin(Builtins::kToString, context, input);
+  var_result = GetException(result, &if_no_exception);
+  Goto(&out);
+  BIND(&if_no_exception);
+  {
+    var_result = result;
+    Goto(&out);
+  }
+  BIND(&out);
+  return var_result.value();
 }
 
 Node* CodeStubAssembler::JSReceiverToPrimitive(Node* context, Node* input) {

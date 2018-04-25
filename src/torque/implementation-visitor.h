@@ -234,6 +234,10 @@ class ImplementationVisitor : public FileVisitor {
 
   std::ostream& header_out() { return module_->header_stream(); }
 
+  bool IsLogicalExpressionConstexprBool(const VisitResult& a,
+                                        const VisitResult& b,
+                                        SourcePosition pos);
+
   size_t indent_;
   int32_t next_temp_;
 };

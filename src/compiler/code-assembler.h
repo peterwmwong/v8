@@ -702,6 +702,9 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   TNode<BoolT> Int32FalseConstant() {
     return ReinterpretCast<BoolT>(Int32Constant(0));
   }
+  TNode<BoolT> Int32BoolConstant(bool value) {
+    return value ? Int32TrueConstant() : Int32FalseConstant();
+  }
 
   bool ToInt32Constant(Node* node, int32_t& out_value);
   bool ToInt64Constant(Node* node, int64_t& out_value);
@@ -1109,6 +1112,9 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   // Exception handling support.
   void GotoIfException(Node* node, Label* if_exception,
                        Variable* exception_var = nullptr);
+
+  // Returns exception object, otherwise goto if_no_exception
+  TNode<Object> GetException(TNode<Object> node, Label* if_no_exception);
 
   // Helpers which delegate to RawMachineAssembler.
   Factory* factory() const;

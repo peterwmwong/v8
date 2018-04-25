@@ -764,12 +764,25 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                                      needs_poisoning);
   }
 
+  bool ElementsKindEqual(ElementsKind a, ElementsKind b) { return a == b; }
+
+  TNode<BoolT> ElementsKindEqual(TNode<Int32T> a, ElementsKind b) {
+    return Word32Equal(a, Int32Constant(b));
+  }
+
   // Load an array element from a FixedDoubleArray.
   Node* LoadFixedDoubleArrayElement(
       Node* object, Node* index, MachineType machine_type,
       int additional_offset = 0,
       ParameterMode parameter_mode = INTPTR_PARAMETERS,
       Label* if_hole = nullptr);
+
+  TNode<Float64T> LoadFixedDoubleArrayElement(
+      TNode<FixedDoubleArray> fixed_array, TNode<Smi> index_node, Label* hole) {
+    return UncheckedCast<Float64T>(LoadFixedDoubleArrayElement(
+        fixed_array, index_node, MachineType::Float64(), 0, SMI_PARAMETERS,
+        hole));
+  }
 
   // Load a feedback slot from a FeedbackVector.
   TNode<MaybeObject> LoadFeedbackVectorSlot(
@@ -1347,6 +1360,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   void ThrowTypeError(Node* context, MessageTemplate::Template message,
                       Node* arg0, Node* arg1 = nullptr, Node* arg2 = nullptr);
 
+  void ReThrowException(TNode<Context> context, TNode<Object> exception);
+
   // Type checks.
   // Check whether the map is for an object with special properties, such as a
   // JSProxy or an object with interceptors.
@@ -1566,7 +1581,14 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<String> ToString(SloppyTNode<Context> context,
                          SloppyTNode<Object> input);
   TNode<String> ToString_Inline(SloppyTNode<Context> context,
-                                SloppyTNode<Object> input);
+                                SloppyTNode<Object> input,
+                                Label* if_exception = nullptr,
+                                TVariable<Object>* var_exception = nullptr);
+  TNode<Object> ToString_InlineOrException(SloppyTNode<Context> context,
+                                           SloppyTNode<Object> input);
+  TNode<String> UncheckedString(TNode<Object> obj) {
+    return UncheckedCast<String>(obj);
+  }
 
   // Convert any object to a Primitive.
   Node* JSReceiverToPrimitive(Node* context, Node* input);
@@ -2320,6 +2342,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   void PerformStackCheck(Node* context);
 
  protected:
+  // Always CSA_ASSERTs false.
+  // TODO(szuend): Remove when Unreachable is supported in Torque.
+  void AssertUnreachable();
+
   // Implements DescriptorArray::Search().
   void DescriptorLookup(SloppyTNode<Name> unique_name,
                         SloppyTNode<DescriptorArray> descriptors,

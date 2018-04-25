@@ -335,12 +335,20 @@ VisitResult ImplementationVisitor::Visit(ConditionalExpression* expr) {
 }
 
 VisitResult ImplementationVisitor::Visit(LogicalOrExpression* expr) {
-  {
+  VisitResult left_result = Visit(expr->left);
+  VisitResult right_result = Visit(expr->right);
+
+  if (IsLogicalExpressionConstexprBool(left_result, right_result, expr->pos)) {
+    std::string temp = GenerateNewTempVariable(right_result.type());
+    source_out() << left_result.variable() << " || " << right_result.variable()
+                 << ";" << std::endl;
+    return VisitResult(right_result.type(), temp);
+  } else {
     Declarations::NodeScopeActivator scope(declarations(), expr->left);
     Label* false_label =
         declarations()->LookupLabel(expr->pos, kFalseLabelName);
     GenerateLabelDefinition(false_label);
-    VisitResult left_result = Visit(expr->left);
+
     if (left_result.type()->IsBool()) {
       Label* true_label =
           declarations()->LookupLabel(expr->pos, kTrueLabelName);
@@ -350,16 +358,23 @@ VisitResult ImplementationVisitor::Visit(LogicalOrExpression* expr) {
     } else {
       GenerateLabelBind(false_label);
     }
+    return right_result;
   }
-  return Visit(expr->right);
 }
 
 VisitResult ImplementationVisitor::Visit(LogicalAndExpression* expr) {
-  {
+  VisitResult left_result = Visit(expr->left);
+  VisitResult right_result = Visit(expr->right);
+
+  if (IsLogicalExpressionConstexprBool(left_result, right_result, expr->pos)) {
+    std::string temp = GenerateNewTempVariable(right_result.type());
+    source_out() << left_result.variable() << " && " << right_result.variable()
+                 << ";" << std::endl;
+    return VisitResult(right_result.type(), temp);
+  } else {
     Declarations::NodeScopeActivator scope(declarations(), expr->left);
     Label* true_label = declarations()->LookupLabel(expr->pos, kTrueLabelName);
     GenerateLabelDefinition(true_label);
-    VisitResult left_result = Visit(expr->left);
     if (left_result.type()->IsBool()) {
       Label* false_label =
           declarations()->LookupLabel(expr->pos, kFalseLabelName);
@@ -369,8 +384,8 @@ VisitResult ImplementationVisitor::Visit(LogicalAndExpression* expr) {
     } else {
       GenerateLabelBind(true_label);
     }
+    return right_result;
   }
-  return Visit(expr->right);
 }
 
 VisitResult ImplementationVisitor::Visit(IncrementDecrementExpression* expr) {
@@ -1228,9 +1243,12 @@ VisitResult ImplementationVisitor::GenerateCall(
     GenerateIndent();
   } else {
     result_variable_name = GenerateNewTempVariable(result_type);
-    source_out() << "UncheckedCast<";
-    source_out() << result_type->GetGeneratedTNodeTypeName();
-    source_out() << ">(";
+    if (!result_type->IsConstexpr()) {
+      source_out() << "UncheckedCast<";
+      source_out() << result_type->GetGeneratedTNodeTypeName();
+      source_out() << ">";
+      source_out() << "(";
+    }
   }
   if (callable->IsBuiltin()) {
     if (is_tailcall) {
@@ -1313,7 +1331,8 @@ VisitResult ImplementationVisitor::GenerateCall(
     std::cout << "finished generating code for call to " << callable_name
               << " at " << PositionAsString(pos) << "" << std::endl;
   }
-  if (!result_type->IsVoidOrNever() && !is_tailcall) {
+  if (!result_type->IsVoidOrNever() && !is_tailcall &&
+      !result_type->IsConstexpr()) {
     source_out() << ")";
   }
   source_out() << ");" << std::endl;
@@ -1464,6 +1483,20 @@ std::vector<Label*> ImplementationVisitor::LabelsFromIdentifiers(
     result.push_back(declarations()->LookupLabel(pos, name));
   }
   return result;
+}
+
+bool ImplementationVisitor::IsLogicalExpressionConstexprBool(
+    const VisitResult& a, const VisitResult& b, SourcePosition pos) {
+  bool is_a_constexpr_bool = a.type()->IsBoolConstant();
+  bool is_b_constexpr_bool = b.type()->IsBoolConstant();
+  if ((is_a_constexpr_bool && !is_b_constexpr_bool) ||
+      (!is_a_constexpr_bool && is_b_constexpr_bool)) {
+    std::stringstream stream;
+    stream << "Cannot combine \"constexpr bool\" type with other types in a "
+           << "logical expression at " << PositionAsString(pos);
+    ReportError(stream.str());
+  }
+  return is_a_constexpr_bool;
 }
 
 }  // namespace torque

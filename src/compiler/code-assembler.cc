@@ -1098,6 +1098,23 @@ void CodeAssembler::GotoIfException(Node* node, Label* if_exception,
   Bind(&success);
 }
 
+TNode<Object> CodeAssembler::GetException(TNode<Object> node,
+                                          Label* if_no_exception) {
+  DCHECK(!(*node).op()->HasProperty(Operator::kNoThrow));
+
+  Label success(this), exception(this, Label::kDeferred);
+  success.MergeVariables();
+  exception.MergeVariables();
+
+  raw_assembler()->Continuations(node, success.label_, exception.label_);
+  Bind(&success);
+  Goto(if_no_exception);
+
+  Bind(&exception);
+  const Operator* op = raw_assembler()->common()->IfException();
+  return CAST(raw_assembler()->AddNode(op, node, node));
+}
+
 template <class... TArgs>
 TNode<Object> CodeAssembler::CallRuntimeImpl(Runtime::FunctionId function,
                                              SloppyTNode<Object> context,

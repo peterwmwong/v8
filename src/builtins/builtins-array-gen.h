@@ -12,6 +12,36 @@ namespace internal {
 
 class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
  public:
+  TNode<FixedArray> LoadStringJoinStack() {
+    return TNode<FixedArray>::UncheckedCast(
+        LoadRoot(Heap::kStringJoinStackRootIndex));
+  }
+
+  void SetStringJoinStack(TNode<FixedArray> stack) {
+    StoreRoot(Heap::kStringJoinStackRootIndex, stack);
+  }
+
+  void JoinStackPop(TNode<Smi> index) {
+    TNode<FixedArray> stack = LoadStringJoinStack();
+    StoreFixedArrayElementSmi(stack, index, TheHoleConstant());
+  }
+
+  // A temporary wrapper of ToString_Inline that handles calling JoinStackPop
+  // if an Exception is thrown from user code.
+  TNode<String> ArrayJoinToString(TNode<Context> context, TNode<Object> input,
+                                  TNode<Smi> stackIndex) {
+    Label done(this), if_exception(this, Label::kDeferred);
+    TVARIABLE(Object, var_exception);
+    TNode<String> result =
+        ToString_Inline(context, input, &if_exception, &var_exception);
+    Goto(&done);
+    BIND(&if_exception);
+    JoinStackPop(stackIndex);
+    ReThrowException(context, var_exception.value());
+    BIND(&done);
+    return result;
+  }
+
   explicit ArrayBuiltinsAssembler(compiler::CodeAssemblerState* state);
 
   typedef std::function<void(ArrayBuiltinsAssembler* masm)>
