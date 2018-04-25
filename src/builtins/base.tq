@@ -879,6 +879,7 @@ extern macro TransitionElementsKind(
 
 extern macro IsCallable(HeapObject): bool;
 extern macro IsJSArray(HeapObject): bool;
+extern macro IsJSArrayMap(Map): bool;
 extern macro IsJSReceiver(HeapObject): bool;
 macro ReThrowError(context: Context, error: Object): never {
   ReThrow(context, error);
@@ -937,7 +938,6 @@ macro EnsureNotException(obj: Object): Object labels IfException(Object) {
 }
 
 extern macro NumberToString(Number): String;
-extern macro SmiToString(Smi): String;
 extern macro GotoIfException(Object): void labels IfException(Object);
 extern macro IsFixedArraySubclass(HeapObject): bool;
 extern macro IsFixedDoubleArray(HeapObject): bool;
@@ -948,4 +948,3 @@ extern macro TryIntPtrAdd(intptr, intptr): intptr labels IfOverflow;
 
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
 extern builtin ObjectToString(Context, Object): Object;
-extern runtime GetSortedArrayKeys(Context, JSArray, Number): FixedArray;

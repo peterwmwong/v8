@@ -91,12 +91,6 @@ assertEquals(123122, String(a).length);
 assertEquals(123122, a.join(",").length);
 assertEquals(246244, a.join("oo").length);
 
-a = new Array(Math.pow(2,32) - 1);  // Max length.
-assertEquals("", a.join(""));
-a[123123123] = "o";
-a[1255215215] = "p";
-assertEquals("op", a.join(""));
-
 a = new Array(100001);
 for (var i = 0; i < a.length; i++) a[i] = undefined;
 a[5] = "ab";

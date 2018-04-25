@@ -3,10 +3,6 @@
 // found in the LICENSE file.
 
 module array {
-  // Special type used to specialized handling of "sparse" arrays (see
-  // IsSparse()).
-  type SparseJoinElementsAccessor;
-
   // Fast C call to write a fixed array (see Buffer.fixedArray) to a single
   // string.
   extern macro CallWriteFixedArrayToFlatSeq(FixedArray, intptr, String,
@@ -16,6 +12,14 @@ module array {
       context: Context, elements: HeapObject, k: uintptr): Object
   labels IfHole {
     return GetProperty(context, elements, convert<Number>(k));
+  }
+
+  LoadJoinElements<DictionaryElements>(
+    context: Context, elements: HeapObject, k: uintptr): Object
+  labels IfHole {
+    const dict: NumberDictionary = unsafe_cast<NumberDictionary>(elements);
+    return BasicLoadNumberDictionaryElement(dict, Signed(k))
+    otherwise IfHole, IfHole;
   }
 
   LoadJoinElements<FastSmiOrObjectElements>(
@@ -104,7 +108,7 @@ module array {
   // ToString() may have had side-effects (see
   // ConvertToString<ElementsAccessor> label IfStringWithSideEffects).
   macro CannotUseSameAccessor<ElementsAccessor: type>(
-      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
+      originalMap: Object, originalLen: Number, receiver: JSReceiver): never
   labels Cannot, Can {
     const array: JSArray = unsafe_cast<JSArray>(receiver);
     if (originalMap != array.map || originalLen != array.length ||
@@ -115,30 +119,12 @@ module array {
   }
 
   CannotUseSameAccessor<GenericElementsAccessor>(
-      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
+      originalMap: Object, originalLen: Number, receiver: JSReceiver): never
   labels Cannot, Can {
     // The GenericElementsAccessor element accessor is designed to handle all
     // cases when loading an element from a receiver (see
     // LoadJoinElements<GenericElementsAccessor>).
     goto Can;
-  }
-
-  CannotUseSameAccessor<SparseJoinElementsAccessor>(
-      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
-  labels Cannot, Can {
-    // To simplify the specialization of sparse dictionary elements, we simply
-    // bailout if any dictionary element called JS code during `ToString`.
-    if (originalLen == originalLen) goto Cannot;
-    goto Can; // unreachable;
-
-    // TODO(pwong): ^^^ Extraneous condition and unreachable goto is to fake out
-    // Torque so it can generate the `Can` (else branch) in ArrayJoinImpl.
-    // Without it the following error ocurrs during mksnapshot:
-    //
-    //   # Fatal error in ../../src/compiler/raw-machine-assembler.cc, line 536
-    //   # A label has been bound but it's not used.
-    //   #    label: B645(label__False_1392:gen/torque-generated/builtins-array-from-dsl-gen.cc:16520)
-    //
   }
 
   // Contains the information necessary to iterate over all relevant keys of the
@@ -159,12 +145,6 @@ module array {
 
     // Object to load value associated with `k`.
     elements: HeapObject;
-
-    // Implementation details for SparseJoinElementsAccessor specialization.
-    // Current index in `sparseKeys` that yielded the value `k`.
-    sparseKeysIndex: intptr;
-    // FixedArray of keys of the receiver (see runtime GetSortedArrayKeys).
-    sparseKeys: FixedArrayBase;
   }
 
   macro KeyIteratorInit<ElementsAccessor: type>(
@@ -172,11 +152,11 @@ module array {
       initialK: uintptr): KeyIterator {
     assert(IsJSArray(receiver));
     const array: JSArray = unsafe_cast<JSArray>(receiver);
-    const elements: FixedArrayBase = array.elements;
+    const elements: HeapObject = array.elements;
     // Only the GenericElementsAccessor specialization (handles continuation)
     // is a non-zero `initialK` possible.
     assert(initialK == 0);
-    return KeyIterator{false, 0, 0, elements, 0, kEmptyFixedArray};
+    return KeyIterator{false, 0, 0, elements};
   }
 
   KeyIteratorInit<GenericElementsAccessor>(
@@ -185,47 +165,15 @@ module array {
     const done: bool = initialK >= len;
     const nofSeps: uintptr = initialK == 0 ? convert<uintptr>(0)
       : convert<uintptr>(1);
-    return KeyIterator{done, initialK, nofSeps, receiver, 0, kEmptyFixedArray};
+    return KeyIterator{done, initialK, nofSeps, receiver};
   }
 
-  KeyIteratorInit<SparseJoinElementsAccessor>(
-      context: Context, receiver: JSReceiver, len: uintptr,
-      initialK: uintptr): KeyIterator {
-    assert(IsJSArray(receiver));
-    const array: JSArray = unsafe_cast<JSArray>(receiver);
-    // Only the GenericElementsAccessor specialization (handles continuation)
-    // is a non-zero `initialK` possible.
-    assert(initialK == 0);
-    const sparseKeys: FixedArray =
-      GetSortedArrayKeys(context, array, convert<Number>(len));
-    const done: bool = sparseKeys == kEmptyFixedArray;
-    const k: uintptr = done ? (len - 1)
-      : convert<uintptr>(unsafe_cast<Number>(sparseKeys[0]));
-
-    return KeyIterator{done, k, k, array, 0, sparseKeys};
-  }
-
-  macro KeyIteratorNext<ElementsAccessor: type>(
-      len: uintptr, iter: KeyIterator): KeyIterator {
+  macro KeyIteratorNext(len: uintptr, iter: KeyIterator): KeyIterator {
     const k: uintptr = iter.k + 1;
     const done: bool = k >= len;
     const nofSeps: uintptr = done ? from_constexpr<uintptr>(0)
       : from_constexpr<uintptr>(1);
-    return KeyIterator{done, k, nofSeps, iter.elements, 0, iter.sparseKeys};
-  }
-
-  KeyIteratorNext<SparseJoinElementsAccessor>(
-      len: uintptr, iter: KeyIterator): KeyIterator {
-    const sparseKeysIndex: intptr = iter.sparseKeysIndex + 1;
-    const sparseKeys: FixedArray =
-      unsafe_cast<FixedArray>(iter.sparseKeys);
-    const done: bool = sparseKeysIndex >= sparseKeys.length_intptr;
-    const k: uintptr = done ? (len - 1)
-      : convert<uintptr>(unsafe_cast<Number>(sparseKeys[sparseKeysIndex]));
-    assert(iter.k <= k);
-    const nofSeps: uintptr = k - iter.k;
-    return KeyIterator{
-      done, k, nofSeps, iter.elements, sparseKeysIndex, sparseKeys};
+    return KeyIterator{done, k, nofSeps, iter.elements};
   }
 
   // Calculates the running total length of the resulting string.  If the
@@ -279,11 +227,12 @@ module array {
     return Signed(len - iter.k + 1);
   }
 
-  EstimateBufferSize<SparseJoinElementsAccessor>(iter: KeyIterator,
-                                                 len: uintptr): intptr {
-    const sparseKeys: FixedArray = unsafe_cast<FixedArray>(iter.sparseKeys);
+  EstimateBufferSize<DictionaryElements>(
+      iter: KeyIterator, len: uintptr): intptr {
+    const dict: NumberDictionary = unsafe_cast<NumberDictionary>(iter.elements);
     // Assumes worst case scenario, a seperator entry around each sparse entry.
-    return (sparseKeys.length_intptr << 1) + 1;
+    const nofElements: intptr = convert<intptr>(GetNumberDictionaryNumberOfElements(dict));
+    return (nofElements << 1) + 1;
   }
 
   macro BufferInit(bufSize: intptr, sep: String): Buffer {
@@ -402,7 +351,7 @@ module array {
       label Skip {}
 
       // e. Increment k by 1.
-      iter = KeyIteratorNext<ElementsAccessor>(len, iter);
+      iter = KeyIteratorNext(len, iter);
     }
 
     // Add any seperators at the end.
@@ -411,21 +360,6 @@ module array {
 
     // 8. Return R.
     return BufferJoin(context, buf, sep);
-  }
-
-  macro IsSparse(context: Context, array: JSArray, kind: ElementsKind,
-                 len: Number): bool {
-    if (kind == DICTIONARY_ELEMENTS &&
-        HasComplexElements(context, array) == False) {
-      const elements: NumberDictionary =
-        unsafe_cast<NumberDictionary>(array.elements);
-      const estimatedNof: uintptr =
-        convert<uintptr>(GetNumberDictionaryNumberOfElements(elements));
-      const lenInt: uintptr = convert<uintptr>(len);
-      // No more than 75% holes
-      return estimatedNof < (lenInt >>> 2);
-    }
-    return false;
   }
 
   macro ArrayJoin<ToStringStrategy: type>(
@@ -439,29 +373,30 @@ module array {
       const kind: ElementsKind = map.elements_kind;
       const array: JSArray = unsafe_cast<JSArray>(receiver);
 
-      if(convert<Object>(array.length) == len &&
-         IsPrototypeInitialArrayPrototype(context, map) &&
-         !IsNoElementsProtectorCellInvalid()) {
-        if (kind <= HOLEY_ELEMENTS) {
-          return EnsureNotException(
-            ArrayJoinImpl<FastSmiOrObjectElements, ToStringStrategy>(
-              context, receiver, sep, len, initialK, locales, options
-            )
-          ) otherwise IfException;
-        } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
-          return EnsureNotException(
-            ArrayJoinImpl<FastDoubleElements, ToStringStrategy>(
-              context, receiver, sep, len, initialK, locales, options
-            )
-          ) otherwise IfException;
+      if(array.length == len) {
+        if (IsPrototypeInitialArrayPrototype(context, map) &&
+            !IsNoElementsProtectorCellInvalid()) {
+          if (kind <= HOLEY_ELEMENTS) {
+            return EnsureNotException(
+              ArrayJoinImpl<FastSmiOrObjectElements, ToStringStrategy>(
+                context, receiver, sep, len, initialK, locales, options
+              )
+            ) otherwise IfException;
+          } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
+            return EnsureNotException(
+              ArrayJoinImpl<FastDoubleElements, ToStringStrategy>(
+                context, receiver, sep, len, initialK, locales, options
+              )
+            ) otherwise IfException;
+          } else if (kind == DICTIONARY_ELEMENTS &&
+                     HasComplexElements(context, array) == False) {
+            return EnsureNotException(
+              ArrayJoinImpl<DictionaryElements, ToStringStrategy>(
+                context, receiver, sep, len, initialK, locales, options
+              )
+            ) otherwise IfException;
+          }
         }
-      }
-      if (IsSparse(context, array, kind, len)) {
-        return EnsureNotException(
-          ArrayJoinImpl<SparseJoinElementsAccessor, ToStringStrategy>(
-            context, receiver, sep, len, initialK, locales, options
-          )
-        ) otherwise IfException;
       }
     }
     return EnsureNotException(
