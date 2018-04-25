@@ -100,11 +100,11 @@ module array {
   javascript builtin ArraySpliceTorque(
       context: Context, receiver: Object, ...arguments): Object {
     // 1. Let O be ? ToObject(this value).
-    let o: Object = ToObject(context, receiver);
+    let o: JSReceiver = ToObject(context, receiver);
 
     // 2. Let len be ? ToLength(? Get(O, "length")).
     let len: Number =
-        ToLength_Inline(context, GetProperty(context, o, 'length'));
+        ToLength_Inline(context, GetProperty(context, o, LengthString));
 
     // 3. Let relativeStart be ? ToInteger(start).
     let start: Object = arguments[0];
@@ -186,7 +186,7 @@ module array {
     }
 
     // 12. Perform ? Set(A, "length", actualDeleteCount, true).
-    SetProperty(context, a, 'length', actualDeleteCount, kStrict);
+    SetProperty(context, a, LengthString, actualDeleteCount, kStrict);
 
     // 13. Let items be a List whose elements are, in left-to-right order,
     //     the portion of the actual argument list starting with the third
@@ -293,7 +293,7 @@ module array {
     // 19. Perform ? Set(O, "length", len - actualDeleteCount + itemCount,
     // true).
     SetProperty(
-        context, o, 'length', len - actualDeleteCount + itemCount, kStrict);
+        context, o, LengthString, len - actualDeleteCount + itemCount, kStrict);
 
     return a;
   }
@@ -405,7 +405,7 @@ module array {
       let elementsKind: ElementsKind = map.elements_kind;
       if (!IsFastElementsKind(elementsKind)) goto Slow;
 
-      if (IsElementsKindGreaterThan(elementsKind, HOLEY_ELEMENTS)) {
+      if (elementsKind > HOLEY_ELEMENTS) {
         VisitAllElements<FixedDoubleArray>(
             context, a, smi_len, callbackfn, thisArg)
         otherwise Bailout;
@@ -429,11 +429,11 @@ module array {
       }
 
       // 1. Let O be ? ToObject(this value).
-      let o: Object = ToObject(context, receiver);
+      let o: JSReceiver = ToObject(context, receiver);
 
       // 2. Let len be ? ToLength(? Get(O, "length")).
       let len: Number =
-          ToLength_Inline(context, GetProperty(context, o, 'length'));
+          ToLength_Inline(context, GetProperty(context, o, LengthString));
 
       // 3. If IsCallable(callbackfn) is false, throw a TypeError exception.
       if (arguments.length == 0) {
@@ -473,7 +473,9 @@ module array {
   type GenericElementsAccessor;
   type FastPackedSmiElements;
   type FastSmiOrObjectElements;
+  type FastHoleyObjectElements;
   type FastDoubleElements;
+  type FastHoleyDoubleElements;
 
   macro Load<ElementsAccessor : type>(
       context: Context, receiver: Object, index: Smi): Object labels Bailout {
@@ -500,6 +502,36 @@ module array {
     let value: float64 =
         LoadDoubleWithHoleCheck(elems, index) otherwise Bailout;
     return AllocateHeapNumberWithValue(value);
+  }
+
+  macro LoadWithException<ElementsAccessor: type, IndexType: type>(
+      context: Context, elementsObj: Object, index: IndexType): Object
+  labels IfHole, IfException(Object);
+
+  LoadWithException<GenericElementsAccessor, Number>(
+      context: Context, elementsObj: Object, index: Number): Object
+  labels IfHole, IfException(Object) {
+    let result: Object = GetProperty(context, elementsObj, index);
+    GotoIfException(result) otherwise IfException;
+    return result;
+  }
+
+  LoadWithException<FastHoleyObjectElements, intptr>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: FixedArray = unsafe_cast<FixedArray>(elementsObj);
+    let el: Object = elements[index];
+    if (IsTheHole(el)) goto IfHole;
+    return el;
+  }
+
+  LoadWithException<FastHoleyDoubleElements, intptr>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: FixedDoubleArray = unsafe_cast<FixedDoubleArray>(elementsObj);
+    let double: float64 = LoadDoubleWithHoleCheck(elements, index)
+    otherwise IfHole;
+    return AllocateHeapNumberWithValue(double);
   }
 
   macro Store<ElementsAccessor : type>(
@@ -962,5 +994,286 @@ module array {
     }
 
     return receiver;
+  }
+
+  macro JoinToLocaleString(context: Context, element: Object): String
+  labels IfNullOrUndefined, IfException(Object) {
+    if (IsNullOrUndefined(element)) goto IfNullOrUndefined;
+
+    let prop: Object = GetProperty(context, element, 'toLocaleString');
+    GotoIfException(prop) otherwise IfException;
+    try {
+      let callable: Callable = cast<Callable>(prop) otherwise TypeError;
+      let result: Object = Call(context, callable, element);
+      GotoIfException(result) otherwise IfException;
+      result = ToString(context, result);
+      GotoIfException(result) otherwise IfException;
+      return unsafe_cast<String>(result);
+    }
+    label TypeError {
+      goto IfException(NewTypeError(context, kCalledNonCallable, prop));
+    }
+  }
+
+  macro JoinToString<ElementType: type>(context: Context,
+                                        element: Object): String
+  labels IfNullOrUndefined, IfException(Object);
+
+  JoinToString<Object>(context: Context, element: Object): String
+  labels IfNullOrUndefined, IfException(Object) {
+    if (TaggedIsSmi(element)) {
+      return SmiToString(unsafe_cast<Smi>(element));
+    } else if (IsString(unsafe_cast<HeapObject>(element))) {
+      return unsafe_cast<String>(element);
+    } else if (IsNullOrUndefined(element)) {
+      goto IfNullOrUndefined;
+    }
+
+    let result: Object = ToString(context, element);
+    GotoIfException(result) otherwise IfException;
+    return unsafe_cast<String>(result);
+  }
+
+  JoinToString<Smi>(context: Context, element: Object): String
+  labels IfNullOrUndefined, IfException(Object) {
+    return SmiToString(unsafe_cast<Smi>(element));
+  }
+
+  JoinToString<HeapNumber>(context: Context, element: Object): String
+  labels IfNullOrUndefined, IfException(Object) {
+    return HeapNumberToString(unsafe_cast<HeapNumber>(element));
+  }
+
+  // Verifies the current element accessor can still be safely used
+  // (see Load<ElementsAccessor, IndexType>). Otherwise go to Continuation.
+  macro EnsureElementAccess<ElementType: type, IndexType: type>(
+      originalMap: Object, originalLen: IndexType, receiver: Object,
+      k: IndexType, r: String): void
+  labels Continuation(intptr, String) {}
+
+  EnsureElementAccess<Object, intptr>(
+      originalMap: Object, originalLen: intptr, receiver: Object, k: intptr,
+      r: String): void
+  labels Continuation(intptr, String) {
+    let array: JSArray = unsafe_cast<JSArray>(receiver);
+    if (originalMap != array.map ||
+        originalLen != convert<intptr>(array.length_fast)) {
+      goto Continuation(k + 1, r);
+    }
+  }
+
+  macro ArrayJoinImpl<ElementsAccessor: type, ElementType: type,
+                      IndexType: type>(
+      context: Context, array: Object, elements: Object, len: IndexType,
+      sep: String, initialIndex: IndexType, initialMap: Object,
+      initialString: String, useLocale: constexpr bool): String
+  labels Continuation(intptr, String), IfException(Object) {
+    // 5. Let R be the empty String.
+    let r: String = initialString;
+
+    // 6. Let kelements be 0.
+    // 7. Repeat, while k < len
+    for (let k: IndexType = initialIndex; k < len; k++) {
+      // a. If k > 0, let R be the string-concatenation of R and sep.
+      if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
+      try {
+        // b. Let element be ? Get(O, ! ToString(k)).
+        let element: Object =
+            LoadWithException<ElementsAccessor, IndexType>(context, elements, k)
+        otherwise Skip, IfException;
+
+        // c. If element is undefined or null, let next be the empty String;
+        //    otherwise, let next be ? ToString(element).
+        let next: String;
+        if constexpr (useLocale) {
+          next = JoinToLocaleString(context, element)
+          otherwise Skip, IfException;
+        } else {
+          next = JoinToString<ElementType>(context, element)
+          otherwise Skip, IfException;
+        }
+        r = StringAdd_CheckNone_NotTenured(context, r, next);
+
+        // If JS code may have been called, there's a possibility the array
+        // was mutated in a way the current element accessor no longer applies.
+        EnsureElementAccess<ElementType, IndexType>(
+            initialMap, len, array, k, r)
+        otherwise Continuation;
+      }
+      label Skip { }
+
+      // d. Increment k by 1.
+    }
+
+    // 8. Return R.
+    return r;
+  }
+
+  macro ArrayJoinFast(
+    context: Context, array: JSArray, sep: String, lenObj: Object,
+    useLocale: constexpr bool): String
+  labels Continuation(intptr, String), IfException(Object) {
+    let map: Map = array.map;
+    let kind: ElementsKind = map.elements_kind;
+    if (IsPrototypeInitialArrayPrototype(context, map) &&
+        !IsNoElementsProtectorCellInvalid() && lenObj == array.length &&
+        TaggedIsSmi(lenObj)) {
+
+      let elements: FixedArrayBase = array.elements;
+      let len: intptr = convert<intptr>(unsafe_cast<Smi>(lenObj));
+      if (kind <= HOLEY_SMI_ELEMENTS) {
+        return ArrayJoinImpl<FastHoleyObjectElements, Smi, intptr>(
+            context, array, elements, len, sep, 0, map, EmptyString, useLocale)
+        otherwise Continuation, IfException;
+      } else if (kind <= HOLEY_ELEMENTS) {
+        return ArrayJoinImpl<FastHoleyObjectElements, Object, intptr>(
+            context, array, elements, len, sep, 0, map, EmptyString, useLocale)
+        otherwise Continuation, IfException;
+      } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
+        return ArrayJoinImpl<FastHoleyDoubleElements, HeapNumber, intptr>(
+            context, array, elements, len, sep, 0, map, EmptyString, useLocale)
+        otherwise Continuation, IfException;
+      }
+    }
+    goto Continuation(0, EmptyString);
+  }
+
+  macro NormalizeJoinSeperator(context: Context, obj: Object): String {
+    // 3. If separator is undefined, let sep be the single-element String ",".
+    // 4. Else, let sep be ? ToString(separator).
+    return obj == Undefined ? ',' : ToString_Inline(context, obj);
+  }
+
+  macro ArrayJoin(context: Context, receiver: Object, sepObj: Object,
+      useLocale: constexpr bool): Object {
+    // 1. Let O be ? ToObject(this value).
+    let o: JSReceiver = ToObject(context, receiver);
+    let result: Object = Undefined;
+    let exception: Object = Undefined;
+    try {
+      let len: Number;
+      let sep: String;
+      try {
+        if (IsJSArray(o)) {
+          let array: JSArray = unsafe_cast<JSArray>(o);
+
+          // 2. Let len be ? ToLength(? Get(O, "length")).
+          len = array.length;
+          sep = NormalizeJoinSeperator(context, sepObj);
+          JoinStackPush(receiver) otherwise CycleDetected;
+          result = ArrayJoinFast(context, array, sep, len, useLocale)
+                   otherwise Continuation, IfException;
+        }
+        else {
+          // 2. Let len be ? ToLength(? Get(O, "length")).
+          len = ToLength_Inline(context, GetProperty(context, o, LengthString));
+          sep = NormalizeJoinSeperator(context, sepObj);
+          goto Continuation(0, EmptyString);
+        }
+      }
+      label Continuation(continueIndex: intptr, initialString: String) {
+        try {
+          result = ArrayJoinImpl<GenericElementsAccessor, Object, Number>(
+            context, receiver, receiver, len, sep, convert<Smi>(continueIndex),
+            Undefined, initialString, useLocale)
+          otherwise Continuation, IfException;
+        }
+        label Continuation(continueIndex: intptr, initialString: String) {
+          // By design, ArrayJoinImpl's GenericElementsAccessor element accessor handles
+          // all cases and never bails out (see
+          // EnsureElementAccess<GenericElementsAccessor>).
+          unreachable;
+        }
+      }
+      label CycleDetected { return EmptyString; }
+    }
+    label IfException(e: Object) { exception = e; }
+    JoinStackPop(receiver);
+    if (exception != Undefined) ReThrowError(context, exception);
+    return result;
+  }
+
+  javascript builtin ArrayPrototypeToLocaleString(
+      context: Context, receiver: Object): Object {
+    return ArrayJoin(context, receiver, ',', true);
+  }
+
+  javascript builtin ArrayPrototypeJoin(
+      context: Context, receiver: Object, sepObj: Object): Object {
+    return ArrayJoin(context, receiver, sepObj, false);
+  }
+
+  // The Join Stack detects cyclical calls to Array.p.join.  This FixedArray
+  // holds a stack of JSArrays that are receivers to the current call
+  // to Array.p.join. The Array.p.join builtin is responsible for calling
+  // JoinStackPush and JoinStackPop when visiting and leaving a JSArray,
+  // respectively.
+  extern macro LoadJoinStack(): FixedArray;
+  extern macro SetJoinStack(FixedArray): void;
+  const kMinJoinStackSize: constexpr intptr = 'JSArray::kMinJoinStackSize';
+
+  // Adds a receiver to the stack. The FixedArray will automaticlly grow to
+  // accomadate the receiver. If the receiver already exists on the stack,
+  // this indicates a cyclical call and CycleDetected will be taken.
+  macro JoinStackPush(receiver: Object)
+  labels CycleDetected {
+    let stack: FixedArray = LoadJoinStack();
+    // Fast path the common non-nested join call case.
+    if (stack[convert<intptr>(0)] == Hole) {
+      stack[convert<intptr>(0)] = receiver;
+      return;
+    }
+
+    let len: intptr = stack.length_intptr;
+    for (let i: intptr = 0; i < len; i++) {
+      let previouslyVisited: Object = stack[i];
+
+      // Add `receiver` to the first open slot
+      if (previouslyVisited == Hole) {
+        stack[i] = receiver;
+        return;
+      }
+
+      // Detect cycles
+      if (receiver == previouslyVisited) goto CycleDetected;
+    }
+
+    // If no open slots were found, grow the stack and add receiver to the end.
+    // Growth rate is analog to JSObject::NewElementsCapacity:
+    // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
+    let capacity: intptr = (len + (len >>> 1)) + 16;
+    let newStack: FixedArray =
+        ExtractFixedArray(stack, 0, len, capacity, kFixedArrays);
+    newStack[len] = receiver;
+    SetJoinStack(newStack);
+  }
+
+  // Removes a receiver from the stack. The FixedArray will automaticlly shrink
+  // to Heap::kMinJoinStackSize once the stack becomes empty.
+  macro JoinStackPop(receiver: Object): void {
+    let stack: FixedArray = LoadJoinStack();
+    let len: intptr = stack.length_intptr;
+    try {
+      for (let i: intptr = 0; i < len; i++) {
+        let el: Object = stack[i];
+        if (el == receiver) goto RemoveAndShrink(i);
+        // TODO(pwong): when exactly do we need this?
+        // why can't this be an assert (el != Hole)
+        if (el == Hole) return;
+      }
+      unreachable;
+    }
+    label RemoveAndShrink(i: intptr) {
+      stack[i] = Hole;
+      if (i == 0 && len > kMinJoinStackSize) {
+        // TODO(pwong): Should be passing AllocationFlags, torque compiler error
+        let newStack: FixedArray =
+            AllocateFixedArray(PACKED_ELEMENTS, IntPtrConstant(kMinJoinStackSize));
+        assert(kMinJoinStackSize == 2);
+        newStack[convert<intptr>(0)] = Hole;
+        newStack[convert<intptr>(1)] = Hole;
+        SetJoinStack(newStack);
+      }
+    }
   }
 }

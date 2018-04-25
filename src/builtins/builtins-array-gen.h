@@ -77,6 +77,15 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     return StoreFixedArrayElement(array, index, value);
   }
 
+  TNode<FixedArray> LoadJoinStack() {
+    return TNode<FixedArray>::UncheckedCast(
+        LoadRoot(Heap::kArrayJoinStackRootIndex));
+  }
+
+  void SetJoinStack(TNode<FixedArray> stack) {
+    StoreRoot(Heap::kArrayJoinStackRootIndex, stack);
+  }
+
  protected:
   TNode<Context> context() { return context_; }
   TNode<Object> receiver() { return receiver_; }

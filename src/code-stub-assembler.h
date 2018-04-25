@@ -287,6 +287,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
     return UncheckedCast<HeapObject>(value);
   }
 
+  TNode<HeapObject> TaggedToString(TNode<Object> value, Label* fail) {
+    TNode<HeapObject> obj = TaggedToHeapObject(value, fail);
+    GotoIfNot(IsString(obj), fail);
+    return UncheckedCast<String>(obj);
+  }
+
   TNode<JSArray> TaggedToJSArray(TNode<Object> value, Label* fail) {
     GotoIf(TaggedIsSmi(value), fail);
     TNode<HeapObject> heap_object = CAST(value);
@@ -975,6 +981,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                                      needs_poisoning);
   }
 
+  bool ElementsKindEqual(ElementsKind a, ElementsKind b) { return a == b; }
+
+  TNode<BoolT> ElementsKindEqual(TNode<Int32T> a, ElementsKind b) {
+    return Word32Equal(a, Int32Constant(b));
+  }
+
   // Load an array element from a FixedDoubleArray.
   TNode<Float64T> LoadFixedDoubleArrayElement(
       SloppyTNode<FixedDoubleArray> object, Node* index,
@@ -996,6 +1008,9 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<IntPtrT> LoadFeedbackVectorLength(TNode<FeedbackVector>);
   TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
                                           TNode<Smi> index,
+                                          Label* if_hole = nullptr);
+  TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
+                                          TNode<IntPtrT> index,
                                           Label* if_hole = nullptr);
 
   // Load Float64 value by |base| + |offset| address. If the value is a double
@@ -1562,6 +1577,9 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                       char const* arg0 = nullptr, char const* arg1 = nullptr);
   void ThrowTypeError(Node* context, MessageTemplate::Template message,
                       Node* arg0, Node* arg1 = nullptr, Node* arg2 = nullptr);
+  TNode<Object> NewTypeError(TNode<Context> context,
+                             MessageTemplate::Template message,
+                             TNode<Object> arg0);
 
   // Type checks.
   // Check whether the map is for an object with special properties, such as a
@@ -1717,6 +1735,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   Node* IsHoleyFastElementsKind(Node* elements_kind);
   Node* IsElementsKindGreaterThan(Node* target_kind,
                                   ElementsKind reference_kind);
+  TNode<BoolT> IsElementsKindLessThanOrEqual(TNode<Int32T> target_kind,
+                                             ElementsKind reference_kind);
 
   // String helpers.
   // Load a character from a String (might flatten a ConsString).
@@ -1761,6 +1781,11 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Number> StringToNumber(TNode<String> input);
   // Convert a Number to a String.
   TNode<String> NumberToString(TNode<Number> input);
+  // Convert a HeapNumber to a String.
+  // TODO(pwong): I really want a Float64ToString to avoid HeapNumber allocation
+  // do a supa-fast fast c call.
+  TNode<String> HeapNumberToString(TNode<HeapNumber> input);
+  TNode<String> SmiToString(TNode<Smi> input);
   // Convert an object to a name.
   TNode<Name> ToName(SloppyTNode<Context> context, SloppyTNode<Object> value);
   // Convert a Non-Number object to a Number.
