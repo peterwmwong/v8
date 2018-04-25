@@ -454,32 +454,6 @@ static void TraceTopFrame(Isolate* isolate) {
   JavaScriptFrame::PrintTop(isolate, stdout, false, true);
 }
 
-static void SortIndices(
-    Isolate* isolate, Handle<FixedArray> indices, uint32_t sort_size,
-    WriteBarrierMode write_barrier_mode = UPDATE_WRITE_BARRIER) {
-  // Use AtomicElement wrapper to ensure that std::sort uses atomic load and
-  // store operations that are safe for concurrent marking.
-  base::AtomicElement<Object*>* start =
-      reinterpret_cast<base::AtomicElement<Object*>*>(
-          indices->GetFirstElementAddress());
-  std::sort(start, start + sort_size,
-            [isolate](const base::AtomicElement<Object*>& elementA,
-                      const base::AtomicElement<Object*>& elementB) {
-              const Object* a = elementA.value();
-              const Object* b = elementB.value();
-              if (a->IsSmi() || !a->IsUndefined(isolate)) {
-                if (!b->IsSmi() && b->IsUndefined(isolate)) {
-                  return true;
-                }
-                return a->Number() < b->Number();
-              }
-              return !b->IsSmi() && b->IsUndefined(isolate);
-            });
-  if (write_barrier_mode != SKIP_WRITE_BARRIER) {
-    FIXED_ARRAY_ELEMENTS_WRITE_BARRIER(isolate->heap(), *indices, 0, sort_size);
-  }
-}
-
 static Maybe<bool> IncludesValueSlowPath(Isolate* isolate,
                                          Handle<JSObject> receiver,
                                          Handle<Object> value,
@@ -1235,7 +1209,7 @@ class ElementsAccessorBase : public InternalElementsAccessor {
         combined_keys, &nof_indices);
 
     if (needs_sorting) {
-      SortIndices(isolate, combined_keys, nof_indices);
+      ElementsAccessor::SortIndices(isolate, combined_keys, nof_indices);
       // Indices from dictionary elements should only be converted after
       // sorting.
       if (convert == GetKeysConversion::kConvertToString) {
@@ -1668,7 +1642,7 @@ class DictionaryElementsAccessor
       elements->set(insertion_index, raw_key);
       insertion_index++;
     }
-    SortIndices(isolate, elements, insertion_index);
+    ElementsAccessor::SortIndices(isolate, elements, insertion_index);
     for (int i = 0; i < insertion_index; i++) {
       keys->AddKey(elements->get(i));
     }
@@ -3748,7 +3722,7 @@ class SloppyArgumentsElementsAccessor
     DirectCollectElementIndicesImpl(isolate, object, backing_store,
                                     GetKeysConversion::kKeepNumbers,
                                     ENUMERABLE_STRINGS, indices, &nof_indices);
-    SortIndices(isolate, indices, nof_indices);
+    ElementsAccessor::SortIndices(isolate, indices, nof_indices);
     for (uint32_t i = 0; i < nof_indices; i++) {
       keys->AddKey(indices->get(i));
     }
@@ -4573,6 +4547,32 @@ Handle<JSArray> ElementsAccessor::Concat(Isolate* isolate, Arguments* args,
 
   DCHECK_EQ(insertion_index, result_len);
   return result_array;
+}
+
+void ElementsAccessor::SortIndices(Isolate* isolate, Handle<FixedArray> indices,
+                                   uint32_t sort_size,
+                                   WriteBarrierMode write_barrier_mode) {
+  // Use AtomicElement wrapper to ensure that std::sort uses atomic load and
+  // store operations that are safe for concurrent marking.
+  base::AtomicElement<Object*>* start =
+      reinterpret_cast<base::AtomicElement<Object*>*>(
+          indices->GetFirstElementAddress());
+  std::sort(start, start + sort_size,
+            [isolate](const base::AtomicElement<Object*>& elementA,
+                      const base::AtomicElement<Object*>& elementB) {
+              const Object* a = elementA.value();
+              const Object* b = elementB.value();
+              if (a->IsSmi() || !a->IsUndefined(isolate)) {
+                if (!b->IsSmi() && b->IsUndefined(isolate)) {
+                  return true;
+                }
+                return a->Number() < b->Number();
+              }
+              return !b->IsSmi() && b->IsUndefined(isolate);
+            });
+  if (write_barrier_mode != SKIP_WRITE_BARRIER) {
+    FIXED_ARRAY_ELEMENTS_WRITE_BARRIER(isolate->heap(), *indices, 0, sort_size);
+  }
 }
 
 ElementsAccessor** ElementsAccessor::elements_accessors_ = nullptr;

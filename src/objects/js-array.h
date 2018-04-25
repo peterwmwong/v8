@@ -87,7 +87,18 @@ class JSArray : public JSObject {
   static const int kMaxCopyElements = 100;
 
   // This constant is somewhat arbitrary. Any large enough value would work.
+  //
+  // TODO(pwong): Is this related to FixedArray::kMaxLength?  If so, should we:
+  //   1) Derive the constant from FixedArray::kMaxLength
+  //   2) Add Static asserts to enforce relationship?
+  //      - STATIC_ASSERT(kMaxFastArrayLength < FixedArray::kMaxLength);
+  //   3) Comment the relationship?
+  //   X) Leave it as is
+  //
   static const uint32_t kMaxFastArrayLength = 32 * 1024 * 1024;
+
+  // Min. stack size for detecting an Array.prototype.join() call cycle.
+  static const uint32_t kMinJoinStackSize = 2;
 
   static const int kInitialMaxFastElementArray =
       (kMaxRegularHeapObjectSize - FixedArray::kHeaderSize - kSize -
