@@ -72,6 +72,23 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
   void FillFixedArrayWithSmiZero(TNode<FixedArray> array,
                                  TNode<Smi> smi_length);
 
+  TNode<String> CallStringWriteFixedArrayToFlatSeq(
+      TNode<FixedArray> fixed_array, TNode<IntPtrT> length, TNode<String> sep,
+      TNode<String> dest) {
+    TNode<ExternalReference> func = ExternalConstant(
+        ExternalReference::string_write_fixed_array_to_flat_seq());
+    TNode<ExternalReference> isolate_ptr =
+        ExternalConstant(ExternalReference::isolate_address(isolate()));
+    return UncheckedCast<String>(
+        CallCFunction5(MachineType::AnyTagged(),  // <return> String*
+                       MachineType::Pointer(),    // Isolate*
+                       MachineType::AnyTagged(),  // FixedArray* fixed_array
+                       MachineType::IntPtr(),     // intptr_t length
+                       MachineType::AnyTagged(),  // String* sep
+                       MachineType::AnyTagged(),  // String* dest
+                       func, isolate_ptr, fixed_array, length, sep, dest));
+  }
+
  protected:
   TNode<Context> context() { return context_; }
   TNode<Object> receiver() { return receiver_; }

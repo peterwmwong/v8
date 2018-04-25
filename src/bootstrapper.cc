@@ -1748,6 +1748,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           1, false);
     SimpleInstallFunction(isolate_, proto, "indexOf", Builtins::kArrayIndexOf,
                           1, false);
+    SimpleInstallFunction(isolate_, proto, "join",
+                          Builtins::kArrayPrototypeJoin, 1, false);
     SimpleInstallFunction(isolate_, proto, "keys",
                           Builtins::kArrayPrototypeKeys, 0, true,
                           BuiltinFunctionId::kArrayKeys);
@@ -1771,6 +1773,12 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           false);
     SimpleInstallFunction(isolate_, proto, "reduceRight",
                           Builtins::kArrayReduceRight, 1, false);
+    SimpleInstallFunction(isolate_, proto, "toLocaleString",
+                          Builtins::kArrayPrototypeToLocaleString, 0, false);
+    SimpleInstallFunction(isolate_, proto, "toString",
+                          Builtins::kArrayPrototypeToString, 0, false);
+
+    native_context()->set_array_join_stack(*factory->undefined_value());
   }
 
   {  // --- A r r a y I t e r a t o r ---
