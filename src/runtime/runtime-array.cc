@@ -360,6 +360,31 @@ MaybeHandle<Object> CopyFromPrototype(Isolate* isolate,
   return isolate->factory()->undefined_value();
 }
 
+Handle<FixedArray> GetArrayKeys(Isolate* isolate, Handle<JSObject> array,
+                                uint32_t length) {
+  KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
+                             ALL_PROPERTIES);
+  for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
+       !iter.IsAtEnd(); iter.Advance()) {
+    Handle<JSReceiver> current(PrototypeIterator::GetCurrent<JSReceiver>(iter));
+    DCHECK(!current->HasComplexElements());
+    accumulator.CollectOwnElementIndices(array,
+                                         Handle<JSObject>::cast(current));
+  }
+
+  // Erase any keys >= length.
+  Handle<FixedArray> keys =
+      accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
+  int j = 0;
+  for (int i = 0; i < keys->length(); i++) {
+    if (NumberToUint32(keys->get(i)) >= length) continue;
+    if (i != j) keys->set(j, keys->get(i));
+    j++;
+  }
+
+  return FixedArray::ShrinkOrEmpty(isolate, keys, j);
+}
+
 }  // namespace
 
 RUNTIME_FUNCTION(Runtime_PrepareElementsForSort) {
@@ -456,6 +481,17 @@ RUNTIME_FUNCTION(Runtime_EstimateNumberOfElements) {
   }
 }
 
+RUNTIME_FUNCTION(Runtime_GetSortedArrayKeys) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSArray, array, 0);
+  CONVERT_NUMBER_CHECKED(uint32_t, length, Uint32, args[1]);
+
+  Handle<FixedArray> keys = GetArrayKeys(isolate, array, length);
+  ElementsAccessor::SortIndices(isolate, keys, keys->length(),
+                                SKIP_WRITE_BARRIER);
+  return *keys;
+}
 
 // Returns an array that tells you where in the [0, length) interval an array
 // might have elements.  Can either return an array of keys (positive integers
@@ -483,28 +519,7 @@ RUNTIME_FUNCTION(Runtime_GetArrayKeys) {
             static_cast<uint32_t>(Max(string_length, backing_store_length))));
   }
 
-  KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
-                             ALL_PROPERTIES);
-  for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
-       !iter.IsAtEnd(); iter.Advance()) {
-    Handle<JSReceiver> current(PrototypeIterator::GetCurrent<JSReceiver>(iter));
-    if (current->HasComplexElements()) {
-      return *isolate->factory()->NewNumberFromUint(length);
-    }
-    accumulator.CollectOwnElementIndices(array,
-                                         Handle<JSObject>::cast(current));
-  }
-  // Erase any keys >= length.
-  Handle<FixedArray> keys =
-      accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
-  int j = 0;
-  for (int i = 0; i < keys->length(); i++) {
-    if (NumberToUint32(keys->get(i)) >= length) continue;
-    if (i != j) keys->set(j, keys->get(i));
-    j++;
-  }
-
-  keys = FixedArray::ShrinkOrEmpty(isolate, keys, j);
+  Handle<FixedArray> keys = GetArrayKeys(isolate, array, length);
   return *isolate->factory()->NewJSArrayWithElements(keys);
 }
 

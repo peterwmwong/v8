@@ -377,6 +377,16 @@ class String : public Name {
   template <typename sinkchar>
   static void WriteToFlat(String* source, sinkchar* sink, int from, int to);
 
+  // Support for Array.prototype.join().
+  static String* WriteFixedArrayToFlatSeq(FixedArray* fixed_array,
+                                          intptr_t length, String* separator,
+                                          String* dest);
+
+  template <typename sinkchar>
+  static void WriteFixedArrayToFlat(FixedArray* fixed_array, int length,
+                                    String* separator, sinkchar* sink,
+                                    int sink_length);
+
   // The return value may point to the first aligned word containing the first
   // non-one-byte character, rather than directly to the non-one-byte character.
   // If the return value is >= the passed length, the entire string was

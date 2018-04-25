@@ -832,6 +832,7 @@ namespace internal {
   /* ES #sec-object.prototype.tolocalestring */                                \
   TFJ(ObjectPrototypeToLocaleString, 0, kReceiver)                             \
   CPP(ObjectSeal)                                                              \
+  TFS(ObjectToString, kReceiver)                                               \
   TFJ(ObjectValues, 1, kReceiver, kObject)                                     \
                                                                                \
   /* instanceof */                                                             \
