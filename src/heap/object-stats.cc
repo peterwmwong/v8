@@ -701,6 +701,7 @@ void ObjectStatsCollectorImpl::CollectGlobalStatistics() {
                                  ObjectStats::STRING_SPLIT_CACHE_TYPE);
   RecordSimpleVirtualObjectStats(nullptr, heap_->regexp_multiple_cache(),
                                  ObjectStats::REGEXP_MULTIPLE_CACHE_TYPE);
+  // TODO(pwong): Does String Join need to do this ^^^
   RecordSimpleVirtualObjectStats(nullptr, heap_->retained_maps(),
                                  ObjectStats::RETAINED_MAPS_TYPE);
 

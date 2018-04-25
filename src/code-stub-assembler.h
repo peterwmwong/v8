@@ -398,6 +398,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
 
   TNode<Map> UnsafeCastObjectToMap(TNode<Object> p_o) { return CAST(p_o); }
 
+  TNode<String> UnsafeCastObjectToString(TNode<Object> p_o) {
+    return CAST(p_o);
+  }
+
   Node* MatchesParameterMode(Node* value, ParameterMode mode);
 
 #define PARAMETER_BINOP(OpName, IntPtrOpName, SmiOpName) \
@@ -1058,6 +1062,9 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<IntPtrT> LoadFeedbackVectorLength(TNode<FeedbackVector>);
   TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
                                           TNode<Smi> index,
+                                          Label* if_hole = nullptr);
+  TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
+                                          TNode<IntPtrT> index,
                                           Label* if_hole = nullptr);
 
   // Load Float64 value by |base| + |offset| address. If the value is a double
@@ -1809,6 +1816,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   Node* IsHoleyFastElementsKind(Node* elements_kind);
   Node* IsElementsKindGreaterThan(Node* target_kind,
                                   ElementsKind reference_kind);
+  TNode<BoolT> IsElementsKindLessThanOrEqual(TNode<Int32T> target_kind,
+                                             ElementsKind reference_kind);
 
   // String helpers.
   // Load a character from a String (might flatten a ConsString).
@@ -1853,6 +1862,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Number> StringToNumber(TNode<String> input);
   // Convert a Number to a String.
   TNode<String> NumberToString(TNode<Number> input);
+  // Convert a HeapNumber to a String.
+  TNode<String> HeapNumberToString(TNode<HeapNumber> input);
+  // Convert a Smi to a String.
+  TNode<String> SmiToString(TNode<Smi> input);
   // Convert an object to a name.
   TNode<Name> ToName(SloppyTNode<Context> context, SloppyTNode<Object> value);
   // Convert a Non-Number object to a Number.
@@ -2137,6 +2150,11 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Smi> GetNumberOfElements(TNode<Dictionary> dictionary) {
     return CAST(
         LoadFixedArrayElement(dictionary, Dictionary::kNumberOfElementsIndex));
+  }
+
+  TNode<Smi> GetNumberDictionaryNumberOfElements(
+      TNode<NumberDictionary> dictionary) {
+    return GetNumberOfElements<NumberDictionary>(dictionary);
   }
 
   template <class Dictionary>

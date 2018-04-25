@@ -25,6 +25,17 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+assertSame(',', [null, undefined].join());
+assertSame('1.5,2.5', [1.5, 2.5].join());
+assertSame(',1.5,', [,1.5,,].join());
+
+var obj = {
+  toString() {
+    return 'a';
+  }
+};
+assertSame('1,1.5,a,', [1, 1.5, obj, ,].join());
+
 // Test that array join calls toString on subarrays.
 var a = [[1,2],3,4,[5,6]];
 assertEquals('1,2345,6', a.join(''));

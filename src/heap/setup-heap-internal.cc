@@ -21,6 +21,7 @@
 #include "src/objects/debug-objects.h"
 #include "src/objects/descriptor-array.h"
 #include "src/objects/dictionary.h"
+#include "src/objects/js-array.h"
 #include "src/objects/map.h"
 #include "src/objects/microtask.h"
 #include "src/objects/module.h"
@@ -735,6 +736,14 @@ void Heap::CreateInitialObjects() {
       RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
   set_regexp_multiple_cache(*factory->NewFixedArray(
       RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
+
+  // String join uses a fixed array to keep track of visited array-like objects
+  // that were previously called to avoid cycles
+  {
+    Handle<FixedArray> array_join_stack =
+        factory->NewFixedArrayWithHoles(JSArray::kMinJoinStackSize, TENURED);
+    set_array_join_stack(*array_join_stack);
+  }
 
   // Allocate FeedbackCell for builtins.
   Handle<FeedbackCell> many_closures_cell =

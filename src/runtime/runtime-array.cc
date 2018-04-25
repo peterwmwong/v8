@@ -351,6 +351,20 @@ MaybeHandle<Object> CopyFromPrototype(Isolate* isolate,
   return isolate->factory()->undefined_value();
 }
 
+Handle<FixedArray> GetArrayKeys(Isolate* isolate, Handle<JSObject> array) {
+  KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
+                             ALL_PROPERTIES);
+  for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
+       !iter.IsAtEnd(); iter.Advance()) {
+    Handle<JSReceiver> current(PrototypeIterator::GetCurrent<JSReceiver>(iter));
+    DCHECK(!current->HasComplexElements());
+    accumulator.CollectOwnElementIndices(array,
+                                         Handle<JSObject>::cast(current));
+  }
+
+  return accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
+}
+
 }  // namespace
 
 RUNTIME_FUNCTION(Runtime_PrepareElementsForSort) {
@@ -447,6 +461,16 @@ RUNTIME_FUNCTION(Runtime_EstimateNumberOfElements) {
   }
 }
 
+RUNTIME_FUNCTION(Runtime_GetSortedArrayKeys) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSArray, array, 0);
+
+  Handle<FixedArray> keys = GetArrayKeys(isolate, array);
+  ElementsAccessor::SortIndices(isolate, keys, keys->length(),
+                                SKIP_WRITE_BARRIER);
+  return *isolate->factory()->NewJSArrayWithElements(keys, PACKED_ELEMENTS);
+}
 
 // Returns an array that tells you where in the [0, length) interval an array
 // might have elements.  Can either return an array of keys (positive integers
@@ -474,20 +498,9 @@ RUNTIME_FUNCTION(Runtime_GetArrayKeys) {
             static_cast<uint32_t>(Max(string_length, backing_store_length))));
   }
 
-  KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
-                             ALL_PROPERTIES);
-  for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
-       !iter.IsAtEnd(); iter.Advance()) {
-    Handle<JSReceiver> current(PrototypeIterator::GetCurrent<JSReceiver>(iter));
-    if (current->HasComplexElements()) {
-      return *isolate->factory()->NewNumberFromUint(length);
-    }
-    accumulator.CollectOwnElementIndices(array,
-                                         Handle<JSObject>::cast(current));
-  }
+  Handle<FixedArray> keys = GetArrayKeys(isolate, array);
+
   // Erase any keys >= length.
-  Handle<FixedArray> keys =
-      accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
   int j = 0;
   for (int i = 0; i < keys->length(); i++) {
     if (NumberToUint32(keys->get(i)) >= length) continue;

@@ -13,7 +13,7 @@ function generateEmptyMessages(n) {
 
 function generate1MbMessages(n) {
   for (var i = 0; i < n; ++i) {
-    console.log(new Array(1024 * 1024 - 32).join('!'));
+    console.log('!'.repeat(1024 * 1024 - 32));
   }
 }
 //# sourceURL=test.js`, 7, 26);

@@ -3,6 +3,14 @@
 // found in the LICENSE file.
 
 module array {
+  // Naming convention from elements.cc. We have a similar intent but implement
+  // fastpaths using generics instead of using a class hierarchy for elements
+  // kinds specific implementations.
+  type GenericElementsAccessor;
+  type FastHoleyObjectElements;
+  type FastHoleyDoubleElements;
+  type DictionaryElements;
+
   macro GetLengthProperty(context: Context, o: Object): Number {
     if (BranchIfFastJSArray(o, context)) {
       let a: JSArray = unsafe_cast<JSArray>(o);
@@ -110,7 +118,7 @@ module array {
   javascript builtin ArraySpliceTorque(
       context: Context, receiver: Object, ...arguments): Object {
     // 1. Let O be ? ToObject(this value).
-    let o: Object = ToObject(context, receiver);
+    let o: JSReceiver = ToObject(context, receiver);
 
     // 2. Let len be ? ToLength(? Get(O, "length")).
     let len: Number = GetLengthProperty(context, o);
@@ -195,7 +203,7 @@ module array {
     }
 
     // 12. Perform ? Set(A, "length", actualDeleteCount, true).
-    SetProperty(context, a, 'length', actualDeleteCount, kStrict);
+    SetProperty(context, a, LengthString, actualDeleteCount, kStrict);
 
     // 13. Let items be a List whose elements are, in left-to-right order,
     //     the portion of the actual argument list starting with the third
@@ -302,7 +310,7 @@ module array {
     // 19. Perform ? Set(O, "length", len - actualDeleteCount + itemCount,
     // true).
     SetProperty(
-        context, o, 'length', len - actualDeleteCount + itemCount, kStrict);
+        context, o, LengthString, len - actualDeleteCount + itemCount, kStrict);
 
     return a;
   }
