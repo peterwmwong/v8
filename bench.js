@@ -12,8 +12,8 @@
 https://github.com/GoogleChromeLabs/jsvu
 
     > npm install jsvu -g
-    > ~/.jsvu/v8 test.js -- split
-    > ~/.jsvu/v8 test.js -- exec
+    > ~/.jsvu/v8 bench.js -- smi join
+    > ~/.jsvu/v8 bench.js -- double join
 
 */
 (() => {
