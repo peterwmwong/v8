@@ -22,20 +22,31 @@ https://github.com/GoogleChromeLabs/jsvu
 // const ARRAY_SIZE = 10;
 const ITERATIONS = 1e6;
 const ARRAY_SIZE = 16;
+
+class Obj {
+  constructor(str) { this.str = str; }
+  toString() { return this.str; }
+}
+
 const SETUP_VARIANTS = {
   smi() {
-    const array = new Array();
+    const array = [];
     for (let i = 0; i < ARRAY_SIZE; ++i) array[i] = i;
     return array;
   },
   string() {
-    const array = new Array();
+    const array = [];
     for (let i = 0; i < ARRAY_SIZE; ++i) array[i] = `Item no. ${i}`;
     return array;
   },
   double() {
-    const array = new Array();
+    const array = [];
     for (let i = 0; i < ARRAY_SIZE; ++i) array[i] = i + 0.25;
+    return array;
+  },
+  object() {
+    const array = [];
+    for (let i = 0; i < ARRAY_SIZE; ++i) array[i] = new Obj(`Item no. ${i}`);
     return array;
   },
   sparseSmi() {

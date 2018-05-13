@@ -6526,18 +6526,25 @@ TNode<String> CodeStubAssembler::ToString(SloppyTNode<Context> context,
 
 TNode<String> CodeStubAssembler::ToString_Inline(
     SloppyTNode<Context> context, SloppyTNode<Object> input,
-    Label* if_exception, TVariable<Object>* var_exception) {
+    Label* if_exception, TVariable<Object>* var_exception, Label* if_js_call,
+    TVariable<String>* var_result_if_js_call) {
   TVARIABLE(Object, var_result, input);
   Label stub_call(this, Label::kDeferred), out(this);
 
   GotoIf(TaggedIsSmi(input), &stub_call);
   Branch(IsString(CAST(input)), &out, &stub_call);
-
   BIND(&stub_call);
-  TNode<Object> result = CallBuiltin(Builtins::kToString, context, input);
-  GotoIfException(result, if_exception, var_exception);
-  var_result = result;
-  Goto(&out);
+  {
+    TNode<Object> result = CallBuiltin(Builtins::kToString, context, input);
+    GotoIfException(result, if_exception, var_exception);
+    if (if_js_call != nullptr && var_result_if_js_call != nullptr) {
+      *var_result_if_js_call = CAST(result);
+      Goto(if_js_call);
+    } else {
+      var_result = result;
+      Goto(&out);
+    }
+  }
   BIND(&out);
   return CAST(var_result.value());
 }

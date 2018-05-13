@@ -1317,12 +1317,13 @@ VisitResult ImplementationVisitor::GenerateCall(
       Variable* variable = label->GetParameter(j);
       if (!(variable->type() == t)) {
         std::stringstream s;
-        s << "mismatch of label parameters (expected " << t << " got "
+        s << "mismatch of label (" << label->name() << ") parameters (expected " << t << " got "
           << label->GetParameter(j)->type() << " for parameter "
           << std::to_string(i + 1) << ") at " << PositionAsString(pos);
         ReportError(s.str());
       }
       source_out() << variable->GetValueForDeclaration();
+      j++;
     }
     label->MarkUsed();
   }

@@ -110,7 +110,8 @@ extern macro ToInteger_Inline(Context, Object): Number;
 extern macro ToLength_Inline(Context, Object): Number;
 extern macro ToNumber_Inline(Context, Object): Number;
 extern macro ToString_Inline(Context, Object): String;
-extern macro ToString_InlineIfException(Context, Object): String labels IfException(Object);
+extern macro ToString_InlineIfException(Context, Object): String
+    labels IfException(Object), IfJsCall(String);
 extern macro GetProperty(Context, Object, Object): Object;
 extern macro HasProperty(HeapObject, Object, Context, HasPropertyFlag): Oddball;
 extern macro ThrowRangeError(Context, MessageTemplate): never;

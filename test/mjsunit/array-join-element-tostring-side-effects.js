@@ -54,3 +54,21 @@
   assertSame(1, callCount);
   assertSame('1', a.join());
 })();
+
+(function ElementsKindChangedToHoley() {
+  let callCount = 0;
+  const a = [
+    {
+      toString() {
+        callCount++;
+        a.length = 3;
+        a[1] = 777;
+        return '1';
+      }
+    },
+    2
+  ];
+  assertSame('1,777', a.join());
+  assertSame(1, callCount);
+  assertSame('1,777,', a.join());
+})();

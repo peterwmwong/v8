@@ -554,7 +554,7 @@ module array {
   macro FastSmiOrElementsJoin(
       context: Context, expectedLength: Smi, array: JSArray,
       elementsKind: constexpr ElementsKind, sep: String): String
-  labels Bailout, IfException(Object) {
+  labels Bailout, IfException(Object), ContinueSlow(Smi, String, String) {
     // TODO(pwong): verify this only happens in debug
     assert(array.map.elements_kind == PACKED_SMI_ELEMENTS || array.map.elements_kind == HOLEY_SMI_ELEMENTS || array.map.elements_kind == PACKED_ELEMENTS || array.map.elements_kind == HOLEY_ELEMENTS);
 
@@ -612,8 +612,13 @@ module array {
             // TODO(pwong): Update ToString_InlineIfException with another label:
             //              `CalledRuntime` to indicate user code may have been
             //              called.
-            next = ToString_InlineIfException(context, element)
-                  otherwise IfException;
+            try {
+              next = ToString_InlineIfException(context, element)
+                     otherwise IfException, IfJSCall;
+            }
+            label IfJSCall(str: String) {
+              goto ContinueSlow(k, r, str);
+            }
           }
         }
 
@@ -629,7 +634,7 @@ module array {
 
   macro FastArrayJoin(
       context: Context, stackIndex: Smi, array: JSArray, expectedLen: Smi, sep: String): String
-  labels Bailout, IfException(Object) {
+  labels Bailout, IfException(Object), ContinueSlow(Smi, String, String) {
     let map: Map = array.map;
 
     if (!IsPrototypeInitialArrayPrototype(context, map)) goto Bailout;
@@ -640,19 +645,19 @@ module array {
     if (elementsKind == PACKED_SMI_ELEMENTS) {
       return FastSmiOrElementsJoin(
           context, expectedLen, array, PACKED_SMI_ELEMENTS, sep)
-      otherwise Bailout, IfException;
+      otherwise Bailout, IfException, ContinueSlow;
     } else if (elementsKind == HOLEY_SMI_ELEMENTS) {
       return FastSmiOrElementsJoin(
           context, expectedLen, array, HOLEY_SMI_ELEMENTS, sep)
-      otherwise Bailout, IfException;
+      otherwise Bailout, IfException, ContinueSlow;
     } else if (elementsKind == PACKED_ELEMENTS) {
       return FastSmiOrElementsJoin(
           context, expectedLen, array, PACKED_ELEMENTS, sep)
-      otherwise Bailout, IfException;
+      otherwise Bailout, IfException, ContinueSlow;
     } else if (elementsKind == HOLEY_ELEMENTS) {
       return FastSmiOrElementsJoin(
           context, expectedLen, array, HOLEY_ELEMENTS, sep)
-      otherwise Bailout, IfException;
+      otherwise Bailout, IfException, ContinueSlow;
     } else if (elementsKind == PACKED_DOUBLE_ELEMENTS ||
                elementsKind == HOLEY_DOUBLE_ELEMENTS) {
       return FastDoublesJoin(context, expectedLen, array, sep)
@@ -691,12 +696,12 @@ module array {
   }
 
   macro SlowArrayJoin(
-      context: Context, o: Object, len: Number, sep: String): String {
-    // 5. Let R be the empty String.
-    let r: String = EmptyString;
+      context: Context, o: Object, len: Number, sep: String, startIndex: Number,
+      initialString: String): String {
+    let r: String = initialString;
 
     // 6. Let k be 0.
-    let k: Number = 0;
+    let k: Number = startIndex;
 
     // 7. Repeat, while k < len
     while (k < len) {
@@ -729,6 +734,8 @@ module array {
     let stackIndex: Smi = -1;
     let len: Number;
     let sep: String;
+    let initialString: String = EmptyString;
+    let startIndex: Smi = 0;
     try {
       let array: JSArray = cast<JSArray>(o) otherwise Slow;
       let lenSmi: Smi = cast<Smi>(array.length) otherwise Slow;
@@ -737,7 +744,7 @@ module array {
       sep = GetJoinSeperator(context, arguments);
       stackIndex = JoinStackPush(array) otherwise CycleDetected;
       let r: String = FastArrayJoin(context, stackIndex, array, lenSmi, sep)
-                      otherwise Bailout, IfException;
+                      otherwise Bailout, IfException, ContinueSlow;
       JoinStackPop(stackIndex);
       return r;
     }
@@ -749,12 +756,16 @@ module array {
       len = ToLength_Inline(context, lenObj);
       sep = GetJoinSeperator(context, arguments);
     }
+    label ContinueSlow(lastIndex: Smi, curResult: String, lastEntry: String) {
+      startIndex = lastIndex + 1;
+      initialString = StringAdd(context, curResult, lastEntry);
+    }
     label IfException(exception: Object) {
       JoinStackPop(stackIndex);
       ReThrowException(context, exception);
     }
 
-    let r: String = SlowArrayJoin(context, o, len, sep);
+    let r: String = SlowArrayJoin(context, o, len, sep, startIndex, initialString);
     if (stackIndex >= 0) JoinStackPop(stackIndex);
     return r;
   }

@@ -1586,16 +1586,21 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   // Convert any object to a String.
   TNode<String> ToString(SloppyTNode<Context> context,
                          SloppyTNode<Object> input);
-  TNode<String> ToString_Inline(SloppyTNode<Context> context,
-                                SloppyTNode<Object> input,
-                                Label* if_exception = nullptr,
-                                TVariable<Object>* var_exception = nullptr);
-  TNode<String> ToString_InlineIfException(SloppyTNode<Context> context,
-                                           SloppyTNode<Object> input,
-                                           Label* if_exception,
-                                           TVariable<Object>* var_exception) {
-    return ToString_Inline(context, input, if_exception, var_exception);
+
+  TNode<String> ToString_Inline(
+      SloppyTNode<Context> context, SloppyTNode<Object> input,
+      Label* if_exception = nullptr, TVariable<Object>* var_exception = nullptr,
+      Label* if_js_call = nullptr,
+      TVariable<String>* var_result_if_js_call = nullptr);
+
+  TNode<String> ToString_InlineIfException(
+      SloppyTNode<Context> context, SloppyTNode<Object> input,
+      Label* if_exception, TVariable<Object>* var_exception, Label* if_js_call,
+      TVariable<String>* var_result_if_js_call) {
+    return ToString_Inline(context, input, if_exception, var_exception,
+                           if_js_call, var_result_if_js_call);
   }
+
   TNode<String> UncheckedString(TNode<Object> obj) {
     return UncheckedCast<String>(obj);
   }
