@@ -1,18 +1,38 @@
-# CURRENT: Remove IsDoubleElementsKind_ and similar ilk
+# Handle side effects from `ToString(element)`
 
-Given the impending `constexpr` awesomeness: https://chromium-review.googlesource.com/c/v8/v8/+/1042085
+1. Write tests has elements kind changing side effect
+  - Starting in the following elements kind
+    - Smi
+    - Double
+    - Elements
+2. Fix it
+  - Add ToString label `PossibleSideEffects`/`WithSideEffects`/`WithJSCall`
 
-# CURRENT: Use new [] operator for FixedDoubleArray
+# Try to Torqueify Load and Storing kStringJoinStackRootIndex
 
-# CURRENT: Cycle detection
+```ts
+type RootListIndex;
+const kStringJoinStackRootIndex: RootListIndex = 'Heap::kStringJoinStackRootIndex';
+const kStringJoinStack: FixedArray =
+    'UncheckedCast<FixedArray>(LoadRoot(Heap::kStringJoinStackRootIndex))';
+extern macro StoreRoot(RootListIndex, HeapObject);
 
-## Unexpected stack grow
-
-```js
-assertSame('1.5,2,3', [1.5,2,3].join());
-assertSame('1.5,2,3', [1.5,2,3].join());
-assertSame('1.5,2,3', [1.5,2,3].join()); // <--- WHY DOES THIS GROW!?
+StoreRoot(kStringJoinStackRootIndex, newStack);
 ```
+
+# Consider nested try to avoid stackIndex = -1
+
+Can we avoid inializaing `stackIndex` to `-1` to indicate we have not pushed to
+the stack?
+
+# Shrink StringJoinStack when PopStack of stackIndex == 0
+
+We don't want a runaway, deeply nested join eat up unecessary amount of
+necessarily.
+
+# Perf: Is avoiding ToString call (IsSmi, IsString) worth it?
+
+Measure specialization vs just calling ToString
 
 # Perf: Avoid/Reduce overhead of cycle detection
 
@@ -36,22 +56,8 @@ if (length === 1) {
 }
 ```
 
-# Handle ToString Side-effects
-
-- GetJoinSeperator
-- Join loop ToString
-- Can a heap number NumberToString have a side-effect? (swee jebus)
-
-This may require us to handle a continuation-like strategy
-  - If in the middle of the join loop we detect our array is no longer is "fast"
-
-# Figure out effiecient GetJoinSeperator/Array.p.length/Fast-Array-check call order
-
-Currently the fast and slow paths **both** generate GetJoinSeperator.
-Is there a way to do this once?
-We need to be resilient to a side-effectful GetJoinSeperator (from ToString)
-
 # Use toLocaleString if called from toLocaleString
+
 
 # Consider Sparse Join special case optimization
 
@@ -70,12 +76,17 @@ It appears the JS implementation special cased sparse arrays.
 2) If so, get keys of sparse arrays
 3) Iterate over keys (effectively jumping over holes) instead of each index
 
+
 # Determine validity of bug 7707
 
 This bug may have uncovered a spec breakage in regards to Array-like objects.
 Further analyze the bug, add a test case if valid.
 
 https://bugs.chromium.org/p/v8/issues/detail?id=7707
+
+
+
+
 
 # PR2: Fast C call to NumberToString
 

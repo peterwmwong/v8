@@ -1547,6 +1547,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Number> StringToNumber(TNode<String> input);
   // Convert a Number to a String.
   TNode<String> NumberToString(TNode<Number> input);
+  // Convert a HeapNumber to a String.
+  // TODO(pwong): I really want a Float64ToString to avoid HeapNumber allocation
+  // do a supa-fast fast c call.
+  TNode<String> HeapNumberToString(TNode<HeapNumber> input) {
+    return NumberToString(UncheckedCast<Number>(input));
+  }
   // Convert an object to a name.
   TNode<Name> ToName(SloppyTNode<Context> context, SloppyTNode<Object> value);
   // Convert a Non-Number object to a Number.
@@ -1584,8 +1590,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                                 SloppyTNode<Object> input,
                                 Label* if_exception = nullptr,
                                 TVariable<Object>* var_exception = nullptr);
-  TNode<Object> ToString_InlineOrException(SloppyTNode<Context> context,
-                                           SloppyTNode<Object> input);
+  TNode<String> ToString_InlineIfException(SloppyTNode<Context> context,
+                                           SloppyTNode<Object> input,
+                                           Label* if_exception,
+                                           TVariable<Object>* var_exception) {
+    return ToString_Inline(context, input, if_exception, var_exception);
+  }
   TNode<String> UncheckedString(TNode<Object> obj) {
     return UncheckedCast<String>(obj);
   }

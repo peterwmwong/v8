@@ -6542,27 +6542,6 @@ TNode<String> CodeStubAssembler::ToString_Inline(
   return CAST(var_result.value());
 }
 
-TNode<Object> CodeStubAssembler::ToString_InlineOrException(
-    SloppyTNode<Context> context, SloppyTNode<Object> input) {
-  TVARIABLE(Object, var_result, input);
-  Label stub_call(this, Label::kDeferred), out(this), if_no_exception(this);
-
-  GotoIf(TaggedIsSmi(input), &stub_call);
-  Branch(IsString(CAST(input)), &out, &stub_call);
-
-  BIND(&stub_call);
-  TNode<Object> result = CallBuiltin(Builtins::kToString, context, input);
-  var_result = GetException(result, &if_no_exception);
-  Goto(&out);
-  BIND(&if_no_exception);
-  {
-    var_result = result;
-    Goto(&out);
-  }
-  BIND(&out);
-  return var_result.value();
-}
-
 Node* CodeStubAssembler::JSReceiverToPrimitive(Node* context, Node* input) {
   Label if_isreceiver(this, Label::kDeferred), if_isnotreceiver(this);
   VARIABLE(result, MachineRepresentation::kTagged);

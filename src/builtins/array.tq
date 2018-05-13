@@ -514,85 +514,113 @@ module array {
     return sep;
   }
 
-  macro FastArrayElementsJoin(
-      context: Context, stackIndex: Smi, len: Smi, elementsBase: FixedArrayBase,
-      elementsKind: constexpr ElementsKind, sep: String): String
+  macro FastDoublesJoin(
+    context: Context, expectedLength: Smi, array: JSArray, sep: String): String
   labels Bailout {
+    // TODO(pwong): verify this only happens in debug
+    assert(array.map.elements_kind == PACKED_DOUBLE_ELEMENTS || array.map.elements_kind == HOLEY_DOUBLE_ELEMENTS);
+
     // 5. Let R be the empty String.
     let r: String = EmptyString;
 
-    let elements: FixedArray;
-    let doubleElements: FixedDoubleArray;
-    if constexpr (elementsKind == PACKED_DOUBLE_ELEMENTS ||
-                  elementsKind == HOLEY_DOUBLE_ELEMENTS) {
-      elements = cast<FixedArray>(kEmptyFixedArray) otherwise Bailout;
-      doubleElements = cast<FixedDoubleArray>(elementsBase) otherwise Bailout;
-    } else {
-      elements = cast<FixedArray>(elementsBase) otherwise Bailout;
-      doubleElements = kEmptyFixedFloat64Array;
-    }
+    let elements: FixedDoubleArray = cast<FixedDoubleArray>(array.elements) otherwise Bailout;
+    assert(expectedLength == elements.length);
 
     // 6. Let k be 0.
     // 7. Repeat, while k < len
-    for (let k: Smi = 0; k < len; k++) {
+    for (let k: Smi = 0; k < expectedLength; k++) {
       // a. If k > 0, let R be the string-concatenation of R and sep.
       if (k > 0) r = StringAdd(context, r, sep);
 
       // b. Let element be ? Get(O, ! ToString(k)).
       try {
-        let element: Object;
-        if constexpr (elementsKind == PACKED_DOUBLE_ELEMENTS ||
-                      elementsKind == HOLEY_DOUBLE_ELEMENTS) {
-          let doubleElement: float64 =
-            LoadDoubleWithHoleCheck(doubleElements, k) otherwise IfHole;
-          element = convert<HeapNumber>(doubleElement);
+        // TODO(pwong): The implicit conversion to HeapNumber allocates a
+        //              HeapNumber. Can we do a fast C-call to avoid allocating?
+        let element: HeapNumber = LoadDoubleWithHoleCheck(elements, k)
+                                  otherwise Skip;
+
+        // c. If element is undefined or null, let next be the empty String;
+        //    otherwise, let next be ? ToString(element).
+        // d. Set R to the string-concatenation of R and next.
+        r = StringAdd(context, r, HeapNumberToString(element));
+      }
+      label Skip {}
+    }
+
+    // 8. Return R.
+    return r;
+  }
+
+  macro FastSmiOrElementsJoin(
+      context: Context, expectedLength: Smi, array: JSArray,
+      elementsKind: constexpr ElementsKind, sep: String): String
+  labels Bailout, IfException(Object) {
+    // TODO(pwong): verify this only happens in debug
+    assert(array.map.elements_kind == PACKED_SMI_ELEMENTS || array.map.elements_kind == HOLEY_SMI_ELEMENTS || array.map.elements_kind == PACKED_ELEMENTS || array.map.elements_kind == HOLEY_ELEMENTS);
+
+    // 5. Let R be the empty String.
+    let r: String = EmptyString;
+    let elements: FixedArray = cast<FixedArray>(array.elements)
+                               otherwise Bailout;
+
+    // 6. Let k be 0.
+    // 7. Repeat, while k < len
+    for (let k: Smi = 0; k < expectedLength; k++) {
+      // a. If k > 0, let R be the string-concatenation of R and sep.
+      if (k > 0) r = StringAdd(context, r, sep);
+
+      // b. Let element be ? Get(O, ! ToString(k)).
+      try {
+        // Calling ToString may call user code that mutates the array
+        // TODO(pwong): Can we have ToString trigger (otherwise) when a
+        //              ToString is called?
+        // TODO(pwong): This should be outside the loop.  Once we detect the
+        //              actual length is smaller, there's no coming back.
+        //              r += sep.repeat(diff);
+        if constexpr (elementsKind == PACKED_ELEMENTS ||
+                      elementsKind == HOLEY_ELEMENTS) {
+          let length: Smi = cast<Smi>(array.length) otherwise Bailout;
+          // TODO(pwong): We also need to check whether the elements kind
+          //              changes.
+          // TODO(pwong): We also need to handle Bailout midway, continuation.
+          if (k >= length) goto Skip;
         }
-        else {
-          element = elements[k];
-          if (element == Hole) goto IfHole;
-        }
+
+        let element: Object = elements[k];
+        // TODO(pwong): I'm trying to type specialize by exploiting how Packed
+        //              Smis how cannot have a Hole. I'd like to be able to
+        //              avoid this Hole check for Packed Smis. Unfortunately
+        //              mksnapshot errors because the Skip label is bound, but
+        //              not used.
+        // vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+        if (element == Hole) goto Skip;
 
         // c. If element is undefined or null, let next be the empty String;
         //    otherwise, let next be ? ToString(element).
         let next: String;
-        if constexpr (elementsKind == PACKED_DOUBLE_ELEMENTS ||
-                      elementsKind == HOLEY_DOUBLE_ELEMENTS ||
-                      elementsKind == PACKED_SMI_ELEMENTS ||
+        if constexpr (elementsKind == PACKED_SMI_ELEMENTS ||
                       elementsKind == HOLEY_SMI_ELEMENTS) {
-          next = ToString_Inline(context, element);
+          next = NumberToString(cast<Smi>(element) otherwise Bailout);
         } else {
-          next = ArrayJoinToString(context, element, stackIndex);
-          // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-          // TODO(pwong): Instead of creating a custom-use ArrayJoinToString()
-          // in CSA (calls ToString_Inline, GotoIfException, JoinStackPop),
-          // ideally I'd like to one of the following:
-          //
-          // 1. Catch Exceptions
-          //
-          //   try {
-          //     next = ToString_Inline(context, element);
-          //   }
-          //   catch(exception: Object) {
-          //     JoinStackPop(stackIndex);
-          //     ReThrowException(exception);
-          //   }
-          //
-          // 2. Paramaterized Labels
-          //
-          //   try {
-          //     next = ToString_Inline(context, element) otherwise Exception;
-          //   }
-          //   Label Exception(exception: Object) {
-          //     JoinStackPop(stackIndex);
-          //     ReThrowException(exception);
-          //   }
-          //
+          assert(convert<bool>(elementsKind == PACKED_ELEMENTS || elementsKind == HOLEY_ELEMENTS));
+
+          if (TaggedIsSmi(element)) {
+            next = NumberToString(cast<Smi>(element) otherwise Bailout);
+          } else if (IsString(cast<HeapObject>(element) otherwise Bailout)) {
+            next = UncheckedString(element);
+          } else {
+            // TODO(pwong): Update ToString_InlineIfException with another label:
+            //              `CalledRuntime` to indicate user code may have been
+            //              called.
+            next = ToString_InlineIfException(context, element)
+                  otherwise IfException;
+          }
         }
 
         // d. Set R to the string-concatenation of R and next.
         r = StringAdd(context, r, next);
       }
-      label IfHole {}
+      label Skip {}
     }
 
     // 8. Return R.
@@ -600,65 +628,38 @@ module array {
   }
 
   macro FastArrayJoin(
-      context: Context, stackIndex: Smi, array: JSArray, expectedLen: Smi, arguments: Arguments): String
-  labels Bailout {
+      context: Context, stackIndex: Smi, array: JSArray, expectedLen: Smi, sep: String): String
+  labels Bailout, IfException(Object) {
     let map: Map = array.map;
 
     if (!IsPrototypeInitialArrayPrototype(context, map)) goto Bailout;
     if (IsNoElementsProtectorCellInvalid()) goto Bailout;
     if (IsArraySpeciesProtectorCellInvalid()) goto Bailout;
 
-    let elements: FixedArrayBase = array.elements;
     let elementsKind: ElementsKind = map.elements_kind;
-
-    // 3. If separator is undefined, let sep be the single-element String ",".
-    // 4. Else, let sep be ? ToString(separator).
-    let sep: String = GetJoinSeperator(context, arguments);
-    if (map != array.map) goto Bailout;
-    if (IsNoElementsProtectorCellInvalid()) goto Bailout;
-    if (IsArraySpeciesProtectorCellInvalid()) goto Bailout;
-
-    let currentLen: Smi = cast<Smi>(array.length) otherwise Bailout;
-    let len: Smi = currentLen < expectedLen ? currentLen : expectedLen;
-
-    // TODO(pwong): ^^^ Possible side effects! We need to recheck Fast Array
-    //              assumptions!!! Add a test!
-
-    let r: String;
     if (elementsKind == PACKED_SMI_ELEMENTS) {
-      r = FastArrayElementsJoin(
-          context, stackIndex, len, elements, PACKED_SMI_ELEMENTS, sep)
-          otherwise Bailout;
+      return FastSmiOrElementsJoin(
+          context, expectedLen, array, PACKED_SMI_ELEMENTS, sep)
+      otherwise Bailout, IfException;
     } else if (elementsKind == HOLEY_SMI_ELEMENTS) {
-      r = FastArrayElementsJoin(
-          context, stackIndex, len, elements, HOLEY_SMI_ELEMENTS, sep)
-          otherwise Bailout;
+      return FastSmiOrElementsJoin(
+          context, expectedLen, array, HOLEY_SMI_ELEMENTS, sep)
+      otherwise Bailout, IfException;
     } else if (elementsKind == PACKED_ELEMENTS) {
-      r = FastArrayElementsJoin(
-          context, stackIndex, len, elements, PACKED_ELEMENTS, sep)
-          otherwise Bailout;
+      return FastSmiOrElementsJoin(
+          context, expectedLen, array, PACKED_ELEMENTS, sep)
+      otherwise Bailout, IfException;
     } else if (elementsKind == HOLEY_ELEMENTS) {
-      r = FastArrayElementsJoin(
-          context, stackIndex, len, elements, HOLEY_ELEMENTS, sep)
-          otherwise Bailout;
-    } else if (elementsKind == PACKED_DOUBLE_ELEMENTS) {
-      r = FastArrayElementsJoin(
-          context, stackIndex, len, elements, PACKED_DOUBLE_ELEMENTS, sep)
-          otherwise Bailout;
-    } else if (elementsKind == HOLEY_DOUBLE_ELEMENTS) {
-      r = FastArrayElementsJoin(
-          context, stackIndex, len, elements, HOLEY_DOUBLE_ELEMENTS, sep)
-          otherwise Bailout;
+      return FastSmiOrElementsJoin(
+          context, expectedLen, array, HOLEY_ELEMENTS, sep)
+      otherwise Bailout, IfException;
+    } else if (elementsKind == PACKED_DOUBLE_ELEMENTS ||
+               elementsKind == HOLEY_DOUBLE_ELEMENTS) {
+      return FastDoublesJoin(context, expectedLen, array, sep)
+      otherwise Bailout;
     } else {
       goto Bailout;
     }
-
-    if (currentLen != expectedLen) {
-      for (let i: Smi = currentLen; i < expectedLen; i++) {
-        r = StringAdd(context, r, sep);
-      }
-    }
-    return r;
   }
 
   macro JoinStackPush(array: JSArray): Smi
@@ -690,15 +691,7 @@ module array {
   }
 
   macro SlowArrayJoin(
-      context: Context, o: Object, len: Number, arguments: Arguments): String {
-    // 2. Let len be ? ToLength(? Get(O, "length")).
-    let lenObj: Object = GetProperty(context, o, 'length');
-    let len: Number = ToLength_Inline(context, lenObj);
-
-    // 3. If separator is undefined, let sep be the single-element String ",".
-    // 4. Else, let sep be ? ToString(separator).
-    let sep: String = GetJoinSeperator(context, arguments);
-
+      context: Context, o: Object, len: Number, sep: String): String {
     // 5. Let R be the empty String.
     let r: String = EmptyString;
 
@@ -734,28 +727,34 @@ module array {
     // 1. Let O be ? ToObject(this value).
     let o: Object = ToObject(context, receiver);
     let stackIndex: Smi = -1;
-    let len: Number = -1;
-    let r: String;
+    let len: Number;
+    let sep: String;
     try {
       let array: JSArray = cast<JSArray>(o) otherwise Slow;
       let lenSmi: Smi = cast<Smi>(array.length) otherwise Slow;
       len = lenSmi;
+
+      sep = GetJoinSeperator(context, arguments);
       stackIndex = JoinStackPush(array) otherwise CycleDetected;
-      r = FastArrayJoin(context, stackIndex, array, lenSmi, arguments) otherwise Slow;
+      let r: String = FastArrayJoin(context, stackIndex, array, lenSmi, sep)
+                      otherwise Bailout, IfException;
+      JoinStackPop(stackIndex);
+      return r;
     }
-    label CycleDetected {
-      return EmptyString;
-    }
+    label Bailout {}
+    label CycleDetected { return EmptyString; }
     label Slow {
-      if (len < convert<Number>(0)) {
-        // 2. Let len be ? ToLength(? Get(O, "length")).
-        let lenObj: Object = GetProperty(context, o, 'length');
-        len = ToLength_Inline(context, lenObj);
-      }
-      r = SlowArrayJoin(context, o, len, arguments);
+      // 2. Let len be ? ToLength(? Get(O, "length")).
+      let lenObj: Object = GetProperty(context, o, 'length');
+      len = ToLength_Inline(context, lenObj);
+      sep = GetJoinSeperator(context, arguments);
+    }
+    label IfException(exception: Object) {
+      JoinStackPop(stackIndex);
+      ReThrowException(context, exception);
     }
 
-    // TODO(pwong): Need `finally`
+    let r: String = SlowArrayJoin(context, o, len, sep);
     if (stackIndex >= 0) JoinStackPop(stackIndex);
     return r;
   }

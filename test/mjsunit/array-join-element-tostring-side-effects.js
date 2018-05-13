@@ -5,15 +5,52 @@
 (function ToStringThrows() {
   function TestError() {}
 
+  let callCount = 0;
   const toStringThrows = {
-    toString() { throw new TestError; }
+    toString() {
+      callCount++;
+      throw new TestError;
+    }
   }
   const a = [toStringThrows];
   assertThrows(() => a.join(), TestError);
+  assertSame(1, callCount);
 
-  // Verifies the cycle detection works properly after thrown error
+  // Verifies cycle detection still works properly after thrown error.
   a[0] = 1;
   a[1] = 2;
   assertSame('1,2', a.join());
 })();
 
+(function ArrayLengthIncreased() {
+  let callCount = 0;
+  const a = [
+    {
+      toString() {
+        callCount++;
+        a.push(2);
+        return '1';
+      }
+    }
+  ];
+  assertSame('1', a.join());
+  assertSame(1, callCount);
+  assertSame('1,2', a.join());
+})();
+
+(function ArrayLengthDecreased() {
+  let callCount = 0;
+  const a = [
+    {
+      toString() {
+        callCount++;
+        a.pop();
+        return '1';
+      }
+    },
+    '2'
+  ];
+  assertSame('1,', a.join());
+  assertSame(1, callCount);
+  assertSame('1', a.join());
+})();

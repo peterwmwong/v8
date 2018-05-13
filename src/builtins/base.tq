@@ -110,7 +110,7 @@ extern macro ToInteger_Inline(Context, Object): Number;
 extern macro ToLength_Inline(Context, Object): Number;
 extern macro ToNumber_Inline(Context, Object): Number;
 extern macro ToString_Inline(Context, Object): String;
-extern macro ToString_InlineOrException(Context, Object): Object;
+extern macro ToString_InlineIfException(Context, Object): String labels IfException(Object);
 extern macro GetProperty(Context, Object, Object): Object;
 extern macro HasProperty(HeapObject, Object, Context, HasPropertyFlag): Oddball;
 extern macro ThrowRangeError(Context, MessageTemplate): never;
@@ -203,6 +203,7 @@ extern operator '[]' macro GetArgumentValueSmiIndex(Arguments, Smi): Object;
 
 extern operator 'is<Smi>' macro TaggedIsSmi(Object): bool;
 extern operator 'isnt<Smi>' macro TaggedIsNotSmi(Object): bool;
+extern operator 'is<String>' macro IsString(HeapObject): bool;
 
 extern operator
 'cast<>' macro TaggedToHeapObject(Object): HeapObject labels CastError;
@@ -322,7 +323,6 @@ extern macro StringAdd(Context, String, String): String;
 extern macro LoadStringJoinStack(): FixedArray;
 extern macro SetStringJoinStack(FixedArray): void;
 extern macro GetException(Object): Object labels NoException;
-extern macro IsString(Object): bool;
 extern macro UncheckedString(Object): String;
 extern macro JoinStackPop(Smi): void;
-extern macro ArrayJoinToString(Context, Object, Smi): String;
+extern macro HeapNumberToString(HeapNumber): String;
