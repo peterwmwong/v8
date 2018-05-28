@@ -481,23 +481,23 @@ module array {
   type HoleyPath;
   type DoublePath;
 
-  macro Load<Path: type, Type: type>(context: Context, obj: Type, index: Smi): Object
+  macro Load<Path: type, Type: type, IndexType: type>(context: Context, obj: Type, index: IndexType): Object
   labels IfHole {
     return GetProperty(context, obj, index);
   }
-  Load<PackedPath, FixedArray>(context: Context, elements: FixedArray, index: Smi): Object
+  Load<PackedPath, FixedArray, Smi>(context: Context, elements: FixedArray, index: Smi): Object
   labels IfHole {
     assert(index <= elements.length);
     return elements[index];
   }
-  Load<HoleyPath, FixedArray>(context: Context, elements: FixedArray, index: Smi): Object
+  Load<HoleyPath, FixedArray, Smi>(context: Context, elements: FixedArray, index: Smi): Object
   labels IfHole {
     assert(index <= elements.length);
     let el: Object = elements[index];
     if (el == Hole) goto IfHole;
     return el;
   }
-  Load<DoublePath, FixedDoubleArray>(context: Context, elements: FixedDoubleArray, index: Smi): Object
+  Load<DoublePath, FixedDoubleArray, Smi>(context: Context, elements: FixedDoubleArray, index: Smi): Object
   labels IfHole {
     let el: float64 = LoadDoubleWithHoleCheck(elements, index) otherwise IfHole;
     return AllocateHeapNumberWithValue(el);
@@ -525,44 +525,48 @@ module array {
 
 
   macro EnsureJoinPath<Path: type>(
-      originalMap: Map, originalLen: Number, array: JSArray)
+      originalMap: Object, originalLen: Number, receiver: Object)
   labels Bailout {
-    if (originalMap != array.map) goto Bailout;
-    if (UncheckedCast<Smi>(originalLen) != UncheckedCast<Smi>(array.length)) {
-      goto Bailout;
+    try {
+      // TODO(pwong): Figure out how to remove the this unnecessary JSArray cast
+      let array: JSArray = cast<JSArray>(receiver) otherwise Unexpected;
+      if (originalMap != array.map) goto Bailout;
+      if (UncheckedCast<Smi>(originalLen) != UncheckedCast<Smi>(array.length)) {
+        goto Bailout;
+      }
+    }
+    label Unexpected {
+      unreachable;
     }
   }
   EnsureJoinPath<GenericPath>(
-    originalMap: Map, originalLen: Number, array: JSArray)
-  labels Bailout { }
+    originalMap: Object, originalLen: Number, receiver: Object)
+  labels Bailout {
+    // No need for checks as we're already on the GenericPath that should be
+    // able to handle any receiver or length changes.
+  }
 
   // TODO(pwong): START HERE
   // Do we need `Path` as a generic type param?
   macro JoinPathCollection<Path: type, CollectionType: type>(
-      array: JSArray): CollectionType {
+      o: Object): CollectionType {
     try {
+      // TODO(pwong): Figure out how to remove the this unnecessary JSArray cast
+      let array: JSArray = cast<JSArray>(o) otherwise Unexpected;
       return cast<CollectionType>(array.elements) otherwise Unexpected;
     }
     label Unexpected {
       unreachable;
     }
   }
-  JoinPathCollection<GenericPath, JSArray>(array: JSArray): JSArray  {
-    return array;
+  JoinPathCollection<GenericPath, Object>(o: Object): Object  {
+    return o;
   }
 
-  // TODO(pwong): START HERE
-  // To fully replace ArrayJoinSlow, we need to get rid of `array.map` and
-  // `array.length`.  For the GenericPath, we can't load (and don't need) these.
-  // Let's try passing a `constexpr ensurePath` argument that will compile time
-  // generate the EnsureJoinPath/Bailout block that uses `originalMap` and
-  // `originalLen`.
-  macro ElementsJoin<Path: type, CollectionType: type, ElementType: type>(
-      context: Context, array: JSArray, len: Smi, startIndex: Smi, sep: String,
-      initialString: String): String
-  labels ContinueSlow(Smi, String) {
-    let originalMap: Map = array.map;
-    let originalLen: Number = array.length;
+  macro ElementsJoin<Path: type, CollectionType: type, ElementType: type, IndexType: type>(
+      context: Context, array: Object, initialReceiverMap: Object, len: IndexType,
+      startIndex: IndexType, sep: String, initialString: String): String
+  labels ContinueSlow(IndexType, String) {
     let elements: CollectionType =
         JoinPathCollection<Path, CollectionType>(array);
 
@@ -571,16 +575,18 @@ module array {
 
     // 6. Let kelements be 0.
     // 7. Repeat, while k < len
-    for (let k: Smi = startIndex; k < len; k++) {
+    let k: IndexType = startIndex;
+    while (k < len) {
       try {
         // a. If k > 0, let R be the string-concatenation of R and sep.
         if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
 
         // b. Let element be ? Get(O, ! ToString(k)).
-        let elementObj: Object = Load<Path, CollectionType>(
+        let elementObj: Object = Load<Path, CollectionType, IndexType>(
             context, elements, k) otherwise Skip;
         let element: ElementType = UncheckedCast<ElementType>(elementObj);
         let next: String;
+
         try {
           // c. If element is undefined or null, let next be the empty String;
           //    otherwise, let next be ? ToString(element).
@@ -590,12 +596,12 @@ module array {
         label MayHaveCalledJS(s: String) {
           next = s;
           try {
-            EnsureJoinPath<Path>(originalMap, originalLen, array)
+            EnsureJoinPath<Path>(initialReceiverMap, len, array)
             otherwise Bailout;
           }
           label Bailout {
             goto ContinueSlow(
-                k + 1, StringAdd_CheckNone_NotTenured(context, r, next));
+              k + 1, StringAdd_CheckNone_NotTenured(context, r, next));
           }
         }
 
@@ -605,88 +611,68 @@ module array {
       label Skip() {}
 
       // e. Increase k by 1.
+      k = k + 1;
     }
 
-    // 8. Return R.
-    return r;
-  }
-
-  // TODO(pwong): Remove ArrayJoinSlow, replace with ElementsJoin<GenericPath>
-  builtin ArrayJoinSlow(
-      context: Context, o: Object, len: Number, sep: String, startIndex: Number,
-      initialString: String): String {
-    let r: String = initialString;
-
-    // 6. Let k be 0.
-    // 7. Repeat, while k < len
-    for (let k: Number = startIndex; k < len; k++) {
-      // a. If k > 0, let R be the string-concatenation of R and sep.
-      if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
-
-      // b. Let element be ? Get(O, ! ToString(k)).
-      let element: Object = GetProperty(context, o, k);
-
-      // c. If element is undefined or null, let next be the empty String;
-      //    otherwise, let next be ? ToString(element).
-      if (!IsNullOrUndefined(element)) {
-        // d. Set R to the string-concatenation of R and next.
-        r = StringAdd_CheckNone_NotTenured(context, r, ToString_Inline(context, element));
-      }
-
-      // e. Increase k by 1.
-    }
 
     // 8. Return R.
     return r;
   }
 
   builtin ArrayJoinFast(
-      context: Context, array: JSArray, sep: String, len: Smi): String {
+      context: Context, array: JSArray, initialReceiverMap: Map, sep: String, initialLength: Smi): String {
     try {
       try {
-        let map: Map = array.map;
+        assert(initialReceiverMap == array.map);
+        assert(initialLength == UncheckedCast<Smi>(array.length));
 
-        if (!IsPrototypeInitialArrayPrototype(context, map)) goto RestartInSlow;
+        if (!IsPrototypeInitialArrayPrototype(context, initialReceiverMap)) goto RestartInSlow;
         if (IsNoElementsProtectorCellInvalid()) goto RestartInSlow;
         if (IsArraySpeciesProtectorCellInvalid()) goto RestartInSlow;
 
-        let kind: ElementsKind = map.elements_kind;
+        let kind: ElementsKind = initialReceiverMap.elements_kind;
         if (kind == PACKED_SMI_ELEMENTS) {
-          return ElementsJoin<PackedPath, FixedArray, Smi>(
-              context, array, len, 0, sep, EmptyString)
+          return ElementsJoin<PackedPath, FixedArray, Smi, Smi>(
+              context, array, initialReceiverMap, initialLength, 0, sep,
+              EmptyString)
           otherwise ContinueSlow;
         } else if (kind == HOLEY_SMI_ELEMENTS) {
-          return ElementsJoin<HoleyPath, FixedArray, Smi>(
-            context, array, len, 0, sep, EmptyString)
+          return ElementsJoin<HoleyPath, FixedArray, Smi, Smi>(
+            context, array, initialReceiverMap, initialLength, 0, sep,
+            EmptyString)
           otherwise ContinueSlow;
         } else if (kind == PACKED_ELEMENTS) {
-          return ElementsJoin<PackedPath, FixedArray, Object>(
-            context, array, len, 0, sep, EmptyString)
+          return ElementsJoin<PackedPath, FixedArray, Object, Smi>(
+            context, array, initialReceiverMap, initialLength, 0, sep,
+            EmptyString)
           otherwise ContinueSlow;
         } else if (kind == HOLEY_ELEMENTS) {
-          return ElementsJoin<HoleyPath, FixedArray, Object>(
-            context, array, len, 0, sep, EmptyString)
+          return ElementsJoin<HoleyPath, FixedArray, Object, Smi>(
+            context, array, initialReceiverMap, initialLength, 0, sep,
+            EmptyString)
           otherwise ContinueSlow;
         } else if (kind == PACKED_DOUBLE_ELEMENTS ||
             kind == HOLEY_DOUBLE_ELEMENTS) {
-          return ElementsJoin<DoublePath, FixedDoubleArray, HeapNumber>(
-            context, array, len, 0, sep, EmptyString)
+          return ElementsJoin<DoublePath, FixedDoubleArray, HeapNumber, Smi>(
+            context, array, initialReceiverMap, initialLength, 0, sep,
+            EmptyString)
           otherwise ContinueSlow;
         } else {
           goto RestartInSlow;
         }
       }
       label ContinueSlow(index: Smi, curResult: String) {
-        // return ArrayJoinSlow(context, array, len, sep, index, curResult);
-        return ElementsJoin<GenericPath, JSArray, Object>(
-            context, array, len, index, sep, curResult) otherwise Unexpected;
+        return ElementsJoin<GenericPath, Object, Object, Number>(
+            context, array, initialReceiverMap, initialLength, index, sep,
+            curResult) otherwise Unexpected;
       }
       label RestartInSlow {
-        return ElementsJoin<GenericPath, JSArray, Object>(
-            context, array, len, 0, sep, EmptyString) otherwise Unexpected;
+        return ElementsJoin<GenericPath, Object, Object, Number>(
+            context, array, initialReceiverMap, initialLength, 0, sep,
+            EmptyString) otherwise Unexpected;
       }
     }
-    label Unexpected(index: Smi, curResult: String) {
+    label Unexpected(index: Number, curResult: String) {
       unreachable;
     }
   }
@@ -708,17 +694,21 @@ module array {
       label Bailout {
         goto ContinueSlow(len, sep);
       }
-
       stackIndex = JoinStackPush(array) otherwise CycleDetected;
-      let result: Object = ArrayJoinFast(context, array, sep, len);
+      let result: Object = ArrayJoinFast(context, array, array.map, sep, len);
       GotoIfException(result) otherwise IfException;
       JoinStackPop(stackIndex);
       return result;
     }
     label ContinueSlow(len: Smi, sep: String) {
-      // return ElementsJoin<GenericPath, JSArray, Object>(
-      //     context, o, len, 0, sep, EmptyString) otherwise Unexpected;
-      return ArrayJoinSlow(context, o, len, sep, 0, EmptyString);
+      try {
+        return ElementsJoin<GenericPath, Object, Object, Number>(
+            context, o, Undefined, len, 0, sep, EmptyString)
+        otherwise Unexpected;
+      }
+      label Unexpected(i: Number, s: String) {
+        unreachable;
+      }
     }
     label Slow {
       // 2. Let len be ? ToLength(? Get(O, "length")).
@@ -726,7 +716,14 @@ module array {
       let len: Number = ToLength_Inline(context, lenObj);
       let sep: String = NormalizeJoinSeperator(context, sepObj);
 
-      return ArrayJoinSlow(context, o, len, sep, 0, EmptyString);
+      try {
+        return ElementsJoin<GenericPath, Object, Object, Number>(
+            context, o, Undefined, len, 0, sep, EmptyString)
+        otherwise Unexpected;
+      }
+      label Unexpected(i: Number, s: String) {
+        unreachable;
+      }
     }
     label CycleDetected {
       return EmptyString;
