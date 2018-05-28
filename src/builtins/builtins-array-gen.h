@@ -12,15 +12,6 @@ namespace internal {
 
 class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
  public:
-  TNode<FixedArray> LoadJoinStack() {
-    return TNode<FixedArray>::UncheckedCast(
-        LoadRoot(Heap::kStringJoinStackRootIndex));
-  }
-
-  void SetJoinStack(TNode<FixedArray> stack) {
-    StoreRoot(Heap::kStringJoinStackRootIndex, stack);
-  }
-
   explicit ArrayBuiltinsAssembler(compiler::CodeAssemblerState* state);
 
   typedef std::function<void(ArrayBuiltinsAssembler* masm)>
@@ -33,6 +24,15 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
   typedef std::function<void(ArrayBuiltinsAssembler* masm)> PostLoopAction;
 
   enum class MissingPropertyMode { kSkip, kUseUndefined };
+
+  TNode<FixedArray> LoadJoinStack() {
+    return TNode<FixedArray>::UncheckedCast(
+        LoadRoot(Heap::kStringJoinStackRootIndex));
+  }
+
+  void SetJoinStack(TNode<FixedArray> stack) {
+    StoreRoot(Heap::kStringJoinStackRootIndex, stack);
+  }
 
   void FindResultGenerator();
 

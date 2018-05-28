@@ -1,63 +1,45 @@
-# One Implementation for Fast Initiative
+# Schedule
 
-Can we combine FastDoublesJoin and FastSmiOrElementsJoin using Generics?
 
-# Performance impact of adapted arguments vs not
+## Remove ArrayJoinSlow
 
-# Move as many external macro's from base.tq to array.tq
+```
+javascript builtin ArrayPrototypeJoin
 
-# Try to Torqueify Load and Storing kStringJoinStackRootIndex
+builtin ArrayJoinFast
+  - Needs to be a builtin to catch all exceptions
+  - ??? Is there any part of the preamble/check-if-fast that could be lifted
+    into ArrayPrototoeypJoin?
 
-```ts
-type RootListIndex;
-const kStringJoinStackRootIndex: RootListIndex = 'Heap::kStringJoinStackRootIndex';
-const kStringJoinStack: FixedArray =
-    'UncheckedCast<FixedArray>(LoadRoot(Heap::kStringJoinStackRootIndex))';
-extern macro StoreRoot(RootListIndex, HeapObject);
-
-StoreRoot(kStringJoinStackRootIndex, newStack);
+macro ElementsJoin<Path, CollectionType, ElementType>
 ```
 
-# Consider nested try to avoid stackIndex = -1
+## Remove ElementsJoin
 
-Can we avoid inializaing `stackIndex` to `-1` to indicate we have not pushed to
-the stack?
+```
+javascript builtin ArrayPrototypeJoin
+  - Check ElementsKind and route by ElementsKind
+
+builtin ArrayJoin<ElementsAccessor, ElementsType, ElementType>
+```
+
+## Reduce Generic Paramaterization to just ElementsAccessor
+
+```
+javascript builtin ArrayPrototypeJoin
+  - Check ElementsKind and route by ElementsKind
+
+builtin ArrayJoin<ElementsAccessor>
+```
 
 # Shrink StringJoinStack when PopStack of stackIndex == 0
 
 We don't want a runaway, deeply nested join eat up unecessary amount of
 necessarily.
 
-# Perf: Is avoiding ToString call (IsSmi, IsString) worth it?
-
-Measure specialization vs just calling ToString
-
-# Perf: Avoid/Reduce overhead of cycle detection
-
-Cycle detection consists of the following preamble to calling `A.p.join`
-
-1. Look for receiver in the stack
-  - Can be avoided if receiver.length == 0
-2. Add receiver to the stack (if not found on the stack)
-  - Can be avoided if receiver.elementsKind is PACKED_SMI, HOLEY_SMI, PACKED_DOUBLES, HOLEY_DOUBLES
-  - Put another way, only for PACKED_ELEMENTS and HOLEY_ELEMENTS
-
-
-# Perf regression: Add one element fast path
-
-```js
-// Fast case for one-element arrays.
-if (length === 1) {
-  var e = array[0];
-  if (IS_NULL_OR_UNDEFINED(e)) return '';
-  return TO_STRING(e);
-}
-```
-
 # Use toLocaleString if called from toLocaleString
 
-
-# Consider Sparse Join special case optimization
+# Perf regression: Sparse Array special case optimization
 
 This is kinda complicated, does this still pay off?
   - determine benchmark/use-case this was applicable
@@ -73,6 +55,35 @@ It appears the JS implementation special cased sparse arrays.
 
 2) If so, get keys of sparse arrays
 3) Iterate over keys (effectively jumping over holes) instead of each index
+
+# Perf: Is avoiding ToString call (IsSmi, IsString) worth it?
+
+Measure specialization vs just calling ToString
+
+# Perf: Avoid/Reduce overhead of cycle detection
+
+Cycle detection consists of the following preamble to calling `A.p.join`
+
+1. Look for receiver in the stack
+  - Can be avoided if receiver.length == 0
+2. Add receiver to the stack (if not found on the stack)
+  - Can be avoided if receiver.elementsKind is PACKED_SMI, HOLEY_SMI, PACKED_DOUBLES, HOLEY_DOUBLES
+  - Put another way, only for PACKED_ELEMENTS and HOLEY_ELEMENTS
+
+# Performance impact of adapted arguments vs not
+
+# Move as many external macro's from base.tq to array.tq
+
+# Perf regression: Add one element fast path
+
+```js
+// Fast case for one-element arrays.
+if (length === 1) {
+  var e = array[0];
+  if (IS_NULL_OR_UNDEFINED(e)) return '';
+  return TO_STRING(e);
+}
+```
 
 # Determine validity of bug 7707
 
@@ -150,22 +161,30 @@ This can lead to a 5% boost on `string join` benchmark
 
 # TFS StringAdd_CheckNone_NotTenured | StringAdd
 
-|                           | TFS       | Macro     |         |
-|---------------------------|-----------|-----------|---------|
-| snapshot_blob.bin         | 1,347,704 | 1,376,680 | 28.30KB |
-| snapshot_blob_trusted.bin | 1,312,552 | 1,341,520 | 28.29KB |
+## Snapshot size impact
+
+|                           | TFS       | Macro     |          |
+|---------------------------|-----------|-----------|----------|
+| snapshot_blob.bin         | 1,347,704 | 1,376,680 | -28.30KB |
+| snapshot_blob_trusted.bin | 1,312,552 | 1,341,520 | -28.29KB |
+
+### Generics
+
+| snapshot_blob.bin         | 1,348,476 |
+| snapshot_blob_trusted.bin | 1,313,316 |
+| natives_blob.bin          |   102,920 |
+
+### Original (No Array.p.join)
+
+| snapshot_blob.bin         | 1,343,264  |
+| snapshot_blob_trusted.bin | 1,308,112  |
+| natives_blob.bin          |   103,282  |
+
+## Performance impact
 
 |                           | TFS       | Macro     |         |
 |---------------------------|-----------|-----------|---------|
-| string join               | 480       | 440       | 9%      |
-
-## Macro
-
-min	median	max	stddev
-413.487	433.804	446.329	5.79308
-422.002	437.487	451.762	6.17881
-
-## TFS
+| string join               | 480       | 440       | -9%     |
 
 
 # Calling NumberToString on PACKED/HOLEY SMI_ELEMENTS is ~15% gain

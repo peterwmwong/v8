@@ -39,7 +39,7 @@ function AllTests() {
     assertSame('1,2', a.join());
   })();
 
-(function ArrayLengthDecreased() {
+  (function ArrayLengthDecreased() {
     let callCount = 0;
     const a = [
       {

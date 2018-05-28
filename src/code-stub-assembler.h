@@ -153,6 +153,14 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
     return UncheckedCast<Smi>(value);
   }
 
+  // TODO(pwong): Remove when unchecked casts from Simon lands
+  TNode<Smi> UncheckedObjectToSmi(TNode<Object> obj) {
+    return CAST(obj);
+  }
+  TNode<HeapNumber> UncheckedObjectToHeapNumber(TNode<Object> obj) {
+    return CAST(obj);
+  }
+
   Node* TaggedToParameter(SloppyTNode<Smi> value, ParameterMode mode) {
     if (mode != SMI_PARAMETERS) return SmiUntag(value);
     return value;

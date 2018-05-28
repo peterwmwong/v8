@@ -16,8 +16,6 @@ https://github.com/GoogleChromeLabs/jsvu
     > ~/.jsvu/v8 bench.js -- double join
 
 */
-(() => {
-
 // const ITERATIONS = 10;
 // const ARRAY_SIZE = 10;
 const ITERATIONS = 1e6;
@@ -83,5 +81,3 @@ for (let i = 0; i < ITERATIONS; i++) {
 }
 console.log(performance.now());
 // console.timeEnd(timeName);
-
-})();

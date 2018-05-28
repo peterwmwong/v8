@@ -376,3 +376,18 @@ extern macro GotoIfException(Object): void labels IfException(Object);
 
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
 extern builtin ToString(Context, Object): String;
+
+
+// TODO(pwong): Remove when unchecked cast from Simon lands.
+// =======================
+extern operator 'convert<>' macro UncheckedObjectToSmi(Object): Smi;
+extern operator 'convert<>' macro UncheckedObjectToHeapNumber(Object): HeapNumber;
+macro UncheckedCast<T: type>(obj: Object): T { return obj; }
+UncheckedCast<Smi>(obj: Object): Smi {
+  return UncheckedObjectToSmi(obj);
+}
+UncheckedCast<HeapNumber>(obj: Object): HeapNumber {
+  return UncheckedObjectToHeapNumber(obj);
+}
+// =======================
+
