@@ -160,6 +160,15 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<HeapNumber> UncheckedObjectToHeapNumber(TNode<Object> obj) {
     return CAST(obj);
   }
+  TNode<JSArray> UncheckedObjectToJSArray(TNode<Object> obj) {
+    return CAST(obj);
+  }
+  TNode<FixedArray> UncheckedObjectToFixedArray(TNode<Object> obj) {
+    return CAST(obj);
+  }
+  TNode<FixedDoubleArray> UncheckedObjectToFixedDoubleArray(TNode<Object> obj) {
+    return CAST(obj);
+  }
 
   Node* TaggedToParameter(SloppyTNode<Smi> value, ParameterMode mode) {
     if (mode != SMI_PARAMETERS) return SmiUntag(value);

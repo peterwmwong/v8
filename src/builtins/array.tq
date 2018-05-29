@@ -476,35 +476,44 @@ module array {
     return obj == Undefined ? ',' : ToString_Inline(context, obj);
   }
 
-  type GenericPath;
-  type PackedPath;
-  type HoleyPath;
-  type DoublePath;
+  type GenericElements;
+  type PackedElements;
+  type HoleyElements;
+  type DoubleElements;
 
-  macro Load<Path: type, Type: type, IndexType: type>(context: Context, obj: Type, index: IndexType): Object
+  macro Load<ElementsAccessor: type, ElementsType: type, IndexType: type>(
+      context: Context, elements: ElementsType, index: IndexType): Object
   labels IfHole {
-    return GetProperty(context, obj, index);
+    return GetProperty(context, elements, index);
   }
-  Load<PackedPath, FixedArray, Smi>(context: Context, elements: FixedArray, index: Smi): Object
+
+  Load<PackedElements, FixedArray, Smi>(
+      context: Context, elements: FixedArray, index: Smi): Object
   labels IfHole {
     assert(index <= elements.length);
     return elements[index];
   }
-  Load<HoleyPath, FixedArray, Smi>(context: Context, elements: FixedArray, index: Smi): Object
+
+  Load<HoleyElements, FixedArray, Smi>(
+      context: Context, elements: FixedArray, index: Smi): Object
   labels IfHole {
     assert(index <= elements.length);
     let el: Object = elements[index];
     if (el == Hole) goto IfHole;
     return el;
   }
-  Load<DoublePath, FixedDoubleArray, Smi>(context: Context, elements: FixedDoubleArray, index: Smi): Object
+
+  Load<DoubleElements, FixedDoubleArray, Smi>(
+      context: Context, elements: FixedDoubleArray, index: Smi): Object
   labels IfHole {
-    let el: float64 = LoadDoubleWithHoleCheck(elements, index) otherwise IfHole;
+    let el: float64 = LoadDoubleWithHoleCheck(elements, index)
+        otherwise IfHole;
     return AllocateHeapNumberWithValue(el);
   }
 
 
-  macro JoinToStringElement<T: type>(context: Context, element: T): String
+  macro JoinToString<ElementType: type>(
+      context: Context, element: ElementType): String
   labels MayHaveCalledJS(String), IfNullOrUndefined {
     try { return SmiToString(cast<Smi>(element) otherwise Next); }
     label Next {}
@@ -512,168 +521,139 @@ module array {
     label Next {}
 
     if (IsNullOrUndefined(element)) goto IfNullOrUndefined;
-    goto MayHaveCalledJS(ToString(context, element));
+    goto MayHaveCalledJS(ToString_Inline(context, element));
   }
-  JoinToStringElement<Smi>(context: Context, element: Smi): String
+
+  JoinToString<Smi>(context: Context, element: Smi): String
   labels MayHaveCalledJS(String), IfNullOrUndefined {
     return SmiToString(element);
   }
-  JoinToStringElement<HeapNumber>(context: Context, element: HeapNumber): String
+
+  JoinToString<HeapNumber>(context: Context, element: HeapNumber): String
   labels MayHaveCalledJS(String), IfNullOrUndefined {
     return HeapNumberToString(element);
   }
 
 
-  macro EnsureJoinPath<Path: type>(
+  macro EnsureUnchangedElementsAccess<ElementsAccessor: type>(
       originalMap: Object, originalLen: Number, receiver: Object)
   labels Bailout {
-    try {
-      // TODO(pwong): Figure out how to remove the this unnecessary JSArray cast
-      let array: JSArray = cast<JSArray>(receiver) otherwise Unexpected;
-      if (originalMap != array.map) goto Bailout;
-      if (UncheckedCast<Smi>(originalLen) != UncheckedCast<Smi>(array.length)) {
-        goto Bailout;
-      }
-    }
-    label Unexpected {
-      unreachable;
+    let array: JSArray = UncheckedCast<JSArray>(receiver);
+    if (originalMap != array.map) goto Bailout;
+    if (UncheckedCast<Smi>(originalLen) != array.length_fast) {
+      goto Bailout;
     }
   }
-  EnsureJoinPath<GenericPath>(
+
+  EnsureUnchangedElementsAccess<GenericElements>(
     originalMap: Object, originalLen: Number, receiver: Object)
   labels Bailout {
-    // No need for checks as we're already on the GenericPath that should be
+    // No need for checks as we're already on the GenericElements that should be
     // able to handle any receiver or length changes.
   }
 
-  // TODO(pwong): START HERE
-  // Do we need `Path` as a generic type param?
-  macro JoinPathCollection<Path: type, CollectionType: type>(
-      o: Object): CollectionType {
-    try {
-      // TODO(pwong): Figure out how to remove the this unnecessary JSArray cast
-      let array: JSArray = cast<JSArray>(o) otherwise Unexpected;
-      return cast<CollectionType>(array.elements) otherwise Unexpected;
-    }
-    label Unexpected {
-      unreachable;
-    }
+
+  macro JoinReceiverElements<ElementsType: type>(
+      receiver: Object): ElementsType {
+    let array: JSArray = UncheckedCast<JSArray>(receiver);
+    return UncheckedCast<ElementsType>(array.elements);
   }
-  JoinPathCollection<GenericPath, Object>(o: Object): Object  {
-    return o;
+  JoinReceiverElements<Object>(receiver: Object): Object  {
+    return receiver;
   }
 
-  macro ElementsJoin<Path: type, CollectionType: type, ElementType: type, IndexType: type>(
-      context: Context, array: Object, initialReceiverMap: Object, len: IndexType,
-      startIndex: IndexType, sep: String, initialString: String): String
-  labels ContinueSlow(IndexType, String) {
-    let elements: CollectionType =
-        JoinPathCollection<Path, CollectionType>(array);
+  macro ArrayJoinImpl<ElementsAccessor: type, ElementsType: type,
+                      ElementType: type, IndexType: type>(
+      context: Context, receiver: Object, len: IndexType, sep: String,
+      initialIndex: IndexType, initialMap: Object,
+      initialString: String): String {
+    let elements: ElementsType =
+        JoinReceiverElements<ElementsType>(receiver);
 
     // 5. Let R be the empty String.
     let r: String = initialString;
 
     // 6. Let kelements be 0.
     // 7. Repeat, while k < len
-    let k: IndexType = startIndex;
+    let k: IndexType = initialIndex;
     while (k < len) {
+      let next: String;
       try {
         // a. If k > 0, let R be the string-concatenation of R and sep.
         if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
 
         // b. Let element be ? Get(O, ! ToString(k)).
-        let elementObj: Object = Load<Path, CollectionType, IndexType>(
-            context, elements, k) otherwise Skip;
+        let elementObj: Object = Load<ElementsAccessor, ElementsType,
+                                      IndexType>(context, elements, k)
+        otherwise Skip;
         let element: ElementType = UncheckedCast<ElementType>(elementObj);
-        let next: String;
 
         try {
           // c. If element is undefined or null, let next be the empty String;
           //    otherwise, let next be ? ToString(element).
-          next = JoinToStringElement<ElementType>(context, element)
+          next = JoinToString<ElementType>(context, element)
               otherwise MayHaveCalledJS, Skip;
         }
         label MayHaveCalledJS(s: String) {
           next = s;
-          try {
-            EnsureJoinPath<Path>(initialReceiverMap, len, array)
-            otherwise Bailout;
-          }
-          label Bailout {
-            goto ContinueSlow(
-              k + 1, StringAdd_CheckNone_NotTenured(context, r, next));
-          }
+          EnsureUnchangedElementsAccess<ElementsAccessor>(
+              initialMap, len, receiver)
+          otherwise ContinueSlow;
         }
 
         // d. Set R to the string-concatenation of R and next.
         r = StringAdd_CheckNone_NotTenured(context, r, next);
       }
       label Skip() {}
+      label ContinueSlow {
+        return ArrayJoinImpl<GenericElements, Object, Object, Number>(
+            context, receiver, len, sep, k + 1, Undefined,
+            StringAdd_CheckNone_NotTenured(context, r, next));
+      }
 
       // e. Increase k by 1.
       k = k + 1;
     }
 
-
     // 8. Return R.
     return r;
   }
 
-  builtin ArrayJoinFast(
-      context: Context, array: JSArray, initialReceiverMap: Map, sep: String, initialLength: Smi): String {
+  builtin ArrayJoin(
+      context: Context, array: JSArray, len: Smi, sep: String): String {
     try {
-      try {
-        assert(initialReceiverMap == array.map);
-        assert(initialLength == UncheckedCast<Smi>(array.length));
+      // If calling ToString on the seperator mutated the array length.
+      if (len != cast<Smi>(array.length) otherwise Slow) goto Slow;
 
-        if (!IsPrototypeInitialArrayPrototype(context, initialReceiverMap)) goto RestartInSlow;
-        if (IsNoElementsProtectorCellInvalid()) goto RestartInSlow;
-        if (IsArraySpeciesProtectorCellInvalid()) goto RestartInSlow;
+      let map: Map = array.map;
+      if (!IsPrototypeInitialArrayPrototype(context, map)) goto Slow;
+      if (IsNoElementsProtectorCellInvalid()) goto Slow;
+      if (IsArraySpeciesProtectorCellInvalid()) goto Slow;
 
-        let kind: ElementsKind = initialReceiverMap.elements_kind;
-        if (kind == PACKED_SMI_ELEMENTS) {
-          return ElementsJoin<PackedPath, FixedArray, Smi, Smi>(
-              context, array, initialReceiverMap, initialLength, 0, sep,
-              EmptyString)
-          otherwise ContinueSlow;
-        } else if (kind == HOLEY_SMI_ELEMENTS) {
-          return ElementsJoin<HoleyPath, FixedArray, Smi, Smi>(
-            context, array, initialReceiverMap, initialLength, 0, sep,
-            EmptyString)
-          otherwise ContinueSlow;
-        } else if (kind == PACKED_ELEMENTS) {
-          return ElementsJoin<PackedPath, FixedArray, Object, Smi>(
-            context, array, initialReceiverMap, initialLength, 0, sep,
-            EmptyString)
-          otherwise ContinueSlow;
-        } else if (kind == HOLEY_ELEMENTS) {
-          return ElementsJoin<HoleyPath, FixedArray, Object, Smi>(
-            context, array, initialReceiverMap, initialLength, 0, sep,
-            EmptyString)
-          otherwise ContinueSlow;
-        } else if (kind == PACKED_DOUBLE_ELEMENTS ||
-            kind == HOLEY_DOUBLE_ELEMENTS) {
-          return ElementsJoin<DoublePath, FixedDoubleArray, HeapNumber, Smi>(
-            context, array, initialReceiverMap, initialLength, 0, sep,
-            EmptyString)
-          otherwise ContinueSlow;
-        } else {
-          goto RestartInSlow;
-        }
-      }
-      label ContinueSlow(index: Smi, curResult: String) {
-        return ElementsJoin<GenericPath, Object, Object, Number>(
-            context, array, initialReceiverMap, initialLength, index, sep,
-            curResult) otherwise Unexpected;
-      }
-      label RestartInSlow {
-        return ElementsJoin<GenericPath, Object, Object, Number>(
-            context, array, initialReceiverMap, initialLength, 0, sep,
-            EmptyString) otherwise Unexpected;
+      let kind: ElementsKind = map.elements_kind;
+      if (kind == PACKED_SMI_ELEMENTS) {
+        return ArrayJoinImpl<PackedElements, FixedArray, Smi, Smi>(
+            context, array, len, sep, 0, map, EmptyString);
+      } else if (kind == HOLEY_SMI_ELEMENTS) {
+        return ArrayJoinImpl<HoleyElements, FixedArray, Smi, Smi>(
+            context, array, len, sep, 0, map, EmptyString);
+      } else if (kind == PACKED_ELEMENTS) {
+        return ArrayJoinImpl<PackedElements, FixedArray, Object, Smi>(
+            context, array, len, sep, 0, map, EmptyString);
+      } else if (kind == HOLEY_ELEMENTS) {
+        return ArrayJoinImpl<HoleyElements, FixedArray, Object, Smi>(
+            context, array, len, sep, 0, map, EmptyString);
+      } else if (kind == PACKED_DOUBLE_ELEMENTS ||
+          kind == HOLEY_DOUBLE_ELEMENTS) {
+        return ArrayJoinImpl<DoubleElements, FixedDoubleArray, HeapNumber, Smi>(
+            context, array, len, sep, 0, map, EmptyString);
+      } else {
+        goto Slow;
       }
     }
-    label Unexpected(index: Number, curResult: String) {
-      unreachable;
+    label Slow {
+      return ArrayJoinImpl<GenericElements, Object, Object, Number>(
+          context, array, len, sep, 0, Undefined, EmptyString);
     }
   }
 
@@ -688,27 +668,12 @@ module array {
       // 2. Let len be ? ToLength(? Get(O, "length")).
       let len: Smi = cast<Smi>(array.length) otherwise Slow;
       let sep: String = NormalizeJoinSeperator(context, sepObj);
-      try {
-        if (len != cast<Smi>(array.length) otherwise Bailout) goto Bailout;
-      }
-      label Bailout {
-        goto ContinueSlow(len, sep);
-      }
+
       stackIndex = JoinStackPush(array) otherwise CycleDetected;
-      let result: Object = ArrayJoinFast(context, array, array.map, sep, len);
+      let result: Object = ArrayJoin(context, array, len, sep);
       GotoIfException(result) otherwise IfException;
-      JoinStackPop(stackIndex);
+      JoinStackPopIndex(stackIndex);
       return result;
-    }
-    label ContinueSlow(len: Smi, sep: String) {
-      try {
-        return ElementsJoin<GenericPath, Object, Object, Number>(
-            context, o, Undefined, len, 0, sep, EmptyString)
-        otherwise Unexpected;
-      }
-      label Unexpected(i: Number, s: String) {
-        unreachable;
-      }
     }
     label Slow {
       // 2. Let len be ? ToLength(? Get(O, "length")).
@@ -716,28 +681,22 @@ module array {
       let len: Number = ToLength_Inline(context, lenObj);
       let sep: String = NormalizeJoinSeperator(context, sepObj);
 
-      try {
-        return ElementsJoin<GenericPath, Object, Object, Number>(
-            context, o, Undefined, len, 0, sep, EmptyString)
-        otherwise Unexpected;
-      }
-      label Unexpected(i: Number, s: String) {
-        unreachable;
-      }
+      return ArrayJoinImpl<GenericElements, Object, Object, Number>(
+          context, o, len, sep, 0, Undefined, EmptyString);
     }
     label CycleDetected {
       return EmptyString;
     }
     label IfException(exception: Object) {
-      JoinStackPop(stackIndex);
+      JoinStackPopIndex(stackIndex);
       ReThrowException(context, exception);
     }
   }
 
   // The Join Stack is a FixedArray that holds a stack of JSArrays that have
   // been visited by Array.p.join() and used to avoid a recursive loop.
-  // Array.p.join() is responsible for calling JoinStackPush and JoinStackPop
-  // when visiting and leaving a JSArray, respectively.
+  // Array.p.join() is responsible for calling JoinStackPush and
+  // JoinStackPopIndex when visiting and leaving a JSArray, respectively.
 
   // Adds a JSArray to the stack and returns it's index in the stack. If the
   // JSArray already exists in the stack, CycleDetected will be taken. The
@@ -776,18 +735,25 @@ module array {
   // Removes a JSArray from the stack at the specified `stackIndex` (see
   // JoinStackPush). The FixedArray will automaticlly shrink to
   // Heap::kInitialStringJoinStackSize when the stack becomes empty.
-  macro JoinStackPop(stackIndex: Smi): void {
+  macro JoinStackPopIndex(stackIndex: Smi): void {
     let stack: FixedArray = LoadJoinStack();
 
     // Should not "pop" outside of the FixedArray.
+    assert(stackIndex >= 0);
     assert(stackIndex < stack.length);
 
-    // Should only "pop" the top. If this assertion fails, this indicates not
-    // all exit cases were covered (return, exceptions, fast/slow paths).
+    // Should only remove the top. If this assertion fails, not all exit cases
+    // were covered (return, exceptions, fast/slow paths).
     assert(stackIndex == (stack.length - 1) || stack[stackIndex + 1] == Hole);
+    assert(stackIndex == 0 || stack[stackIndex - 1] != Hole);
+
+    // Should not remove an index already removed (is the hole).  If this
+    // assertion fails, either the wrong index is used or index is being removed
+    // for the second time.
+    assert(stack[stackIndex] != Hole);
 
     stack[stackIndex] = Hole;
 
-    // TODO(pwong): Shrink
+    // TODO(pwong): Shrink if stackIndex == 0
   }
 }

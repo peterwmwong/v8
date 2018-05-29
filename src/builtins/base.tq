@@ -266,6 +266,7 @@ extern operator '.elements=' macro StoreElements(Object, FixedArrayBase);
 
 extern operator '.length' macro LoadTypedArrayLength(JSTypedArray): Smi;
 extern operator '.length' macro LoadJSArrayLength(JSArray): Number;
+extern operator '.length_fast' macro LoadFastJSArrayLength(JSArray): Smi;
 extern operator '.length=' macro StoreJSArrayLength(JSArray, Smi);
 
 extern operator '.length' macro LoadFixedArrayBaseLength(FixedArrayBase): Smi;
@@ -375,13 +376,15 @@ extern macro SmiToString(Smi): String;
 extern macro GotoIfException(Object): void labels IfException(Object);
 
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
-extern builtin ToString(Context, Object): String;
 
 
 // TODO(pwong): Remove when unchecked cast from Simon lands.
-// =======================
+// =========================================================
 extern operator 'convert<>' macro UncheckedObjectToSmi(Object): Smi;
 extern operator 'convert<>' macro UncheckedObjectToHeapNumber(Object): HeapNumber;
+extern operator 'convert<>' macro UncheckedObjectToJSArray(Object): JSArray;
+extern operator 'convert<>' macro UncheckedObjectToFixedArray(Object): FixedArray;
+extern operator 'convert<>' macro UncheckedObjectToFixedDoubleArray(Object): FixedDoubleArray;
 macro UncheckedCast<T: type>(obj: Object): T { return obj; }
 UncheckedCast<Smi>(obj: Object): Smi {
   return UncheckedObjectToSmi(obj);
@@ -389,5 +392,14 @@ UncheckedCast<Smi>(obj: Object): Smi {
 UncheckedCast<HeapNumber>(obj: Object): HeapNumber {
   return UncheckedObjectToHeapNumber(obj);
 }
-// =======================
+UncheckedCast<JSArray>(obj: Object): JSArray {
+  return UncheckedObjectToJSArray(obj);
+}
+UncheckedCast<FixedArray>(obj: Object): FixedArray {
+  return UncheckedObjectToFixedArray(obj);
+}
+UncheckedCast<FixedDoubleArray>(obj: Object): FixedDoubleArray {
+  return UncheckedObjectToFixedDoubleArray(obj);
+}
+// =========================================================
 

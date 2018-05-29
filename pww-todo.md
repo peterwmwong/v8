@@ -1,20 +1,6 @@
 # Schedule
 
-
-## Remove ArrayJoinSlow
-
-```
-javascript builtin ArrayPrototypeJoin
-
-builtin ArrayJoinFast
-  - Needs to be a builtin to catch all exceptions
-  - ??? Is there any part of the preamble/check-if-fast that could be lifted
-    into ArrayPrototoeypJoin?
-
-macro ElementsJoin<Path, CollectionType, ElementType>
-```
-
-## Remove ElementsJoin
+## Remove ElementsJoin (combine ArrayJoinFast and ElementsJoin into ArrayJoin)
 
 ```
 javascript builtin ArrayPrototypeJoin
@@ -31,6 +17,8 @@ javascript builtin ArrayPrototypeJoin
 
 builtin ArrayJoin<ElementsAccessor>
 ```
+
+# Use builtin pointer
 
 # Shrink StringJoinStack when PopStack of stackIndex == 0
 
@@ -167,6 +155,13 @@ This can lead to a 5% boost on `string join` benchmark
 |---------------------------|-----------|-----------|----------|
 | snapshot_blob.bin         | 1,347,704 | 1,376,680 | -28.30KB |
 | snapshot_blob_trusted.bin | 1,312,552 | 1,341,520 | -28.29KB |
+
+## array-join5-remove-slow
+
+|                           | TFS       | Macro     |          |
+|---------------------------|-----------|-----------|----------|
+| snapshot_blob.bin         | 1,352,304 | 1,376,680 |  |
+| snapshot_blob_trusted.bin | 1,317,152 | 1,341,520 |  |
 
 ### Generics
 
