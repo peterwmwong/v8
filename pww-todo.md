@@ -1,24 +1,3 @@
-# Schedule
-
-## Remove ElementsJoin (combine ArrayJoinFast and ElementsJoin into ArrayJoin)
-
-```
-javascript builtin ArrayPrototypeJoin
-  - Check ElementsKind and route by ElementsKind
-
-builtin ArrayJoin<ElementsAccessor, ElementsType, ElementType>
-```
-
-## Reduce Generic Paramaterization to just ElementsAccessor
-
-```
-javascript builtin ArrayPrototypeJoin
-  - Check ElementsKind and route by ElementsKind
-
-builtin ArrayJoin<ElementsAccessor>
-```
-
-# Use builtin pointer
 
 # Shrink StringJoinStack when PopStack of stackIndex == 0
 
@@ -156,12 +135,19 @@ This can lead to a 5% boost on `string join` benchmark
 | snapshot_blob.bin         | 1,347,704 | 1,376,680 | -28.30KB |
 | snapshot_blob_trusted.bin | 1,312,552 | 1,341,520 | -28.29KB |
 
-## array-join5-remove-slow
+#### array-join5-remove-slow
 
-|                           | TFS       | Macro     |          |
-|---------------------------|-----------|-----------|----------|
-| snapshot_blob.bin         | 1,352,304 | 1,376,680 |  |
-| snapshot_blob_trusted.bin | 1,317,152 | 1,341,520 |  |
+|                           | TFS       |
+|---------------------------|-----------|
+| snapshot_blob.bin         | 1,352,304 |
+| snapshot_blob_trusted.bin | 1,317,152 |
+
+### TFS ArrayJoinImpl
+
+|                           | TFS       |
+|---------------------------|-----------|
+| snapshot_blob.bin         | 1,350,368 |
+| snapshot_blob_trusted.bin | 1,315,216 |
 
 ### Generics
 
@@ -177,9 +163,9 @@ This can lead to a 5% boost on `string join` benchmark
 
 ## Performance impact
 
-|                           | TFS       | Macro     |         |
-|---------------------------|-----------|-----------|---------|
-| string join               | 480       | 440       | -9%     |
+|                           | TFS AJI   | TFS       | Macro     |         |
+|---------------------------|-----------|-----------|-----------|---------|
+| string join               | 500       | 480       | 440       | -9%     |
 
 
 # Calling NumberToString on PACKED/HOLEY SMI_ELEMENTS is ~15% gain

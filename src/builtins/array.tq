@@ -562,7 +562,7 @@ module array {
     return receiver;
   }
 
-  macro ArrayJoinImpl<ElementsAccessor: type, ElementsType: type,
+  builtin ArrayJoinImpl<ElementsAccessor: type, ElementsType: type,
                       ElementType: type, IndexType: type>(
       context: Context, receiver: Object, len: IndexType, sep: String,
       initialIndex: IndexType, initialMap: Object,
