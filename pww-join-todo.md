@@ -1,3 +1,7 @@
+# START HERE: Determine why there's such a huge discrepancy in size (and time) between with current array.tq and "6/10 249d0ea4df + Smi IndexType - 476"
+
+# Extract to array-join.tq
+
 # Perf regression: Sparse fucking Array optimization
 
 This is kinda complicated, does this still pay off?
@@ -25,6 +29,23 @@ Current JS algo:
 2. `%NormalizeElements` (to NumberDictionary)
 3. `%GetArrayKeys`
   - Number or Interval... omglskdjf
+
+# Perf: add benchmark for number dictionary (sparse and packed)
+# Perf: add benchmark for toLocaleString
+
+# Make JSArray::kMinJoinStackSize uint32_t?
+
+- Make Torque type uint32 (currently int32)
+
+# function pointers
+
+Take a look at `typed-array.tq`
+
+Try passing the following as function points
+- LoadWithException
+- JoinToLocaleString
+- JoinToString
+- EnsureElementAccess
 
 # Test: weird ass, mothafucking receivers
 
@@ -161,6 +182,14 @@ This can lead to a 5% boost on `string join` benchmark
 |---------------------------|-----------|-----------|----------|
 | snapshot_blob.bin         | 1,347,704 | 1,376,680 | -28.30KB |
 | snapshot_blob_trusted.bin | 1,312,552 | 1,341,520 | -28.29KB |
+
+#### array-join-final intptr index
+
+|                           |         |
+|---------------------------|---------|
+| snapshot_blob.bin         | 606,436 |
+| snapshot_blob_trusted.bin | 577,956 |
+| natives_blob.bin          |  65,334 |
 
 #### array-join-final intptr index
 

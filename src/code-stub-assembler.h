@@ -354,6 +354,16 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
     return CAST(p_o);
   }
 
+  TNode<String> UnsafeCastObjectToString(
+      TNode<Object> p_o) {
+    return CAST(p_o);
+  }
+
+  TNode<NumberDictionary> UnsafeCastObjectToNumberDictionary(
+      TNode<Object> p_o) {
+    return CAST(p_o);
+  }
+
   TNode<Object> UnsafeCastObjectToCompareBuiltinFn(TNode<Object> p_o) {
     return p_o;
   }
@@ -979,12 +989,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
     return LoadWeakFixedArrayElement(object, IntPtrConstant(index),
                                      additional_offset, INTPTR_PARAMETERS,
                                      needs_poisoning);
-  }
-
-  bool ElementsKindEqual(ElementsKind a, ElementsKind b) { return a == b; }
-
-  TNode<BoolT> ElementsKindEqual(TNode<Int32T> a, ElementsKind b) {
-    return Word32Equal(a, Int32Constant(b));
   }
 
   // Load an array element from a FixedDoubleArray.
@@ -2069,6 +2073,11 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Smi> GetNumberOfElements(TNode<Dictionary> dictionary) {
     return CAST(
         LoadFixedArrayElement(dictionary, Dictionary::kNumberOfElementsIndex));
+  }
+
+  TNode<Smi> GetNumberDictionaryNumberOfElements(
+      TNode<NumberDictionary> dictionary) {
+    return GetNumberOfElements<NumberDictionary>(dictionary);
   }
 
   template <class Dictionary>

@@ -90,7 +90,7 @@ class JSArray : public JSObject {
   static const uint32_t kMaxFastArrayLength = 32 * 1024 * 1024;
 
   // Min. stack size for detecting an Array.prototype.join() call cycle.
-  static const int kMinJoinStackSize = 2;
+  static const uint32_t kMinJoinStackSize = 2;
 
   static const int kInitialMaxFastElementArray =
       (kMaxRegularHeapObjectSize - FixedArray::kHeaderSize - kSize -

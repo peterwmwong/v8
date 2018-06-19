@@ -44,6 +44,7 @@ type FixedTypedArrayBase extends FixedArrayBase generates
 'TNode<FixedTypedArrayBase>';
 type FixedTypedArray extends FixedTypedArrayBase generates
 'TNode<FixedTypedArray>';
+type NumberDictionary extends HeapObject generates 'TNode<NumberDictionary>';
 
 type JSArrayBuffer extends JSObject generates 'TNode<JSArrayBuffer>';
 type JSArrayBufferView extends JSObject generates 'TNode<JSArrayBufferView>';
@@ -185,6 +186,7 @@ extern builtin StringLessThan(Context, String, String): Boolean;
 extern macro StrictEqual(Object, Object): Boolean;
 extern runtime SmiLexicographicCompare(Context, Object, Object): Number;
 extern runtime ReThrow(Context, Object);
+extern runtime HasComplexElements(Context, JSArray): Boolean;
 
 extern operator '==' macro Word32Equal(int32, int32): bool;
 extern operator '!=' macro Word32NotEqual(int32, int32): bool;
@@ -200,8 +202,6 @@ extern operator '<=' macro SmiLessThanOrEqual(Smi, Smi): bool;
 extern operator '>' macro SmiGreaterThan(Smi, Smi): bool;
 extern operator '>=' macro SmiGreaterThanOrEqual(Smi, Smi): bool;
 
-extern operator '==' macro ElementsKindEqual(
-    ElementsKind, constexpr ElementsKind): bool;
 extern operator '==' macro ElementsKindEqual(
     constexpr ElementsKind, constexpr ElementsKind): constexpr bool;
 extern operator '==' macro ElementsKindEqual(ElementsKind, ElementsKind): bool;
@@ -325,6 +325,7 @@ extern macro SmiTag(intptr): Smi;
 extern macro SmiFromInt32(int32): Smi;
 extern macro SmiUntag(Smi): intptr;
 extern macro SmiToInt32(Smi): int32;
+extern macro SmiToFloat64(Smi): float64;
 extern macro LoadHeapNumberValue(HeapNumber): float64;
 extern macro ChangeFloat32ToFloat64(float32): float64;
 extern macro ChangeNumberToFloat64(Number): float64;
@@ -431,6 +432,8 @@ extern macro UnsafeCastObjectToNumber(Object): Number;
 extern macro UnsafeCastObjectToHeapObject(Object): HeapObject;
 extern macro UnsafeCastObjectToJSArray(Object): JSArray;
 extern macro UnsafeCastObjectToFixedTypedArrayBase(Object): FixedTypedArrayBase;
+extern macro UnsafeCastObjectToNumberDictionary(Object): NumberDictionary;
+extern macro UnsafeCastObjectToString(Object): String;
 
 macro unsafe_cast<A: type>(n: Number): A;
 unsafe_cast<HeapNumber>(n: Number): HeapNumber {
@@ -463,6 +466,12 @@ unsafe_cast<JSArray>(o: Object): JSArray {
 }
 unsafe_cast<FixedTypedArrayBase>(o: Object): FixedTypedArrayBase {
   return UnsafeCastObjectToFixedTypedArrayBase(o);
+}
+unsafe_cast<NumberDictionary>(o: Object): NumberDictionary {
+  return UnsafeCastObjectToNumberDictionary(o);
+}
+unsafe_cast<String>(o: Object): String {
+  return UnsafeCastObjectToString(o);
 }
 
 extern macro BranchIfFastJSArray(Object, Context): never labels Taken, NotTaken;
@@ -516,6 +525,9 @@ macro StoreFixedDoubleArrayElementWithSmiIndex(
     array: FixedDoubleArray, index: Smi, value: float64) {
   StoreFixedDoubleArrayElement(array, index, value, SMI_PARAMETERS);
 }
+extern macro LoadNumberDictionaryElement(NumberDictionary, intptr): Object
+labels NotData, IfHole;
+extern macro GetNumberDictionaryNumberOfElements(NumberDictionary): Smi;
 
 extern macro IsFastElementsKind(ElementsKind): bool;
 extern macro IsDoubleElementsKind(ElementsKind): bool;
@@ -618,3 +630,5 @@ extern macro SmiToString(Smi): String;
 extern macro GotoIfException(Object): void labels IfException(Object);
 
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
+extern builtin Divide(Context, Object, Object): Number;
+extern builtin LessThan(Context, Object, Object): Boolean;

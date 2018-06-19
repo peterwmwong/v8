@@ -75,6 +75,22 @@ function AllTests() {
     assertSame(1, callCount);
     assertSame('1,777,7.7,', a.join());
   })();
+
+  // (function NumberDictionaryChanged() {
+  //   a = new Array(Math.pow(2,32) - 1);  // Max length.
+  //   a[123123123] = {
+  //     toString() {
+  //       a[123123124] = '2';
+  //       return '1';
+  //     }
+  //   };
+  //   function assertEquals(a, b) {
+  //     if (a !== b) {
+  //       throw new Error(`assertEquals(${a}, ${b}) FAILED`);
+  //     }
+  //   }
+  //   assertEquals("1,2", a.join(1,2));
+  // })();
 }
 
 AllTests();
