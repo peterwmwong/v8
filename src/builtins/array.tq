@@ -472,6 +472,7 @@ module array {
   // kinds specific implementations.
   type GenericElementsAccessor;
   type FastPackedSmiElements;
+  type FastHoleySmiElements;
   type FastSmiOrObjectElements;
   type FastHoleyObjectElements;
   type FastDoubleElements;
@@ -504,11 +505,11 @@ module array {
     return AllocateHeapNumberWithValue(value);
   }
 
-  macro LoadWithException<ElementsAccessor: type, IndexType: type>(
-      context: Context, elementsObj: Object, index: IndexType): Object
+  macro LoadWithException<ElementsAccessor: type>(
+      context: Context, elementsObj: Object, index: Number): Object
   labels IfHole, IfException(Object);
 
-  LoadWithException<GenericElementsAccessor, Number>(
+  LoadWithException<GenericElementsAccessor>(
       context: Context, elementsObj: Object, index: Number): Object
   labels IfHole, IfException(Object) {
     let result: Object = GetProperty(context, elementsObj, index);
@@ -516,22 +517,13 @@ module array {
     return result;
   }
 
-  LoadWithException<FastHoleyObjectElements, intptr>(
+  macro LoadWithException<ElementsAccessor: type>(
       context: Context, elementsObj: Object, index: intptr): Object
   labels IfHole, IfException(Object) {
     let elements: FixedArray = unsafe_cast<FixedArray>(elementsObj);
     let el: Object = elements[index];
     if (IsTheHole(el)) goto IfHole;
     return el;
-  }
-
-  LoadWithException<FastHoleyDoubleElements, intptr>(
-      context: Context, elementsObj: Object, index: intptr): Object
-  labels IfHole, IfException(Object) {
-    let elements: FixedDoubleArray = unsafe_cast<FixedDoubleArray>(elementsObj);
-    let double: float64 = LoadDoubleWithHoleCheck(elements, index)
-    otherwise IfHole;
-    return AllocateHeapNumberWithValue(double);
   }
 
   macro Store<ElementsAccessor : type>(
@@ -1015,11 +1007,8 @@ module array {
     }
   }
 
-  macro JoinToString<ElementType: type>(context: Context,
-                                        element: Object): String
-  labels IfNullOrUndefined, IfException(Object);
-
-  JoinToString<Object>(context: Context, element: Object): String
+  macro JoinToString<ElementsAccessor: type>(context: Context,
+                                             element: Object): String
   labels IfNullOrUndefined, IfException(Object) {
     if (TaggedIsSmi(element)) {
       return SmiToString(unsafe_cast<Smi>(element));
@@ -1034,52 +1023,60 @@ module array {
     return unsafe_cast<String>(result);
   }
 
-  JoinToString<Smi>(context: Context, element: Object): String
+  JoinToString<FastHoleySmiElements>(context: Context, element: Object): String
   labels IfNullOrUndefined, IfException(Object) {
     return SmiToString(unsafe_cast<Smi>(element));
   }
 
-  JoinToString<HeapNumber>(context: Context, element: Object): String
+  JoinToString<FastHoleyDoubleElements>(
+      context: Context, element: Object): String
   labels IfNullOrUndefined, IfException(Object) {
     return HeapNumberToString(unsafe_cast<HeapNumber>(element));
   }
 
   // Verifies the current element accessor can still be safely used
-  // (see Load<ElementsAccessor, IndexType>). Otherwise go to Continuation.
-  macro EnsureElementAccess<ElementType: type, IndexType: type>(
-      originalMap: Object, originalLen: IndexType, receiver: Object,
-      k: IndexType, r: String): void
-  labels Continuation(intptr, String) {}
+  // (see Load<ElementsAccessor>). Otherwise go to Continuation.
+  macro CanUseSameAccessor<ElementsAccessor: type>(
+      originalMap: Object, originalLen: Number, receiver: Object): void
+  labels Cannot;
 
-  EnsureElementAccess<Object, intptr>(
-      originalMap: Object, originalLen: intptr, receiver: Object, k: intptr,
-      r: String): void
-  labels Continuation(intptr, String) {
+  CanUseSameAccessor<GenericElementsAccessor>(
+      originalMap: Object, originalLen: Number, receiver: Object): void
+  labels Cannot {}
+
+  macro CanUseSameAccessor<ElementsAccessor: type>(
+      originalMap: Object, originalLen: intptr, receiver: Object): void
+  labels Cannot {
     let array: JSArray = unsafe_cast<JSArray>(receiver);
-    if (originalMap != array.map ||
-        originalLen != convert<intptr>(array.length_fast)) {
-      goto Continuation(k + 1, r);
-    }
+    if (originalMap != array.map) goto Cannot;
+    if (originalLen != convert<intptr>(array.length_fast)) goto Cannot;
   }
 
-  macro ArrayJoinImpl<ElementsAccessor: type, ElementType: type,
-                      IndexType: type>(
+  macro ArrayJoinImpl<ElementsAccessor: type, IndexType: type>(
       context: Context, array: Object, elements: Object, len: IndexType,
       sep: String, initialIndex: IndexType, initialMap: Object,
       initialString: String, useLocale: constexpr bool): String
-  labels Continuation(intptr, String), IfException(Object) {
+  labels Continuation(Number, String), IfException(Object) {
     // 5. Let R be the empty String.
     let r: String = initialString;
 
     // 6. Let kelements be 0.
     // 7. Repeat, while k < len
     for (let k: IndexType = initialIndex; k < len; k++) {
-      // a. If k > 0, let R be the string-concatenation of R and sep.
-      if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
       try {
+        // a. If k > 0, let R be the string-concatenation of R and sep.
+        if (k > 0) {
+          // If JS code may have been called, there's a possibility the array
+          // was mutated in a way the current element accessor no longer
+          // applies.
+          CanUseSameAccessor<ElementsAccessor>(initialMap, len, array)
+          otherwise ElementAccessChanged;
+          r = StringAdd_CheckNone_NotTenured(context, r, sep);
+        }
+
         // b. Let element be ? Get(O, ! ToString(k)).
         let element: Object =
-            LoadWithException<ElementsAccessor, IndexType>(context, elements, k)
+            LoadWithException<ElementsAccessor>(context, elements, k)
         otherwise Skip, IfException;
 
         // c. If element is undefined or null, let next be the empty String;
@@ -1089,18 +1086,15 @@ module array {
           next = JoinToLocaleString(context, element)
           otherwise Skip, IfException;
         } else {
-          next = JoinToString<ElementType>(context, element)
+          next = JoinToString<ElementsAccessor>(context, element)
           otherwise Skip, IfException;
         }
         r = StringAdd_CheckNone_NotTenured(context, r, next);
-
-        // If JS code may have been called, there's a possibility the array
-        // was mutated in a way the current element accessor no longer applies.
-        EnsureElementAccess<ElementType, IndexType>(
-            initialMap, len, array, k, r)
-        otherwise Continuation;
       }
       label Skip { }
+      label ElementAccessChanged {
+        goto Continuation(convert<Number>(k), r);
+      }
 
       // d. Increment k by 1.
     }
@@ -1112,7 +1106,7 @@ module array {
   macro ArrayJoinFast(
     context: Context, array: JSArray, sep: String, lenObj: Object,
     useLocale: constexpr bool): String
-  labels Continuation(intptr, String), IfException(Object) {
+  labels Continuation(Number, String), IfException(Object) {
     let map: Map = array.map;
     let kind: ElementsKind = map.elements_kind;
     if (IsPrototypeInitialArrayPrototype(context, map) &&
@@ -1122,15 +1116,15 @@ module array {
       let elements: FixedArrayBase = array.elements;
       let len: intptr = convert<intptr>(unsafe_cast<Smi>(lenObj));
       if (kind <= HOLEY_SMI_ELEMENTS) {
-        return ArrayJoinImpl<FastHoleyObjectElements, Smi, intptr>(
+        return ArrayJoinImpl<FastHoleyObjectElements, intptr>(
             context, array, elements, len, sep, 0, map, EmptyString, useLocale)
         otherwise Continuation, IfException;
       } else if (kind <= HOLEY_ELEMENTS) {
-        return ArrayJoinImpl<FastHoleyObjectElements, Object, intptr>(
+        return ArrayJoinImpl<FastHoleyObjectElements, intptr>(
             context, array, elements, len, sep, 0, map, EmptyString, useLocale)
         otherwise Continuation, IfException;
       } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
-        return ArrayJoinImpl<FastHoleyDoubleElements, HeapNumber, intptr>(
+        return ArrayJoinImpl<FastHoleyDoubleElements, intptr>(
             context, array, elements, len, sep, 0, map, EmptyString, useLocale)
         otherwise Continuation, IfException;
       }
@@ -1171,17 +1165,17 @@ module array {
           goto Continuation(0, EmptyString);
         }
       }
-      label Continuation(continueIndex: intptr, initialString: String) {
+      label Continuation(continueIndex: Number, initialString: String) {
         try {
-          result = ArrayJoinImpl<GenericElementsAccessor, Object, Number>(
-            context, receiver, receiver, len, sep, convert<Smi>(continueIndex),
+          result = ArrayJoinImpl<GenericElementsAccessor, Number>(
+            context, receiver, receiver, len, sep, continueIndex,
             Undefined, initialString, useLocale)
           otherwise Continuation, IfException;
         }
-        label Continuation(continueIndex: intptr, initialString: String) {
-          // By design, ArrayJoinImpl's GenericElementsAccessor element accessor handles
-          // all cases and never bails out (see
-          // EnsureElementAccess<GenericElementsAccessor>).
+        label Continuation(continueIndex: Number, initialString: String) {
+          // By design, ArrayJoinImpl's GenericElementsAccessor element accessor
+          // handles all cases and never bails out (see
+          // CanUseSameAccessor<GenericElementsAccessor>).
           unreachable;
         }
       }
@@ -1210,7 +1204,7 @@ module array {
   // respectively.
   extern macro LoadJoinStack(): FixedArray;
   extern macro SetJoinStack(FixedArray): void;
-  const kMinJoinStackSize: constexpr intptr = 'JSArray::kMinJoinStackSize';
+  const kMinJoinStackSize: constexpr int32 = 'JSArray::kMinJoinStackSize';
 
   // Adds a receiver to the stack. The FixedArray will automaticlly grow to
   // accomadate the receiver. If the receiver already exists on the stack,

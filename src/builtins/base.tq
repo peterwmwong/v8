@@ -402,6 +402,9 @@ convert<int32>(i: intptr): int32 {
 convert<Smi>(i: intptr): Smi {
   return SmiTag(i);
 }
+convert<Number>(i: intptr): Number {
+  return convert<Smi>(i);
+}
 macro convert<A: type>(s: Smi): A;
 convert<intptr>(s: Smi): intptr {
   return SmiUntag(s);
@@ -416,6 +419,9 @@ convert<float64>(h: HeapNumber): float64 {
 macro convert<A: type>(n: Number): A;
 convert<float64>(n: Number): float64 {
   return ChangeNumberToFloat64(n);
+}
+convert<Number>(n: Number): Number {
+  return n;
 }
 macro convert<A: type>(f: float32): A;
 convert<float64>(f: float32): float64 {

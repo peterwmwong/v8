@@ -174,16 +174,144 @@ label Next {};
 
 This can lead to a 5% boost on `string join` benchmark
 
+# Performance
+
+## EnsureElementAccess
+
+### label Continuation(Number, String)
+
+### POST label Cannot
+
+```ts
+// ArrayJoinImpl
+
+...
+r = StringAdd_CheckNone_NotTenured(context, r, next);
+
+// If JS code may have been called, there's a possibility the array
+// was mutated in a way the current element accessor no longer applies.
+try {
+  EnsureElementAccess<ElementsAccessor>(initialMap, len, array)
+  otherwise Cannot;
+}
+label Cannot {
+  goto Continuation(convert<Number>(k + 1), r);
+}
+```
+
+```
+min     median  max     stddev
+475.044 478.101 483.11  2.70123
+477.003 479.447 485.105 2.33614
+474.601 478.103 481.796 2.07973
+470.754 477.361 483.759 4.05766
+475.122 477.844 480.324 1.81616
+476.256 479.2   483.445 2.37925
+474.282 476.957 487.898 4.50329
+475.839 478.543 483.579 2.40886
+475.906 479.127 483.209 2.36613
+477.678 480.176 490.262 3.68144
+```
+
+### label Cannot
+
+```ts
+  // Verifies the current element accessor can still be safely used
+  // (see Load<ElementsAccessor>). Otherwise go to Continuation.
+  macro EnsureElementAccess<ElementsAccessor: type>(
+      originalMap: Object, originalLen: Number, receiver: Object): void
+  labels Cannot;
+
+  EnsureElementAccess<GenericElementsAccessor>(
+      originalMap: Object, originalLen: Number, receiver: Object): void
+  labels Cannot {}
+
+  macro EnsureElementAccess<ElementsAccessor: type>(
+      originalMap: Object, originalLen: intptr, receiver: Object): void
+  labels Cannot {
+    let array: JSArray = unsafe_cast<JSArray>(receiver);
+    if (originalMap != array.map ||
+        originalLen != convert<intptr>(array.length_fast)) {
+      goto Cannot;
+    }
+  }
+```
+
+```
+min     median  max     stddev
+479.453 484.665 494.444 4.01732
+479.414 482.836 487.042 2.46312
+478.566 481.564 493.924 4.40706
+479.844 482.683 487.539 2.45882
+478.298 482.422 485.883 2.48203
+480.275 485.17  487.546 2.38019
+479.936 483.795 489.691 2.7893
+478.249 479.701 487.495 3.08867
+478.602 482.324 490.281 4.07901
+478.852 481.465 484.203 1.56418
+```
+
+### return bool
+
+```ts
+  // Verifies the current element accessor can still be safely used
+  // (see Load<ElementsAccessor>). Otherwise go to Continuation.
+  macro EnsureElementAccess<ElementsAccessor: type>(
+      originalMap: Object, originalLen: Number, receiver: Object,
+      k: Number, r: String): bool;
+
+  EnsureElementAccess<GenericElementsAccessor>(
+      originalMap: Object, originalLen: Number, receiver: Object,
+      k: Number, r: String): bool {
+    return false;
+  }
+
+  macro EnsureElementAccess<ElementsAccessor: type>(
+      originalMap: Object, originalLen: intptr, receiver: Object,
+      k: intptr, r: String): bool {
+    let array: JSArray = unsafe_cast<JSArray>(receiver);
+    if (originalMap != array.map) return false;
+    return originalLen != convert<intptr>(array.length_fast);
+  }
+```
+
+```
+min     median  max     stddev
+493.53  498.829 513.538 5.7652
+493.869 497.092 503.991 3.01066
+489.686 495.305 502.01  3.19452
+491.596 494.537 498.42  1.93186
+490.766 496.507 498.138 2.11902
+492.597 496.726 500.779 2.64963
+492.454 498.34  506.037 3.60296
+```
+
+
 # TFS StringAdd_CheckNone_NotTenured | StringAdd
 
-## Snapshot size impact
+## Snapshot size impact (OUTDATED)
 
 |                           | TFS       | Macro     |          |
 |---------------------------|-----------|-----------|----------|
 | snapshot_blob.bin         | 1,347,704 | 1,376,680 | -28.30KB |
 | snapshot_blob_trusted.bin | 1,312,552 | 1,341,520 | -28.29KB |
 
-#### array-join-final intptr index
+
+#### array-join-final intptr index (updated)
+
+Branchpoint: 249d0ea4df569908d6d4d9d3a49dd24956eda842
+
+|                           |         |
+|---------------------------|---------|
+| snapshot_blob.bin         | 606,436 |
+| snapshot_blob_trusted.bin | 577,956 |
+| natives_blob.bin          |  65,334 |
+
+
+#### array-join-final Single Generic Param, Smi Iteration
+
+Branch: array-join-final-single-generic-param-smi-iteration
+Branchpoint: 249d0ea4df569908d6d4d9d3a49dd24956eda842
 
 |                           |         |
 |---------------------------|---------|
