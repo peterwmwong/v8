@@ -1,4 +1,15 @@
-# START HERE: Determine why there's such a huge discrepancy in size (and time) between with current array.tq and "6/10 249d0ea4df + Smi IndexType - 476"
+# Try to make sparse dictionary optimization work with just indices
+
+1) Make ArrayJoinImpl<DictionaryElements> specialization
+2) Calls CallCCollectNumberDictionaryElementIndices
+3) Tests for Complex Elements along the way
+  - May need to specialize HasComplexElements to
+
+# Verify possible regression `arr[0] = { toString(){ Array.prototype[9999] = 666; } }`
+
+CanUseAccessor doesn't verify initial prototype map, so maybe ^^^ this doesn't work correctly
+
+# Determine why there's such a huge discrepancy in size (and time) between with current array.tq and "6/10 249d0ea4df + Smi IndexType - 476"
 
 # Extract to array-join.tq
 
@@ -400,3 +411,16 @@ Instead of always calling into ToString_Inline.
 # Checking IsUndefinedOrNull at the beginning eats 3% on SMI benchmark
 
 Instead of always calling into ToString_Inline.
+
+
+# Array Size and ElementsKind
+
+```js
+new Array(size);
+```
+
+| Elements Kind | Start                               | End                            |
+|---------------|-------------------------------------|--------------------------------|
+| HoleyElements | `0`                                 | `JSArray::kMaxFastArrayLength` |
+| Slow???       | `JSArray::kMaxFastArrayLength + 1`  | `2^25`                         |
+| Dictionary    | `2^25 + 1`                          | `2^32 - 1`                     |

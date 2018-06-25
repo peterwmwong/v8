@@ -91,6 +91,19 @@ function AllTests() {
   //   }
   //   assertEquals("1,2", a.join(1,2));
   // })();
+
+  // (function NumberDictionaryChanged() {
+  //   a = new Array(2**25+1);  // Max length.
+  //   a.length = 12;
+  //   a[2**25-1] = {
+  //     toString() {
+  //       Array.prototype[9999] = true;
+  //       return '1';
+  //     }
+  //   };
+  //   a[2**25] = '2';
+  //   assertEquals("1,2", a.join());
+  // })();
 }
 
 AllTests();

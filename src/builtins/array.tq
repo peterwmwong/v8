@@ -477,6 +477,7 @@ module array {
   type FastHoleyObjectElements;
   type FastDoubleElements;
   type FastHoleyDoubleElements;
+  type DictionaryElements;
 
   macro Load<ElementsAccessor : type>(
       context: Context, receiver: Object, index: Smi): Object labels Bailout {
@@ -524,6 +525,21 @@ module array {
     let el: Object = elements[index];
     if (IsTheHole(el)) goto IfHole;
     return el;
+  }
+
+  LoadWithException<FastHoleyDoubleElements>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: FixedDoubleArray = unsafe_cast<FixedDoubleArray>(elementsObj);
+    let el: float64 = LoadDoubleWithHoleCheck(elements, index) otherwise IfHole;
+    return AllocateHeapNumberWithValue(el);
+  }
+
+  LoadWithException<DictionaryElements>(
+      context: Context, elementsObj: Object, index: intptr): Object
+  labels IfHole, IfException(Object) {
+    let elements: NumberDictionary = unsafe_cast<NumberDictionary>(elementsObj);
+    return LoadNumberDictionaryElement(elements, index) otherwise IfHole, IfHole;
   }
 
   macro Store<ElementsAccessor : type>(
@@ -1037,28 +1053,27 @@ module array {
   // Verifies the current element accessor can still be safely used
   // (see Load<ElementsAccessor>). Otherwise go to Continuation.
   macro CanUseSameAccessor<ElementsAccessor: type>(
-      originalMap: Object, originalLen: Number, receiver: Object): void
-  labels Cannot;
-
-  CanUseSameAccessor<GenericElementsAccessor>(
-      originalMap: Object, originalLen: Number, receiver: Object): void
-  labels Cannot {}
-
-  macro CanUseSameAccessor<ElementsAccessor: type>(
-      originalMap: Object, originalLen: intptr, receiver: Object): void
+      originalMap: Object, originalLen: Object, receiver: Object): void
   labels Cannot {
     let array: JSArray = unsafe_cast<JSArray>(receiver);
     if (originalMap != array.map) goto Cannot;
-    if (originalLen != convert<intptr>(array.length_fast)) goto Cannot;
+    if (originalLen != array.length) goto Cannot;
   }
+
+  CanUseSameAccessor<GenericElementsAccessor>(
+      originalMap: Object, originalLen: Object, receiver: Object): void
+  labels Cannot {}
 
   macro ArrayJoinImpl<ElementsAccessor: type, IndexType: type>(
       context: Context, array: Object, elements: Object, len: IndexType,
       sep: String, initialIndex: IndexType, initialMap: Object,
-      initialString: String, useLocale: constexpr bool): String
+      initialString: String, initialLen: Object, useLocale: constexpr bool): String
   labels Continuation(Number, String), IfException(Object) {
     // 5. Let R be the empty String.
     let r: String = initialString;
+
+    // TODO(pwong): See if this optimization actually needed
+    // let nonEmptySep: bool = sep != EmptyString;
 
     // 6. Let kelements be 0.
     // 7. Repeat, while k < len
@@ -1069,8 +1084,11 @@ module array {
           // If JS code may have been called, there's a possibility the array
           // was mutated in a way the current element accessor no longer
           // applies.
-          CanUseSameAccessor<ElementsAccessor>(initialMap, len, array)
+          CanUseSameAccessor<ElementsAccessor>(initialMap, initialLen, array)
           otherwise ElementAccessChanged;
+
+          // TODO(pwong): See if this optimization actually needed
+          // if (nonEmptySep) r = StringAdd_CheckNone_NotTenured(context, r, sep);
           r = StringAdd_CheckNone_NotTenured(context, r, sep);
         }
 
@@ -1103,6 +1121,17 @@ module array {
     return r;
   }
 
+  macro IsSparseDictionary(context: Context, elements: NumberDictionary, lenObj: Object): bool {
+    let nof: Smi = GetNumberDictionaryNumberOfElements(elements);
+    // No more than 75% holes
+    let elementsThreshold: Number = Divide(context, lenObj, convert<Smi>(4));
+    return (LessThan(context, nof, elementsThreshold) == True);
+  }
+
+  extern macro CallCCollectNumberDictionaryElementIndices(
+      FixedArray, FixedArray, NumberDictionary): void;
+
+  // TODO(pwong): lenObj -> len: Number and force WordEqual with `obj: Object = len`
   macro ArrayJoinFast(
     context: Context, array: JSArray, sep: String, lenObj: Object,
     useLocale: constexpr bool): String
@@ -1110,23 +1139,71 @@ module array {
     let map: Map = array.map;
     let kind: ElementsKind = map.elements_kind;
     if (IsPrototypeInitialArrayPrototype(context, map) &&
-        !IsNoElementsProtectorCellInvalid() && lenObj == array.length &&
-        TaggedIsSmi(lenObj)) {
+        !IsNoElementsProtectorCellInvalid() && lenObj == array.length) {
+      if (TaggedIsSmi(lenObj)) {
+        let elements: FixedArrayBase = array.elements;
+        let len: intptr = convert<intptr>(unsafe_cast<Smi>(lenObj));
+        // TODO(pwong): Try remove passing `elements`,
+        if (kind <= HOLEY_SMI_ELEMENTS) {
+          return ArrayJoinImpl<FastHoleySmiElements, intptr>(
+              context, array, elements, len, sep, 0, map, EmptyString, lenObj, useLocale)
+          otherwise Continuation, IfException;
+        } else if (kind <= HOLEY_ELEMENTS) {
+          return ArrayJoinImpl<FastHoleyObjectElements, intptr>(
+              context, array, elements, len, sep, 0, map, EmptyString, lenObj, useLocale)
+          otherwise Continuation, IfException;
+        } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
+          return ArrayJoinImpl<FastHoleyDoubleElements, intptr>(
+              context, array, elements, len, sep, 0, map, EmptyString, lenObj, useLocale)
+          otherwise Continuation, IfException;
+        }
+      }
+      // TODO(pwong): Write test for HasComplexElements
+      // TODO(pwong): Consider moving DictionaryElements into it's own ArrayJoinImpl specialization
+      if (kind == DICTIONARY_ELEMENTS && HasComplexElements(context, array) == False) {
+        let elements: NumberDictionary =
+            unsafe_cast<NumberDictionary>(array.elements);
+        // TODO(pwong): Seperate this out in it's own commit (still need to figure out how to handle side-effectful ToString dictionay elements)
+        // if (IsSparseDictionary(context, elements, lenObj)) {
+        //   let nof: intptr = convert<intptr>(
+        //       GetNumberDictionaryNumberOfElements(elements));
+        //   if (nof == 0) return EmptyString;
 
-      let elements: FixedArrayBase = array.elements;
-      let len: intptr = convert<intptr>(unsafe_cast<Smi>(lenObj));
-      if (kind <= HOLEY_SMI_ELEMENTS) {
-        return ArrayJoinImpl<FastHoleyObjectElements, intptr>(
-            context, array, elements, len, sep, 0, map, EmptyString, useLocale)
-        otherwise Continuation, IfException;
-      } else if (kind <= HOLEY_ELEMENTS) {
-        return ArrayJoinImpl<FastHoleyObjectElements, intptr>(
-            context, array, elements, len, sep, 0, map, EmptyString, useLocale)
-        otherwise Continuation, IfException;
-      } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
-        return ArrayJoinImpl<FastHoleyDoubleElements, intptr>(
-            context, array, elements, len, sep, 0, map, EmptyString, useLocale)
-        otherwise Continuation, IfException;
+        //   let indices: FixedArray = AllocateFixedArray(PACKED_ELEMENTS, nof);
+        //   let values: FixedArray = AllocateFixedArray(PACKED_ELEMENTS, nof);
+
+        //   // TODO(pwong): Write a test to verify concern that elements may move?
+        //   // CallCCollectNumberDictionaryElementIndices allocates memory and a
+        //   // GC may cause array elements to move.
+        //   elements = unsafe_cast<NumberDictionary>(array.elements);
+
+        //   CallCCollectNumberDictionaryElementIndices(indices, values, elements);
+
+        //   // TODO(pwong): Write a test to verify concern that elements may move?
+        //   // CallCCollectNumberDictionaryElementIndices allocates memory and a
+        //   // GC may cause array elements to move.
+        //   elements = unsafe_cast<NumberDictionary>(array.elements);
+        //   try {
+        //     return ArrayJoinImpl<FastHoleyObjectElements, intptr>(
+        //       context, array, values, nof, sep, 0, map, EmptyString, lenObj, useLocale)
+        //     otherwise DictionaryContinuation, IfException;
+        //   }
+        //   label DictionaryContinuation(k: Number, r: String) {
+        //     // TODO(pwong): This is not right vvv should be indices[ChangeNonnegativeNumberToUintPtr(k)]
+        //     // TODO(pwong): Better assert
+        //     // TODO(pwong): Write a test
+        //     // assert(TaggedIsSmi(k));
+        //     let i: intptr = ChangeNonnegativeNumberToUintPtr(k);
+        //     let index: Number = unsafe_cast<Number>(indices[i]);
+        //     goto Continuation(index, r);
+        //   }
+        // }
+        // else {
+          let len: intptr = ChangeNonnegativeNumberToUintPtr(unsafe_cast<Number>(lenObj));
+          return ArrayJoinImpl<DictionaryElements, intptr>(
+                  context, array, elements, len, sep, 0, map, EmptyString, lenObj, useLocale)
+          otherwise Continuation, IfException;
+        // }
       }
     }
     goto Continuation(0, EmptyString);
@@ -1169,7 +1246,7 @@ module array {
         try {
           result = ArrayJoinImpl<GenericElementsAccessor, Number>(
             context, receiver, receiver, len, sep, continueIndex,
-            Undefined, initialString, useLocale)
+            Undefined, initialString, len, useLocale)
           otherwise Continuation, IfException;
         }
         label Continuation(continueIndex: Number, initialString: String) {
@@ -1213,8 +1290,8 @@ module array {
   labels CycleDetected {
     let stack: FixedArray = LoadJoinStack();
     // Fast path the common non-nested join call case.
-    if (stack[convert<intptr>(0)] == Hole) {
-      stack[convert<intptr>(0)] = receiver;
+    if (stack[0] == Hole) {
+      stack[0] = receiver;
       return;
     }
 
@@ -1264,8 +1341,8 @@ module array {
         let newStack: FixedArray =
             AllocateFixedArray(PACKED_ELEMENTS, IntPtrConstant(kMinJoinStackSize));
         assert(kMinJoinStackSize == 2);
-        newStack[convert<intptr>(0)] = Hole;
-        newStack[convert<intptr>(1)] = Hole;
+        newStack[0] = Hole;
+        newStack[1] = Hole;
         SetJoinStack(newStack);
       }
     }

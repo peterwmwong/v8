@@ -276,6 +276,8 @@ extern operator
 extern operator 'is<Smi>' macro TaggedIsSmi(Object): bool;
 extern operator 'isnt<Smi>' macro TaggedIsNotSmi(Object): bool;
 extern macro TaggedIsPositiveSmi(Object): bool;
+extern macro IsValidPositiveSmi(intptr): bool;
+extern macro RoundIntPtrToFloat64(intptr): float64;
 
 extern macro TaggedToJSDataView(Object): JSDataView labels CastError;
 extern macro TaggedToHeapObject(Object): HeapObject labels CastError;
@@ -329,6 +331,7 @@ extern macro SmiToFloat64(Smi): float64;
 extern macro LoadHeapNumberValue(HeapNumber): float64;
 extern macro ChangeFloat32ToFloat64(float32): float64;
 extern macro ChangeNumberToFloat64(Number): float64;
+extern macro ChangeNonnegativeNumberToUintPtr(Number): intptr;
 
 extern macro NumberConstant(constexpr float64): Number;
 extern macro NumberConstant(constexpr int32): Number;
@@ -403,7 +406,9 @@ convert<Smi>(i: intptr): Smi {
   return SmiTag(i);
 }
 convert<Number>(i: intptr): Number {
-  return convert<Smi>(i);
+  if (IsValidPositiveSmi(i)) return convert<Smi>(i);
+  let f: float64 = RoundIntPtrToFloat64(i);
+  return AllocateHeapNumberWithValue(f);
 }
 macro convert<A: type>(s: Smi): A;
 convert<intptr>(s: Smi): intptr {

@@ -4625,13 +4625,18 @@ Handle<JSArray> ElementsAccessor::Concat(Isolate* isolate, Arguments* args,
 }
 
 void ElementsAccessor::CollectNumberDictionaryElementIndices(
-    Isolate* isolate, FixedArray* list, NumberDictionary* backing_store) {
+    Isolate* isolate, FixedArray* indices, FixedArray* values,
+    NumberDictionary* backing_store) {
   HandleScope scope(isolate);
   uint32_t nof_indices = 0;
   Handle<NumberDictionary> handle_backing_store(backing_store, isolate);
-  Handle<FixedArray> handle_list(list, isolate);
-  DCHECK_EQ(static_cast<uint32_t>(list->length()),
+  Handle<FixedArray> handle_list(indices, isolate);
+
+  DCHECK_EQ(static_cast<uint32_t>(indices->length()),
             backing_store->NumberOfElements());
+  DCHECK_EQ(static_cast<uint32_t>(values->length()),
+            backing_store->NumberOfElements());
+
   DictionaryElementsAccessor::DirectCollectElementIndicesImpl(
       isolate, Handle<JSObject>::null(), handle_backing_store,
       GetKeysConversion::kKeepNumbers, PropertyFilter::ALL_PROPERTIES,
@@ -4639,15 +4644,13 @@ void ElementsAccessor::CollectNumberDictionaryElementIndices(
 
   SortIndices(handle_list, nof_indices, SKIP_WRITE_BARRIER);
 
-  // TODO(pwong): We cannot iteratore over the values.  If side effects cause us
-  // to a continuation, we need to know the starting index.
   for (uint32_t i = 0; i < nof_indices; i++) {
-    Object* key = list->get(i);
+    Object* key = indices->get(i);
     DCHECK(key->IsSmi() || key->IsHeapNumber());
     uint32_t key_uint = 0;
     if (key->ToUint32(&key_uint)) {
-      int entry = backing_store->FindEntry(key_uint);
-      list->set(i, backing_store->ValueAt(entry));
+      const int entry = backing_store->FindEntry(key_uint);
+      values->set(i, backing_store->ValueAt(entry));
     }
   }
 }
