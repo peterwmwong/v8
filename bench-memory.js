@@ -18,8 +18,8 @@ https://github.com/GoogleChromeLabs/jsvu
 */
 // const ITERATIONS = 10;
 // const ARRAY_SIZE = 10;
-const ITERATIONS = 1e6;
-const ARRAY_SIZE = 32;
+const ITERATIONS = 1e3;
+const ARRAY_SIZE = 2**16;
 
 class Obj {
   constructor(str) { this.str = str; }
@@ -48,13 +48,13 @@ const SETUP_VARIANTS = {
     return array;
   },
   sparseSmi() {
-    const array = this.smi();
-    array.length = array.length << 2;
+    const array = SETUP_VARIANTS.smi();
+    array.length = array.length * 2;
     return array;
   },
   sparseString() {
-    const array = this.string();
-    array.length = array.length << 2;
+    const array = SETUP_VARIANTS.string();
+    array.length = array.length * 2;
     return array;
   }
 };

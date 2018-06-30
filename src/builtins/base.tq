@@ -380,6 +380,7 @@ extern macro Int32Constant(constexpr int32): int32;
 extern macro Float64Constant(constexpr int31): float64;
 extern macro SmiConstant(constexpr int31): Smi;
 extern macro BoolConstant(constexpr bool): bool;
+extern macro BooleanConstant(constexpr bool): Boolean;
 extern macro StringConstant(constexpr String): String;
 extern macro LanguageModeConstant(constexpr LanguageMode): LanguageMode;
 extern macro Int32Constant(constexpr ElementsKind): ElementsKind;
@@ -423,6 +424,9 @@ from_constexpr<Number>(f: constexpr float64): Number {
 macro from_constexpr<A : type>(b: constexpr bool): A;
 from_constexpr<bool>(b: constexpr bool): bool {
   return BoolConstant(b);
+}
+from_constexpr<Boolean>(b: constexpr bool): Boolean {
+  return BooleanConstant(b);
 }
 macro from_constexpr<A : type>(l: constexpr LanguageMode): A;
 from_constexpr<LanguageMode>(b: constexpr LanguageMode): LanguageMode {

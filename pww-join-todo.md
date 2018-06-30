@@ -1,86 +1,9 @@
-# Try to make sparse dictionary optimization work with just indices
-
-1) Make ArrayJoinImpl<DictionaryElements> specialization
-2) Calls CallCCollectNumberDictionaryElementIndices
-3) Tests for Complex Elements along the way
-  - May need to specialize HasComplexElements to
-
-# Verify possible regression `arr[0] = { toString(){ Array.prototype[9999] = 666; } }`
-
-CanUseAccessor doesn't verify initial prototype map, so maybe ^^^ this doesn't work correctly
-
 # Determine why there's such a huge discrepancy in size (and time) between with current array.tq and "6/10 249d0ea4df + Smi IndexType - 476"
 
-# Extract to array-join.tq
-
-# Perf regression: Sparse fucking Array optimization
-
-This is kinda complicated, does this still pay off?
-  - mjsunit/array-join tests a max array length with 2
-  - Check SparseSmiJoin, SparseStringJoin
-    - maybe tq version now beats the JS sparse variant
-  - Add SparseDoubleJoin?
-
-Current JS algo:
-
-1. If "sparse"
-    - Requirements:
-        ```
-        ( is an array
-          && length >= 1000
-          && !%HasComplexElements )
-        && (
-          !IsSmi(length)
-          || /*
-            Given every 97th element (what da actual fuck), count number of holes
-            If the ratio of holes > 75%
-          */
-        )
-        ```
-2. `%NormalizeElements` (to NumberDictionary)
-3. `%GetArrayKeys`
-  - Number or Interval... omglskdjf
-
-# Perf: add benchmark for number dictionary (sparse and packed)
+# Perf: add benchmark for number dictionary
 # Perf: add benchmark for toLocaleString
-
-# Make JSArray::kMinJoinStackSize uint32_t?
-
-- Make Torque type uint32 (currently int32)
-
-# function pointers
-
-Take a look at `typed-array.tq`
-
-Try passing the following as function points
-- LoadWithException
-- JoinToLocaleString
-- JoinToString
-- EnsureElementAccess
-
-# Test: weird ass, mothafucking receivers
-
-Quickly determine any behavior change:
-- Strings
-  - Slightly worried people might actually use this in perf sensitive areas
-    - `Array.prototype.join.call("abc", '\n'); // I dunno`
-  - Don't optimize, but measure to atleast warn of possible perf regression in CL messaging
-- Functions (arguments determine the `length`)
-  - `Array.prototype.join.call(function hello(a,b,c){}, '-') // '--'`
-
 # Perf Regression: 0 elements and 1 element
 
-# Investigate memory impact of not Flattening
-
-Currently the JS version produces a flatten string.
-
-```
--> DoJoin()
--> %StringBuilderConcat()
-  Handle<SeqOneByteString> answer;
-  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-    isolate, answer, isolate->factory()->NewRawOneByteString(length));
-```
 
 # Perf: Is avoiding ToString call (IsSmi, IsString) worth it?
 
@@ -168,26 +91,75 @@ Added to the top of `mjsunit/array-join.js`
 # CL Pre-emptive Review comments
 # ==============================
 
-# Double type checks
+# Delay Sparse Optimization
 
-Using `cast<Blah>(obj)` to `switch` against different types leads to double
-checking. For example...
+This CL does NOT include the sparse array optimization.
+My reasoning for not including the optimization as it exists right now:
 
-```
-try { let smi: Smi = cast<Smi>(obj) otherwise Next; }
-label Next {};
-// This second cast<String>, double checks `obj` is a Smi...
-// 1) Check Tagged Heap Object (Check if NOT a Smi)
-// 2) Check String
-try { let string: String = cast<String>(obj) otherwise Next; }
-label Next {};
-```
+1) Breaks compliance with the spec (>>>INSERT BUG<<<)
+2) Reducing Complexity
 
-This can lead to a 5% boost on `string join` benchmark
+I have already implemented this optimization and can easily recover these
+commits from a local branch if someone feels strongly about this or curious
+about my port of the optimization.
+
+## Try to make sparse dictionary optimization work with just indices
+
+1) Make ArrayJoinImpl<DictionaryElements> specialization
+2) Calls CallCCollectNumberDictionaryElementIndices
+3) Tests for Complex Elements along the way
+  - May need to specialize HasComplexElements to
 
 # Performance
 
+## Memory Usage (need to be rechecked with correct sha in google2)
+
+### Test
+
+```json
+{
+  "label": "benchmem string",
+  "type": "shell",
+  "command": "clear; export PATH=/p/depot_tools:\"$PATH\"; ninja -C out.gn/x64.release d8 && /usr/bin/time -l out.gn/x64.release/d8 bench-memory.js -- string join",
+  "group": {
+    "kind": "build",
+    "isDefault": true
+  },
+  "presentation": {
+    "echo": true,
+    "reveal": "always",
+    "focus": false,
+    "panel": "dedicated"
+  },
+  "problemMatcher": []
+},
+```
+
+### Before
+
+ 449,826,816  maximum resident set size
+     616,599  page reclaims
+
+ 449,839,104  maximum resident set size
+     616,640  page reclaims
+
+ 451,780,608  maximum resident set size
+     616,599  page reclaims
+
+### After
+
+  72,634,368  maximum resident set size
+      18,083  page reclaims
+
+  72,036,352  maximum resident set size
+      17,983  page reclaims
+
+  72,155,136  maximum resident set size
+      17,874  page reclaims
+
 ## EnsureElementAccess
+
+TODO(pwong): START HERE Revisiting performance of EnsureElementAccess with label
 
 ### label Continuation(Number, String)
 

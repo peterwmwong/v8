@@ -58,7 +58,8 @@ module array {
   }
 
   macro JoinToLocaleString(context: Context, element: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+  labels IfEmpty, IfException(Object), IfString(String),
+      IfStringWithSideEffects(String) {
     if (IsNullOrUndefined(element)) goto IfEmpty;
 
     let prop: Object = GetProperty(context, element, 'toLocaleString');
@@ -76,29 +77,33 @@ module array {
     }
   }
 
-  macro JoinToString<ElementsAccessor: type>(context: Context,
-                                             element: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+  macro JoinToString<ElementsAccessor: type>(
+      context: Context, element: Object): never
+  labels IfEmpty, IfException(Object), IfString(String),
+      IfStringWithSideEffects(String) {
     if (TaggedIsSmi(element)) {
       goto IfString(SmiToString(unsafe_cast<Smi>(element)));
     } else if (IsString(unsafe_cast<HeapObject>(element))) {
       goto IfString(unsafe_cast<String>(element));
     } else if (IsNullOrUndefined(element)) {
       goto IfEmpty;
+    } else {
+      // TODO(pwong): Marking this branch's label as kDeferred improves
+      // bench/string by 4-5%!
+      let result: Object = ToString(context, element);
+      GotoIfException(result) otherwise IfException;
+      goto IfStringWithSideEffects(unsafe_cast<String>(result));
     }
-    let result: Object = ToString(context, element);
-    GotoIfException(result) otherwise IfException;
-    goto IfStringWithSideEffects(unsafe_cast<String>(result));
   }
 
   JoinToString<FastHoleySmiElements>(context: Context, element: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+  labels IfEmpty, IfException(Object), IfString(String), IfStringWithSideEffects(String) {
     goto IfString(SmiToString(unsafe_cast<Smi>(element)));
   }
 
   JoinToString<FastHoleyDoubleElements>(
       context: Context, element: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String), IfException(Object)  {
+  labels IfEmpty, IfException(Object), IfString(String), IfStringWithSideEffects(String) {
     goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)));
   }
 
@@ -122,24 +127,18 @@ module array {
       useLocale: constexpr bool, context: Context, receiver: Object,
       sep: String, initialString: String, initialIndex: intptr,
       initialLen: Number, initialMap: Object): String
-  labels Continuation(intptr, String), IfException(Object) {
+  labels Continuation(intptr, String, String, Number), IfException(Object) {
     // 5. Let R be the empty String.
     let r: String = initialString;
-
     let elements: Object = LoadReceiverElements<ElementsAccessor>(receiver);
     let len: intptr = convert<intptr>(initialLen);
 
     // 6. Let kelements be 0.
     // 7. Repeat, while k < len
     for (let k: intptr = initialIndex; k < len; k++) {
+      // a. If k > 0, let R be the string-concatenation of R and sep.
+      if (k > 0) r = StringAdd_CheckNone_NotTenured(context, r, sep);
       try {
-        // a. If k > 0, let R be the string-concatenation of R and sep.
-        if (k > 0) {
-          // TODO(pwong): See if this optimization actually needed
-          // if (nonEmptySep) r = StringAdd_CheckNone_NotTenured(context, r, sep);
-          r = StringAdd_CheckNone_NotTenured(context, r, sep);
-        }
-
         // b. Let element be ? Get(O, ! ToString(k)).
         let element: Object = Load<ElementsAccessor>(context, elements, k)
         otherwise Skip, IfException;
@@ -148,10 +147,10 @@ module array {
         //    otherwise, let next be ? ToString(element).
         if constexpr (useLocale) {
           JoinToLocaleString(context, element)
-          otherwise Skip, IfString, IfStringWithSideEffects, IfException;
+          otherwise Skip, IfException, IfString, IfStringWithSideEffects;
         } else {
           JoinToString<ElementsAccessor>(context, element)
-          otherwise Skip, IfString, IfStringWithSideEffects, IfException;
+          otherwise Skip, IfException, IfString, IfStringWithSideEffects;
         }
       }
       label Skip {}
@@ -166,7 +165,7 @@ module array {
         // applies.
         if (!CanUseSameAccessor<ElementsAccessor>(
                 initialMap, initialLen, receiver)) {
-          goto Continuation(k + 1, r);
+          goto Continuation(k + 1, r, sep, initialLen);
         }
       }
 
@@ -177,10 +176,36 @@ module array {
     return r;
   }
 
+  builtin ArrayJoinContinuation(
+      context: Context, receiver: Object, useLocale: Boolean,
+      sep: String, initialString: String, initialIndex: Number,
+      len: Number): Object {
+    try {
+      let index: intptr = convert<intptr>(initialIndex);
+      if (useLocale == True) {
+        return ArrayJoinImpl<GenericElementsAccessor>(
+            true, context, receiver, sep, initialString, index, len, Undefined)
+        otherwise Continuation, IfException;
+      } else {
+        return ArrayJoinImpl<GenericElementsAccessor>(
+            false, context, receiver, sep, initialString, index, len, Undefined)
+        otherwise Continuation, IfException;
+      }
+    }
+    label Continuation(initialIndex: intptr, initialString: String,
+                       sep: String, len: Number) {
+      // By design, ArrayJoinImpl's GenericElementsAccessor element accessor
+      // handles all cases and never bails out (see
+      // CanUseSameAccessor<GenericElementsAccessor>).
+      unreachable;
+    }
+    label IfException(e: Object) { ReThrowError(context, e); }
+  }
+
   macro JSArrayJoin(
     context: Context, receiver: JSArray, sep: String, len: Number,
     useLocale: constexpr bool): String
-  labels Continuation(intptr, String), IfException(Object) {
+  labels Continuation(intptr, String, String, Number), IfException(Object) {
     let map: Map = receiver.map;
     let kind: ElementsKind = map.elements_kind;
     let lenObj: Object = len;
@@ -206,11 +231,11 @@ module array {
         let elements: NumberDictionary =
             unsafe_cast<NumberDictionary>(receiver.elements);
         return ArrayJoinImpl<DictionaryElements>(
-                useLocale, context, receiver, sep, EmptyString, 0, len, map)
+            useLocale, context, receiver, sep, EmptyString, 0, len, map)
         otherwise Continuation, IfException;
       }
     }
-    goto Continuation(0, EmptyString);
+    goto Continuation(0, EmptyString, sep, len);
   }
 
   macro NormalizeJoinSeperator(context: Context, obj: Object): String {
@@ -227,43 +252,37 @@ module array {
     let result: Object = Undefined;
     let exception: Object = Undefined;
     try {
-      let len: Number;
-      let sep: String;
-      try {
-        if (IsJSArray(receiver)) {
-          let receiverArray: JSArray = unsafe_cast<JSArray>(receiver);
+      if (IsJSArray(receiver)) {
+        let receiverArray: JSArray = unsafe_cast<JSArray>(receiver);
 
-          // 2. Let len be ? ToLength(? Get(O, "length")).
-          len = receiverArray.length;
-          sep = NormalizeJoinSeperator(context, sepObj);
-          JoinStackPush(receiverObj) otherwise CycleDetected;
-          result = JSArrayJoin(context, receiverArray, sep, len, useLocale)
-              otherwise Continuation, IfException;
-        } else {
-          // 2. Let len be ? ToLength(? Get(O, "length")).
-          let lenObj: Object = GetProperty(context, receiver, LengthString);
-          len = ToLength_Inline(context, lenObj);
-          sep = NormalizeJoinSeperator(context, sepObj);
-          goto Continuation(0, EmptyString);
-        }
+        // 2. Let len be ? ToLength(? Get(O, "length")).
+        let len: Number = receiverArray.length;
+        let sep: String = NormalizeJoinSeperator(context, sepObj);
+        JoinStackPush(receiverObj) otherwise CycleDetected;
+        result = JSArrayJoin(context, receiverArray, sep, len, useLocale)
+            otherwise Continuation, IfException;
+      } else {
+        // 2. Let len be ? ToLength(? Get(O, "length")).
+        let lenObj: Object = GetProperty(context, receiver, LengthString);
+        let len: Number = ToLength_Inline(context, lenObj);
+        let sep: String = NormalizeJoinSeperator(context, sepObj);
+        goto Continuation(0, EmptyString, sep, len);
       }
-      label Continuation(continueIndex: intptr, initialString: String) {
-        try {
-          result = ArrayJoinImpl<GenericElementsAccessor>(
-              useLocale, context, receiver, sep, initialString, continueIndex,
-              len, Undefined)
-          otherwise Continuation, IfException;
-        }
-        label Continuation(continueIndex: intptr, initialString: String) {
-          // By design, ArrayJoinImpl's GenericElementsAccessor element accessor
-          // handles all cases and never bails out (see
-          // CanUseSameAccessor<GenericElementsAccessor>).
-          unreachable;
-        }
-      }
-      label CycleDetected { return EmptyString; }
     }
+    label Continuation(continueIndex: intptr, initialString: String,
+                       sep: String, len: Number) {
+      result = ArrayJoinContinuation(
+          context, receiver, useLocale, sep, initialString,
+          convert<Number>(continueIndex), len);
+      try {
+        // TODO(pwong): Test for slow mode exception thrown
+        GotoIfException(result) otherwise IfException;
+      }
+      label IfException(e: Object) { exception = e; }
+    }
+    label CycleDetected { return EmptyString; }
     label IfException(e: Object) { exception = e; }
+
     JoinStackPop(receiverObj);
     if (exception != Undefined) ReThrowError(context, exception);
     return result;
