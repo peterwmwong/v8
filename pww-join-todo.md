@@ -112,6 +112,40 @@ about my port of the optimization.
 
 # Performance
 
+## Builtin Size
+
+### Continuation Label
+
+```
+ArrayJoinContinuation
+  Body (size = 5748)
+  Instructions (size = 5400)
+
+ArrayPrototypeJoin
+  Body (size = 42104)
+  Instructions (size = 41352)
+
+ArrayPrototypeToLocaleString
+  Body (size = 32968)
+  Instructions (size = 32000)
+```
+
+### No Continuation Label
+
+```
+ArrayJoinContinuation
+  Body (size = 6468)
+  Instructions (size = 6056)
+
+ArrayPrototypeJoin
+  Body (size = 43324)
+  Instructions (size = 42448)
+
+ArrayPrototypeToLocaleString
+  Body (size = 34884)
+  Instructions (size = 33708)
+```
+
 ## Memory Usage (need to be rechecked with correct sha in google2)
 
 ### Test

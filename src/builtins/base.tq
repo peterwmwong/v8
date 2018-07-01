@@ -370,6 +370,8 @@ extern macro ChangeNumberToFloat64(Number): float64;
 extern macro ChangeInt32ToIntPtr(int32): intptr;  // Sign-extends.
 extern macro ChangeUint32ToWord(uint32): uintptr;  // Doesn't sign-extend.
 extern macro ChangeNonnegativeNumberToUintPtr(Number): uintptr;
+// TODO(pwong): Verify we still need this
+extern macro SelectBooleanConstant(bool): Boolean;
 
 extern macro NumberConstant(constexpr float64): Number;
 extern macro NumberConstant(constexpr int32): Number;
@@ -521,6 +523,11 @@ convert<uintptr>(r: RawPtr): uintptr {
 }
 convert<intptr>(r: RawPtr): intptr {
   return Signed(r);
+}
+// TODO(pwong): Verify we still need this
+macro convert<A : type>(b: bool): A;
+convert<Boolean>(b: bool): Boolean {
+  return SelectBooleanConstant(b);
 }
 
 extern macro UnsafeCastNumberToHeapNumber(Number): HeapNumber;
@@ -755,6 +762,11 @@ macro ToBoolean(obj: Object): bool {
   label NotTaken {
     return false;
   }
+}
+
+macro EnsureNotException(obj: Object): Object labels IfException(Object) {
+  GotoIfException(obj) otherwise IfException;
+  return obj;
 }
 
 extern macro HeapNumberToString(HeapNumber): String;

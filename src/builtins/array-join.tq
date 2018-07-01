@@ -36,9 +36,8 @@ module array {
       context: Context, elementsObj: Object, index: intptr): Object
   labels IfHole, IfException(Object) {
     let indexNumber: Number = convert<Number>(index);
-    let result: Object = GetProperty(context, elementsObj, indexNumber);
-    GotoIfException(result) otherwise IfException;
-    return result;
+    return EnsureNotException(GetProperty(context, elementsObj, indexNumber))
+    otherwise IfException;
   }
 
   Load<FastHoleyDoubleElements>(
@@ -62,14 +61,17 @@ module array {
       IfStringWithSideEffects(String) {
     if (IsNullOrUndefined(element)) goto IfEmpty;
 
-    let prop: Object = GetProperty(context, element, 'toLocaleString');
-    GotoIfException(prop) otherwise IfException;
+    let prop: Object =
+      EnsureNotException(GetProperty(context, element, 'toLocaleString'))
+      otherwise IfException;
     try {
       let callable: Callable = cast<Callable>(prop) otherwise TypeError;
-      let result: Object = Call(context, callable, element);
-      GotoIfException(result) otherwise IfException;
-      result = ToString(context, result);
-      GotoIfException(result) otherwise IfException;
+      let result: Object =
+        EnsureNotException(Call(context, callable, element))
+        otherwise IfException;
+      result =
+        EnsureNotException(ToString(context, result))
+        otherwise IfException;
       goto IfStringWithSideEffects(unsafe_cast<String>(result));
     }
     label TypeError {
@@ -90,20 +92,23 @@ module array {
     } else {
       // TODO(pwong): Marking this branch's label as kDeferred improves
       // bench/string by 4-5%!
-      let result: Object = ToString(context, element);
-      GotoIfException(result) otherwise IfException;
+      let result: Object =
+        EnsureNotException(ToString(context, element))
+        otherwise IfException;
       goto IfStringWithSideEffects(unsafe_cast<String>(result));
     }
   }
 
   JoinToString<FastHoleySmiElements>(context: Context, element: Object): never
-  labels IfEmpty, IfException(Object), IfString(String), IfStringWithSideEffects(String) {
+  labels IfEmpty, IfException(Object), IfString(String),
+      IfStringWithSideEffects(String) {
     goto IfString(SmiToString(unsafe_cast<Smi>(element)));
   }
 
   JoinToString<FastHoleyDoubleElements>(
       context: Context, element: Object): never
-  labels IfEmpty, IfException(Object), IfString(String), IfStringWithSideEffects(String) {
+  labels IfEmpty, IfException(Object), IfString(String),
+      IfStringWithSideEffects(String) {
     goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)));
   }
 
@@ -133,7 +138,7 @@ module array {
     let elements: Object = LoadReceiverElements<ElementsAccessor>(receiver);
     let len: intptr = convert<intptr>(initialLen);
 
-    // 6. Let kelements be 0.
+    // 6. Let k be 0.
     // 7. Repeat, while k < len
     for (let k: intptr = initialIndex; k < len; k++) {
       // a. If k > 0, let R be the string-concatenation of R and sep.
@@ -153,7 +158,6 @@ module array {
           otherwise Skip, IfException, IfString, IfStringWithSideEffects;
         }
       }
-      label Skip {}
       label IfString(next: String) {
         r = StringAdd_CheckNone_NotTenured(context, r, next);
       }
@@ -168,6 +172,7 @@ module array {
           goto Continuation(k + 1, r, sep, initialLen);
         }
       }
+      label Skip {}
 
       // d. Increment k by 1.
     }
@@ -177,9 +182,8 @@ module array {
   }
 
   builtin ArrayJoinContinuation(
-      context: Context, receiver: Object, useLocale: Boolean,
-      sep: String, initialString: String, initialIndex: Number,
-      len: Number): Object {
+      context: Context, receiver: Object, sep: String, len: Number,
+      useLocale: Boolean, initialString: String, initialIndex: Number): Object {
     try {
       let index: intptr = convert<intptr>(initialIndex);
       if (useLocale == True) {
@@ -260,7 +264,7 @@ module array {
         let sep: String = NormalizeJoinSeperator(context, sepObj);
         JoinStackPush(receiverObj) otherwise CycleDetected;
         result = JSArrayJoin(context, receiverArray, sep, len, useLocale)
-            otherwise Continuation, IfException;
+        otherwise Continuation, IfException;
       } else {
         // 2. Let len be ? ToLength(? Get(O, "length")).
         let lenObj: Object = GetProperty(context, receiver, LengthString);
@@ -271,19 +275,19 @@ module array {
     }
     label Continuation(continueIndex: intptr, initialString: String,
                        sep: String, len: Number) {
-      result = ArrayJoinContinuation(
-          context, receiver, useLocale, sep, initialString,
-          convert<Number>(continueIndex), len);
       try {
         // TODO(pwong): Test for slow mode exception thrown
-        GotoIfException(result) otherwise IfException;
+        result = EnsureNotException(
+          ArrayJoinContinuation(context, receiver, sep, len, useLocale,
+                                initialString, convert<Number>(continueIndex))
+        ) otherwise IfException;
       }
       label IfException(e: Object) { exception = e; }
     }
     label CycleDetected { return EmptyString; }
     label IfException(e: Object) { exception = e; }
 
-    JoinStackPop(receiverObj);
+    JoinStackPop(context, receiverObj);
     if (exception != Undefined) ReThrowError(context, exception);
     return result;
   }
@@ -346,14 +350,14 @@ module array {
 
   // Removes a receiver from the stack. The FixedArray will automaticlly shrink
   // to Heap::kMinJoinStackSize once the stack becomes empty.
-  macro JoinStackPop(receiver: Object): void {
+  builtin JoinStackPop(context: Context, receiver: Object): Object {
     let stack: FixedArray = LoadJoinStack();
     let len: intptr = stack.length_intptr;
     try {
       for (let i: intptr = 0; i < len; i++) {
         let el: Object = stack[i];
         if (el == receiver) goto RemoveAndShrink(i);
-        if (el == Hole) return;
+        if (el == Hole) return Undefined;
       }
       unreachable;
     }
@@ -369,5 +373,6 @@ module array {
         SetJoinStack(newStack);
       }
     }
+    return Undefined;
   }
 }
