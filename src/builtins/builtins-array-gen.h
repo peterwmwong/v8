@@ -86,16 +86,15 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     StoreRoot(Heap::kArrayJoinStackRootIndex, stack);
   }
 
-  void CallCCollectNumberDictionaryElementIndices(
-      TNode<FixedArray> indices, TNode<FixedArray> values,
-      TNode<NumberDictionary> backing_store) {
+  TNode<FixedArray> CallCCollectNumberDictionaryElementIndices(
+      TNode<JSArray> js_array) {
     TNode<ExternalReference> f = ExternalConstant(
         ExternalReference::collect_number_dictionary_element_indices());
     TNode<ExternalReference> isolate_ptr =
         ExternalConstant(ExternalReference::isolate_address(isolate()));
     MachineType type_tagged = MachineType::AnyTagged();
-    CallCFunction4(type_tagged, type_tagged, type_tagged, type_tagged,
-                   type_tagged, f, isolate_ptr, indices, values, backing_store);
+    return CAST(CallCFunction2(type_tagged, type_tagged, type_tagged, f,
+                               isolate_ptr, js_array));
   }
 
  protected:

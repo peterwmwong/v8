@@ -91,10 +91,10 @@ assertEquals(123122, String(a).length);
 assertEquals(123122, a.join(",").length);
 assertEquals(246244, a.join("oo").length);
 
-a = new Array(2**25+1);  // Dictionary
+a = new Array(2**32-1);  // Dictionary
 assertEquals("", a.join(""));
-a[2**25-2] = "o";
-a[2**25-1] = "p";
+a[123123123] = "o";
+a[1255215215] = "p";
 assertEquals("op", a.join(""));
 
 a = new Array(100001);

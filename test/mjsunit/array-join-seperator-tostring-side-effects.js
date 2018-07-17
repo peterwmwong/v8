@@ -64,6 +64,34 @@
   assertSame('1,2', a.join());
 })();
 
+(function ArrayEmptied() {
+  const a = [1,2,3];
+  let callCount = 0;
+  assertSame(',,', a.join({
+    toString() {
+      callCount++;
+      a.length = 0;
+      return ',';
+    }
+  }));
+  assertSame(1, callCount);
+  assertSame('', a.join());
+})();
+
+(function NumberDictionaryEmptied() {
+  const a = new Array(2**25+1);
+  let callCount = 0;
+  assertSame('', a.join({
+    toString() {
+      callCount++;
+      a.length = 0;
+      return '';
+    }
+  }));
+  assertSame(1, callCount);
+  assertSame('', a.join());
+})();
+
 (function ElementsKindSmiToDoubles() {
   const a = [1,2,3];
   let callCount = 0;

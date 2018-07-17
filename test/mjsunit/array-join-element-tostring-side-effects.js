@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+const MIN_DICTIONARY_LENGTH = 2**25+1;
+
 function ArrayTests() {
   (function ToStringThrows() {
     function TestError() {}
@@ -77,14 +79,34 @@ function ArrayTests() {
   })();
 
   (function NumberDictionaryChanged() {
-    const a = new Array(2**25+1);  // Force Dictionary
-    a[0] = {
+    let callCount = 0;
+    const a = new Array(MIN_DICTIONARY_LENGTH);  // Force Number Dictionary
+    a[MIN_DICTIONARY_LENGTH - 2] = {
       toString() {
-        a[1] = '2';
+        callCount++;
+        a[MIN_DICTIONARY_LENGTH - 1] = '2';
         return '1';
       }
     };
     assertEquals('12', a.join(''));
+    assertSame(1, callCount);
+    assertEquals('12', a.join(''));
+  })();
+
+  (function NumberDictionaryLengthChange() {
+    let callCount = 0;
+    const a = new Array(MIN_DICTIONARY_LENGTH);  // Force Number Dictionary
+    a[MIN_DICTIONARY_LENGTH - 2] = {
+      toString() {
+        callCount++;
+        a.length = MIN_DICTIONARY_LENGTH - 1;
+        return '1';
+      }
+    };
+    a[MIN_DICTIONARY_LENGTH - 1] = '2';
+    assertSame('1', a.join(''));
+    assertSame(1, callCount);
+    assertSame('1', a.join(''));
   })();
 }
 

@@ -266,6 +266,7 @@ extern operator '-' macro IntPtrSub(intptr, intptr): intptr;
 extern operator '>>>' macro WordShr(uintptr, uintptr): uintptr;
 extern operator '>>>' macro WordSar(intptr, intptr): intptr;
 extern operator '<<' macro WordShl(intptr, intptr): intptr;
+extern operator '>>' macro WordShr(intptr, intptr): intptr;
 extern operator '&' macro WordAnd(intptr, intptr): intptr;
 extern operator '&' macro WordAnd(uintptr, uintptr): uintptr;
 
@@ -382,6 +383,7 @@ extern macro IntPtrConstant(constexpr int31): intptr;
 extern macro IntPtrConstant(constexpr int32): intptr;
 extern macro Int32Constant(constexpr int31): int31;
 extern macro Int32Constant(constexpr int32): int32;
+extern macro Int32Constant(constexpr uint32): int32;
 extern macro Float64Constant(constexpr int31): float64;
 extern macro SmiConstant(constexpr int31): Smi;
 extern macro BoolConstant(constexpr bool): bool;
@@ -389,6 +391,10 @@ extern macro StringConstant(constexpr string): String;
 extern macro LanguageModeConstant(constexpr LanguageMode): LanguageMode;
 extern macro Int32Constant(constexpr ElementsKind): ElementsKind;
 
+macro from_constexpr<A : type>(o: constexpr uint32): A;
+from_constexpr<uint32>(i: constexpr uint32): uint32 {
+  return Unsigned(Int32Constant(i));
+}
 macro from_constexpr<A : type>(o: constexpr int31): A;
 from_constexpr<intptr>(i: constexpr int31): intptr {
   return IntPtrConstant(i);
@@ -475,11 +481,6 @@ macro convert<A : type>(i: intptr): A;
 convert<int32>(i: intptr): int32 {
   return TruncateIntPtrToInt32(i);
 }
-convert<Number>(i: intptr): Number {
-  if (IsValidPositiveSmi(i)) return convert<Smi>(i);
-  let f: float64 = RoundIntPtrToFloat64(i);
-  return AllocateHeapNumberWithValue(f);
-}
 convert<Smi>(i: intptr): Smi {
   return SmiTag(i);
 }
@@ -505,14 +506,8 @@ macro convert<A : type>(n: Number): A;
 convert<float64>(n: Number): float64 {
   return ChangeNumberToFloat64(n);
 }
-convert<intptr>(n: Number): intptr {
-  return convert<intptr>(convert<uintptr>(n));
-}
 convert<uintptr>(n: Number): uintptr {
   return ChangeNonnegativeNumberToUintPtr(n);
-}
-convert<Number>(n: Number): Number {
-  return n;
 }
 macro convert<A : type>(f: float32): A;
 convert<float64>(f: float32): float64 {
@@ -528,11 +523,6 @@ convert<uintptr>(r: RawPtr): uintptr {
 }
 convert<intptr>(r: RawPtr): intptr {
   return Signed(r);
-}
-// TODO(pwong): Verify we still need this
-macro convert<A : type>(b: bool): A;
-convert<Boolean>(b: bool): Boolean {
-  return SelectBooleanConstant(b);
 }
 
 extern macro UnsafeCastNumberToHeapNumber(Number): HeapNumber;
@@ -774,8 +764,12 @@ macro EnsureNotException(obj: Object): Object labels IfException(Object) {
 extern macro HeapNumberToString(HeapNumber): String;
 extern macro SmiToString(Smi): String;
 extern macro GotoIfException(Object): void labels IfException(Object);
+extern macro IsFixedArraySubclass(HeapObject): bool;
+extern macro IsFixedDoubleArray(HeapObject): bool;
+extern macro IsEmptyString(Object): bool;
+extern macro IsNumberDictionary(HeapObject): bool;
+extern macro IsNumber(Object): bool;
+extern macro IsNumberArrayIndex(Number): bool;
 
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
-extern builtin Divide(Context, Object, Object): Number;
-extern builtin LessThan(Context, Object, Object): Boolean;
 extern builtin ObjectToString(Context, Object): String;
