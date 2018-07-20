@@ -63,11 +63,12 @@ module array {
   }
 
   // Specialized ToString() for Array.p.join(), allowing optimized handling for
-  // the following cases...
-  //  IfEmpty:                 null or undefined
-  //  IfString:                converted to a string with no side-effects
-  //  IfStringWithSideEffects: converted to a string with possible side-effects
-  //                           (JS code may have been called during conversion)
+  // the following cases:
+  //   - IfEmpty: null or undefined
+  //   - IfString: converted to a string with no side-effects
+  //   - IfStringWithSideEffects: converted to a string with possible
+  //                              side-effects (JS code may have been called
+  //                              during conversion)
   macro JoinToString<ElementsAccessor: type>(
       context: Context, element: Object): never
   labels IfEmpty, IfString(String), IfStringWithSideEffects(String) {
@@ -85,6 +86,9 @@ module array {
     } else {
       // TODO(pwong): Mark this branch as 'unlikely' for performance improvement
       // (5-10%), when Torque has the ability to mark a branch 'kDeferred'.
+
+      // TODO(pwong): Propose Torque capability to allow similar functionality
+      // to `DisallowJavascriptExecution`.
       goto IfStringWithSideEffects(ToString(context, element));
     }
   }
@@ -123,7 +127,6 @@ module array {
   labels Cannot, Can {
     // To simplify the specialization of dictionary elements, we simply bailout
     // if any dictionary element called JS code during `ToString`.
-    // TODO(pwong): Optimize dictionary elements that implement toString().
     // TODO(pwong): This useless identity check is to fake out Torque so it can
     // generate the Can (else branch) in ArrayJoinImpl.
     if (receiver == receiver) goto Cannot;
@@ -183,6 +186,37 @@ module array {
     return r;
   }
 
+  macro SparseArrayJoin<ToStringStrategy: type>(
+      context: Context, array: JSArray, sep: String, len: Number): String
+  labels Continuation(intptr, String) {
+    // TODO(pwong): Make GetSimpleArrayKeys take a length
+    let indicesArray: JSArray = GetSimpleArrayKeys(context, array);
+    let indices: FixedArray = unsafe_cast<FixedArray>(indicesArray.elements);
+    let indicesLen: intptr = indices.length_intptr;
+    if (indicesLen == 0) return EmptyString;
+
+    let values: FixedArray =
+      AllocateFixedArray(HOLEY_ELEMENTS, indicesLen,
+                         kAllowLargeObjectAllocation);
+    for (let i: intptr = 0; i < indicesLen; i++) {
+      values[i] = GetProperty(context, array, indices[i]);
+    }
+
+    try {
+      return ArrayJoinImpl<DictionaryElements, ToStringStrategy>(
+        context, array, values, values.length_intptr, sep, EmptyString, 0, len,
+        Undefined)
+      otherwise DictionaryContinuation;
+    }
+    label DictionaryContinuation(i: intptr, r: String) {
+      let index: Object = indices[i - 1];
+      assert(IsNumber(index));
+      let indexInt: intptr =
+        NumberArrayIndexToIntPtr(unsafe_cast<Number>(index));
+      goto Continuation(indexInt + 1, r);
+    }
+  }
+
   builtin ArrayJoinContinuation<ToStringStrategy: type>(
       context: Context, receiver: JSReceiver, sep: String, len: Number,
       initialString: String, initialIndex: Number): Object {
@@ -216,9 +250,9 @@ module array {
                            len: intptr): bool {
     assert(IsNumberDictionary(array.elements));
     let elements: NumberDictionary =
-      unsafe_cast<NumberDictionary>(array.elements);
+        unsafe_cast<NumberDictionary>(array.elements);
     let estimated_nof: intptr =
-      convert<intptr>(GetNumberDictionaryNumberOfElements(elements));
+        convert<intptr>(GetNumberDictionaryNumberOfElements(elements));
 
     // No more than 75% holes
     return estimated_nof < (len >> 2);
@@ -230,14 +264,13 @@ module array {
   }
 
   macro IntPtrToNumberArrayIndex(i: intptr): Number {
-    assert(i < Signed(convert<uintptr>(from_constexpr<uint32>(kMaxArrayIndex))));
-    if (IsValidPositiveSmi(i)) return convert<Smi>(i);
-    let f: float64 = RoundIntPtrToFloat64(i);
-    return AllocateHeapNumberWithValue(f);
+    let result: Number =
+        IsValidPositiveSmi(i)
+            ? convert<Smi>(i)
+            : AllocateHeapNumberWithValue(RoundIntPtrToFloat64(i));
+    assert(IsNumberArrayIndex(result));
+    return result;
   }
-
-  // TODO(pwong): moves this down
-  extern macro CallCCollectNumberDictionaryElementIndices(JSArray): FixedArray;
 
   builtin ArrayJoin<ToStringStrategy: type>(
       context: Context, receiver: JSReceiver, len: Number,
@@ -255,48 +288,24 @@ module array {
         if (arrayLen == len &&
             IsPrototypeInitialArrayPrototype(context, map) &&
             !IsNoElementsProtectorCellInvalid()) {
+          let elements: FixedArrayBase = array.elements;
+
           if (kind <= HOLEY_ELEMENTS) {
             return ArrayJoinImpl<FastHoleyObjectElements, ToStringStrategy>(
-              context, array, array.elements, lenInt, sep, EmptyString, 0, len, map)
+              context, array, elements, lenInt, sep, EmptyString, 0, len, map)
             otherwise Continuation;
           } else if (kind <= HOLEY_DOUBLE_ELEMENTS) {
             return ArrayJoinImpl<FastHoleyDoubleElements, ToStringStrategy>(
-              context, array, array.elements, lenInt, sep, EmptyString, 0, len, map)
+              context, array, elements, lenInt, sep, EmptyString, 0, len, map)
             otherwise Continuation;
           }
         }
 
         if (kind == DICTIONARY_ELEMENTS &&
-            IsEmptyString(sep) &&
             HasComplexElements(context, array) == False &&
             IsSparseDictionary(context, array, lenInt)) {
-          // TODO(pwong): Seperate this out in it's own commit (still need to figure out how to handle side-effectful ToString dictionay elements)
-          // TODO(pwong): Write a test to verify concern that elements may move?
-          // CallCCollectNumberDictionaryElementIndices allocates memory and a
-          // GC may cause array elements to move.
-          let indices: FixedArray =
-            CallCCollectNumberDictionaryElementIndices(array);
-          let indicesLen: intptr = indices.length_intptr;
-          if (indicesLen == 0) return EmptyString;
-
-          let values: FixedArray =
-            AllocateFixedArray(PACKED_ELEMENTS, indicesLen);
-          for (let i: intptr = 0; i < indicesLen; i++) {
-            values[i] = GetProperty(context, receiver, indices[i]);
-          }
-
-          try {
-            return ArrayJoinImpl<DictionaryElements, ToStringStrategy>(
-              context, array, values, indicesLen, sep, EmptyString, 0, len, map)
-            otherwise DictionaryContinuation;
-          }
-          label DictionaryContinuation(i: intptr, r: String) {
-            let index: Object = indices[i - 1];
-            assert(IsNumber(index));
-            let indexInt: intptr =
-              NumberArrayIndexToIntPtr(unsafe_cast<Number>(index));
-            goto Continuation(indexInt + 1, r);
-          }
+          return SparseArrayJoin<ToStringStrategy>(context, array, sep, len)
+          otherwise Continuation;
         }
       }
       goto Continuation(0, EmptyString);
@@ -316,8 +325,6 @@ module array {
   extern macro SetJoinStack(FixedArray): void;
   const kMinJoinStackSize: constexpr int32 generates
   'JSArray::kMinJoinStackSize';
-  const kMaxArrayIndex: constexpr uint32 generates
-  'JSArray::kMaxArrayIndex';
 
   // Adds a receiver to the stack. The FixedArray will automaticlly grow to
   // accomadate the receiver. If the receiver already exists on the stack,
@@ -464,4 +471,7 @@ module array {
       return ObjectToString(context, array);
     }
   }
+
+  extern macro CallCCollectNumberDictionaryElementIndices(JSArray): JSArray;
+  extern runtime GetSimpleArrayKeys(Context, JSArray): JSArray;
 }

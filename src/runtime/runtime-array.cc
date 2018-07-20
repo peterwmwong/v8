@@ -452,6 +452,52 @@ RUNTIME_FUNCTION(Runtime_EstimateNumberOfElements) {
   }
 }
 
+static void SortIndices(
+    Isolate* isolate, Handle<FixedArray> indices, uint32_t sort_size,
+    WriteBarrierMode write_barrier_mode = UPDATE_WRITE_BARRIER) {
+  // Use AtomicElement wrapper to ensure that std::sort uses atomic load and
+  // store operations that are safe for concurrent marking.
+  base::AtomicElement<Object*>* start =
+      reinterpret_cast<base::AtomicElement<Object*>*>(
+          indices->GetFirstElementAddress());
+  std::sort(start, start + sort_size,
+            [isolate](const base::AtomicElement<Object*>& elementA,
+                      const base::AtomicElement<Object*>& elementB) {
+              const Object* a = elementA.value();
+              const Object* b = elementB.value();
+              if (a->IsSmi() || !a->IsUndefined(isolate)) {
+                if (!b->IsSmi() && b->IsUndefined(isolate)) {
+                  return true;
+                }
+                return a->Number() < b->Number();
+              }
+              return !b->IsSmi() && b->IsUndefined(isolate);
+            });
+  if (write_barrier_mode != SKIP_WRITE_BARRIER) {
+    FIXED_ARRAY_ELEMENTS_WRITE_BARRIER(isolate->heap(), *indices, 0, sort_size);
+  }
+}
+
+RUNTIME_FUNCTION(Runtime_GetSimpleArrayKeys) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSArray, array, 0);
+
+  KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
+                             ALL_PROPERTIES);
+  for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
+       !iter.IsAtEnd(); iter.Advance()) {
+    Handle<JSReceiver> current(PrototypeIterator::GetCurrent<JSReceiver>(iter));
+    DCHECK(!current->HasComplexElements());
+    accumulator.CollectOwnElementIndices(array,
+                                         Handle<JSObject>::cast(current));
+  }
+
+  Handle<FixedArray> keys =
+      accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
+  SortIndices(isolate, keys, keys->length(), SKIP_WRITE_BARRIER);
+  return *isolate->factory()->NewJSArrayWithElements(keys, PACKED_ELEMENTS);
+}
 
 // Returns an array that tells you where in the [0, length) interval an array
 // might have elements.  Can either return an array of keys (positive integers

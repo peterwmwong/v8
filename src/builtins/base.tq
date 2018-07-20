@@ -652,9 +652,8 @@ extern macro IsFastSmiElementsKind(ElementsKind): bool;
 extern macro IsHoleyFastElementsKind(ElementsKind): bool;
 
 extern macro AllocateFixedArray(constexpr ElementsKind, intptr): FixedArray;
-// TODO(pwong): torque compiler error in ParameterDifference. Off by one error?
-// extern macro AllocateFixedArray(
-//     constexpr ElementsKind, intptr, constexpr AllocationFlags): FixedArray;
+extern macro AllocateFixedArray(
+    constexpr ElementsKind, intptr, constexpr AllocationFlags): FixedArray;
 
 extern macro CopyFixedArrayElements(
     constexpr ElementsKind, FixedArray, constexpr ElementsKind, FixedArray,

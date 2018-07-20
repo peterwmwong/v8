@@ -86,7 +86,7 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     StoreRoot(Heap::kArrayJoinStackRootIndex, stack);
   }
 
-  TNode<FixedArray> CallCCollectNumberDictionaryElementIndices(
+  TNode<JSArray> CallCCollectNumberDictionaryElementIndices(
       TNode<JSArray> js_array) {
     TNode<ExternalReference> f = ExternalConstant(
         ExternalReference::collect_number_dictionary_element_indices());

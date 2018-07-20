@@ -4650,7 +4650,7 @@ Handle<JSArray> ElementsAccessor::Concat(Isolate* isolate, Arguments* args,
   return result_array;
 }
 
-FixedArray* ElementsAccessor::CollectNumberDictionaryElementIndices(
+JSArray* ElementsAccessor::CollectNumberDictionaryElementIndices(
     Isolate* isolate, JSArray* array_raw) {
   DCHECK(array_raw->IsJSArray());
 
@@ -4658,6 +4658,7 @@ FixedArray* ElementsAccessor::CollectNumberDictionaryElementIndices(
   Handle<JSArray> array(array_raw, isolate);
   KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
                              ALL_PROPERTIES);
+
   for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
        !iter.IsAtEnd(); iter.Advance()) {
     Handle<JSReceiver> current(PrototypeIterator::GetCurrent<JSReceiver>(iter));
@@ -4670,7 +4671,7 @@ FixedArray* ElementsAccessor::CollectNumberDictionaryElementIndices(
       accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
 
   SortIndices(isolate, keys, keys->length(), SKIP_WRITE_BARRIER);
-  return *keys;
+  return *isolate->factory()->NewJSArrayWithElements(keys);
 }
 
 ElementsAccessor** ElementsAccessor::elements_accessors_ = nullptr;

@@ -135,7 +135,7 @@ class ElementsAccessor {
   static Handle<JSArray> Concat(Isolate* isolate, Arguments* args,
                                 uint32_t concat_size, uint32_t result_length);
 
-  static FixedArray* CollectNumberDictionaryElementIndices(Isolate* isolate,
+  static JSArray* CollectNumberDictionaryElementIndices(Isolate* isolate,
                                                            JSArray* array);
 
   virtual uint32_t Push(Handle<JSArray> receiver, Arguments* args,
