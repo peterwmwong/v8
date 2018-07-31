@@ -256,14 +256,15 @@ module array {
 
     // 6. Let k be 0.
     // 7. Repeat, while k < len
-    // TODO(pwong): Make this a for loop
     while(!state.done) {
       if (nonEmptySep) {
         if (state.k > 0) {
           // TODO(pwong): if constexpr (HasGaps<ElementsAccessor>()) {}
           if (state.gap > 1) {
             const gap: intptr = state.gap;
-            assert(IsValidPositiveSmi(gap));
+            if (gap > from_constexpr<intptr>(kStringMaxLength)) {
+              ThrowTypeError(context, kInvalidStringLength);
+            }
             const seps: String = StringRepeat(context, sep, convert<Smi>(gap));
             r = StringAdd_CheckNone_NotTenured(context, r, seps);
           } else {
