@@ -54,16 +54,13 @@ module array {
     const prop: Object = GetProperty(context, element, 'toLocaleString');
     try {
       const callable: Callable = cast<Callable>(prop) otherwise TypeError;
-      let result: Object;
-      if (IsNullOrUndefined(toLocaleStringLocales)) {
-        result = Call(context, callable, element);
-      } else if (IsNullOrUndefined(toLocaleStringOptions)) {
-        result = Call(context, callable, element, toLocaleStringLocales);
-      } else {
-        result = Call(
-          context, callable, element, toLocaleStringLocales,
-          toLocaleStringOptions);
-      }
+      const result: Object =
+          IsNullOrUndefined(toLocaleStringLocales)
+            ? Call(context, callable, element)
+        : IsNullOrUndefined(toLocaleStringOptions)
+            ? Call(context, callable, element, toLocaleStringLocales)
+        : Call(context, callable, element, toLocaleStringLocales,
+               toLocaleStringOptions);
       goto IfStringWithSideEffects(ToString(context, result));
     }
     label TypeError {
@@ -247,7 +244,7 @@ module array {
       initialMap: Object, toLocaleStringLocales: Object,
       toLocaleStringOptions: Object): String
   labels Continuation(intptr, String) {
-    let nonEmptySep: bool = sep != EmptyString;
+    const nonEmptySep: bool = sep != EmptyString;
 
     // 5. Let R be the empty String.
     let r: String = initialString;
@@ -495,28 +492,24 @@ module array {
   builtin JoinStackPop(
       context: Context, stack: FixedArray, receiver: Object): Object {
     const len: intptr = stack.length_intptr;
-    try {
-      for (let i: intptr = 0; i < len; i++) {
-        let element: Object = stack[i];
-        if (element == receiver) goto RemoveAndShrink(i);
-        if (element == Hole) return Undefined;
-      }
-      unreachable;
-    }
-    label RemoveAndShrink(i: intptr) {
-      stack[i] = Hole;
-      if (i == 0 && len > kMinJoinStackSize) {
-        // TODO(pwong): Should be passing AllocationFlags, torque compiler error
-        const newStack: FixedArray =
-          AllocateFixedArray(PACKED_ELEMENTS,
-                             IntPtrConstant(kMinJoinStackSize));
-        assert(kMinJoinStackSize == from_constexpr<int32>(2));
-        newStack[0] = Hole;
-        newStack[1] = Hole;
-        SetJoinStack(newStack);
+    for (let i: intptr = 0; i < len; i++) {
+      const element: Object = stack[i];
+      if (element == receiver) {
+        stack[i] = Hole;
+        if (i == 0 && len > kMinJoinStackSize) {
+          const newStack: FixedArray =
+            AllocateFixedArray(PACKED_ELEMENTS, kMinJoinStackSize);
+          assert(kMinJoinStackSize == from_constexpr<int32>(2));
+          newStack[0] = Hole;
+          newStack[1] = Hole;
+          SetJoinStack(newStack);
+        }
+        return Undefined;
+      } else if (element == Hole) {
+        return Undefined;
       }
     }
-    return Undefined;
+    unreachable;
   }
 
   macro JoinStackPop_Inline(context: Context, receiver: Object) {
@@ -546,7 +539,7 @@ module array {
                           : ToString_Inline(context, sepObj);
     try {
       JoinStackPush_Inline(context, receiver) otherwise CycleDetected;
-      let result: Object = EnsureNotException(
+      const result: Object = EnsureNotException(
         ArrayJoin<ToStringStrategy>(
           context, receiver, len, sep, toLocaleStringLocales,
           toLocaleStringOptions)
@@ -571,9 +564,9 @@ module array {
   // https://tc39.github.io/ecma262/#sec-array.prototype.toLocaleString
   javascript builtin ArrayPrototypeToLocaleString(
       context: Context, receiver: Object, ...arguments): Object {
-    let toLocaleStringLocales: Object =
+    const toLocaleStringLocales: Object =
       arguments.length > 0 ? arguments[0] : Undefined;
-    let toLocaleStringOptions: Object =
+    const toLocaleStringOptions: Object =
       arguments.length > 1 ? arguments[1] : Undefined;
     return CycleProtectedArrayJoin<UseToLocaleString>(
       context, ToObject(context, receiver), ',', toLocaleStringLocales,
