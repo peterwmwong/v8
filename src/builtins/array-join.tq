@@ -6,35 +6,29 @@ module array {
   type SparseElementsAccessor;
 
   macro Load<ElementsAccessor: type>(
-      context: Context, elements: HeapObject, i: intptr): Object
+      context: Context, elements: HeapObject, i: uintptr): Object
+  labels IfHole {
+    return GetProperty(context, elements, convert<Number>(i));
+  }
+
+  Load<FastHoleyObjectElements>(
+      context: Context, elements: HeapObject, i: uintptr): Object
   labels IfHole {
     assert(IsFixedArraySubclass(elements));
     const fixedArray: FixedArray = unsafe_cast<FixedArray>(elements);
-    const element: Object = fixedArray[i];
+    const element: Object = fixedArray[Signed(i)];
     if (IsTheHole(element)) goto IfHole;
     return element;
   }
 
-  Load<GenericElementsAccessor>(
-      context: Context, elements: HeapObject, i: intptr): Object
-  labels IfHole {
-    return GetProperty(context, elements, IntPtrToNumberArrayIndex(i));
-  }
-
-  Load<SparseElementsAccessor>(
-      context: Context, elements: HeapObject, i: intptr): Object
-  labels IfHole {
-    return GetProperty(context, elements, IntPtrToNumberArrayIndex(i));
-  }
-
   Load<FastHoleyDoubleElements>(
-      context: Context, elements: HeapObject, i: intptr): Object
+      context: Context, elements: HeapObject, i: uintptr): Object
   labels IfHole {
     assert(IsFixedDoubleArray(elements));
     const fixedDoubleArray: FixedDoubleArray =
         unsafe_cast<FixedDoubleArray>(elements);
     const element: float64 =
-        LoadDoubleWithHoleCheck(fixedDoubleArray, i) otherwise IfHole;
+        LoadDoubleWithHoleCheck(fixedDoubleArray, Signed(i)) otherwise IfHole;
     return AllocateHeapNumberWithValue(element);
   }
 
@@ -48,7 +42,7 @@ module array {
   macro ConvertToLocaleString(
       context: Context, element: Object, toLocaleStringLocales: Object,
       toLocaleStringOptions: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String) {
+  labels IfEmpty, IfString(String, bool) {
     if (IsNullOrUndefined(element)) goto IfEmpty;
 
     const prop: Object = GetProperty(context, element, 'toLocaleString');
@@ -61,7 +55,7 @@ module array {
             ? Call(context, callable, element, toLocaleStringLocales)
         : Call(context, callable, element, toLocaleStringLocales,
                toLocaleStringOptions);
-      goto IfStringWithSideEffects(ToString(context, result));
+      goto IfString(ToString(context, result), true);
     }
     label TypeError {
       ThrowTypeError(context, kCalledNonCallable, prop);
@@ -72,21 +66,18 @@ module array {
   // the following cases:
   //   - IfEmpty: null or undefined
   //   - IfString: converted to a string with no side-effects
-  //   - IfStringWithSideEffects: converted to a string with possible
-  //                              side-effects (JS code may have been called
-  //                              during conversion)
   macro ConvertToString<ElementsAccessor: type>(
       context: Context, element: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String) {
+  labels IfEmpty, IfString(String, bool) {
     if (TaggedIsSmi(element)) {
-      goto IfString(SmiToString(unsafe_cast<Smi>(element)));
+      goto IfString(SmiToString(unsafe_cast<Smi>(element)), false);
     }
 
     const elementObj: HeapObject = unsafe_cast<HeapObject>(element);
     if (IsString(elementObj)) {
-      goto IfString(unsafe_cast<String>(element));
+      goto IfString(unsafe_cast<String>(element), false);
     } else if (IsHeapNumber(elementObj)) {
-      goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)));
+      goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)), false);
     } else if (IsNullOrUndefined(element)) {
       goto IfEmpty;
     } else {
@@ -95,17 +86,17 @@ module array {
 
       // TODO(pwong): Propose Torque capability to allow similar functionality
       // to `DisallowJavascriptExecution`.
-      goto IfStringWithSideEffects(ToString(context, element));
+      goto IfString(ToString(context, element), true);
     }
   }
 
   ConvertToString<FastHoleyDoubleElements>(
       context: Context, element: Object): never
-  labels IfEmpty, IfString(String), IfStringWithSideEffects(String) {
+  labels IfEmpty, IfString(String, bool) {
     // TODO(pwong): Further optimize by  creating a Float64ToString helper. This
     // would avoid allocating the heap number (see
     // Load<FastHoleyDoubleElements>.
-    goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)));
+    goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)), false);
   }
 
   // Verifies the current element accessor can still be safely used
@@ -142,21 +133,19 @@ module array {
     goto Can;
   }
 
-  struct IteratorState {
+  struct KeyIterator {
     done: bool;
 
-    // TODO(pwong): Move this to sparseK AND rename to `sparseGap`
-    gap: intptr; // Should only be used by sparse implementation
-    k: intptr;
+    k: uintptr;
     elements: HeapObject;
 
-    sparseK: intptr;
-    sparseIndices: FixedArrayBase;
+    sparseK: uintptr;
+    sparseIndices: FixedArray;
   }
 
-  macro InitialState<ElementsAccessor: type>(
-      context: Context, receiver: JSReceiver, len: intptr,
-      initialK: intptr): IteratorState {
+  macro KeyIteratorInit<ElementsAccessor: type>(
+      context: Context, receiver: JSReceiver, len: uintptr,
+      initialK: uintptr): KeyIterator {
     const array: JSArray = unsafe_cast<JSArray>(receiver);
     const elements: FixedArrayBase = array.elements;
     // Fast path is built on the assumption that the receiver's length does not
@@ -164,116 +153,224 @@ module array {
     // TODO(pwong): why does this assertion fail? vvv
     // assert(elements.length_intptr == len);
     const done: bool = len == 0;
-    return IteratorState{done, 0, initialK, elements, 0, kEmptyFixedArray};
+    return KeyIterator{done, initialK, elements, 0, unsafe_cast<FixedArray>(kEmptyFixedArray)};
   }
 
-  InitialState<GenericElementsAccessor>(
-      context: Context, receiver: JSReceiver, len: intptr,
-      initialK: intptr): IteratorState {
+  KeyIteratorInit<GenericElementsAccessor>(
+      context: Context, receiver: JSReceiver, len: uintptr,
+      initialK: uintptr): KeyIterator {
     let done: bool = len == 0;
     if (!done) done = initialK >= len;
-    return IteratorState{done, 0, initialK, receiver, 0, kEmptyFixedArray};
+    return KeyIterator{done, initialK, receiver, 0, unsafe_cast<FixedArray>(kEmptyFixedArray)};
   }
 
-  InitialState<SparseElementsAccessor>(
-      context: Context, receiver: JSReceiver, len: intptr,
-      initialK: intptr): IteratorState {
+  KeyIteratorInit<SparseElementsAccessor>(
+      context: Context, receiver: JSReceiver, len: uintptr,
+      initialK: uintptr): KeyIterator {
     const array: JSArray = unsafe_cast<JSArray>(receiver);
     // TODO(pwong):
-    //    1) GetSortedArrayKeys pass initialK
     //    2) GetSortedArrayKeys pass length (max k)
-    //    3) GetSortedArrayKeys return FixedArray
-    const sparseIndices: FixedArray = unsafe_cast<FixedArray>(
-      GetSortedArrayKeys(context, array).elements
-    );
+    // Only the GenericElementsAccessor specialization (handles continuation)
+    // is a non-zero `initialK` possible.
+    assert(initialK == 0);
+    const sparseIndices: FixedArray = GetSortedArrayKeys(context, array, convert<Number>(len));
     const done: bool = IsEmptyFixedArray(sparseIndices);
+    const k: uintptr = done ? from_constexpr<uintptr>(0)
+      : convert<uintptr>(unsafe_cast<Number>(sparseIndices[0]));
 
-    let gap: intptr = 0;
-    let k: intptr = 0;
-    if (done) {
-      gap = len - 1;
-    } else {
-      k = NumberArrayIndexToIntPtr(unsafe_cast<Number>(sparseIndices[0]));
-      gap = k;
-    }
-    return IteratorState{done, gap, k, array, 0, sparseIndices};
+    return KeyIterator{done, k, array, 0, sparseIndices};
   }
 
-  macro UpdateState<ElementsAccessor: type>(
-      len: intptr, state: IteratorState): IteratorState {
-    const k: intptr = state.k + 1;
-    // TODO(pwong): why does this assertion fail? vvv
-    // assert(unsafe_cast<FixedArrayBase>(state.elements).length_intptr == len);
+  macro KeyIteratorNext<ElementsAccessor: type>(
+      len: uintptr, state: KeyIterator): KeyIterator {
+    const k: uintptr = state.k + 1;
     const done: bool = k >= len;
-    return IteratorState{done, 0, k, state.elements, 0, kEmptyFixedArray};
+    return KeyIterator{done, k, state.elements, 0, state.sparseIndices};
   }
 
-  UpdateState<GenericElementsAccessor>(
-      len: intptr, state: IteratorState): IteratorState {
-    const k: intptr = state.k + 1;
-    const elements: HeapObject = state.elements;
-    const done: bool = k >= len;
-    return IteratorState{done, 0, k, elements, 0, kEmptyFixedArray};
+  KeyIteratorNext<SparseElementsAccessor>(
+      len: uintptr, state: KeyIterator): KeyIterator {
+    const sparseK: uintptr = state.sparseK + 1;
+    const sparseIndices: FixedArray = state.sparseIndices;
+
+    const done: bool = sparseK >= Unsigned(sparseIndices.length_intptr);
+    const k: uintptr = done ? state.k
+      : convert<uintptr>(unsafe_cast<Number>(sparseIndices[Signed(sparseK)]));
+    return KeyIterator{done, k, state.elements, sparseK, sparseIndices};
   }
 
-  UpdateState<SparseElementsAccessor>(
-      len: intptr, state: IteratorState): IteratorState {
-    const sparseK: intptr = state.sparseK + 1;
-    const sparseIndices: FixedArray =
-      unsafe_cast<FixedArray>(state.sparseIndices);
+  // TODO(pwong): Add more documentation.
+  //   1) Add Translation Example
+  //      - Input JS Array: [,'hello',,'world',]
+  //      - Output:         [1,'hello',1,'world',1]
+  struct StringGapBuffer {
+    // Fixed array holding elements that are either:
+    //   1) String result of `ToString(element)`
+    //   2) Smi (> 1) representing the number of consecutive seperators
+    // `BufferJoin()` iterates over and writes these entries into a flatten
+    // string.
+    fixedArray: FixedArray;
 
-    let k: intptr;
-    let gap: intptr;
-    let done: bool;
-    if (sparseK < sparseIndices.length_intptr) {
-      const sparseIndex: Number = unsafe_cast<Number>(sparseIndices[sparseK]);
-      done = false;
-      k = NumberArrayIndexToIntPtr(sparseIndex);
-      gap = k - state.k;
-    } else {
-      done = true;
-      k = state.k;
-      gap = len - k - 1;
+    // Index to insert a new entry into `fixedArray`.
+    index: uintptr;
+
+    // Last entry's associated `k` (JS Receiver's key).  This is used to
+    // calculate the gap between entries.
+    lastK: uintptr;
+
+    // Running total of the resulting string length when `BufferJoin()` is
+    // called.
+    stringLen: uintptr;
+  }
+
+  macro EstimateBufferSize<ElementsAccessor: type>(state: KeyIterator,
+                                                   len: uintptr): uintptr {
+    return len;
+  }
+
+  EstimateBufferSize<SparseElementsAccessor>(state: KeyIterator,
+                                             len: uintptr): uintptr {
+    const sparseIndices: FixedArray = state.sparseIndices;
+
+    // Given the indices may not be consecutive, assume worst case scenario of
+    // gap between and after all indices.
+    // TODO(pwong): [torque bug]
+    //    YEP: (sparseIndices.length_intptr << 1) + 1
+    //    NOP: sparseIndices.length_intptr << 1 + 1
+    return Unsigned((sparseIndices.length_intptr << 1) + 1);
+  }
+
+  macro BufferInit(len: uintptr): StringGapBuffer {
+    //
+    // !!!START HERE!!!
+    // !!!START HERE!!!
+    // !!!START HERE!!!
+    // !!!START HERE!!!
+    //
+    // TODO(pwong): Welp, vvv No longer sound! String max > FixedArray max!!!
+    // Implement buffer full algo in ArrayJoinImpl:
+    //
+    //    if (buffer.isFull) {
+    //      r = BufferJoin();
+    //      buffer = BufferInit();
+    //    }
+    //
+    // TODO(pwong): Write test
+    // TODO(pwong): Update vvv comment!
+    // Note about the capped length: Eventhough the receiver's length may exceed
+    // `FixedArray::kMaxLength`, because this only holds the strings (and gaps)
+    // to be rendered to a string, this is sound as long as `String::kMaxLength`
+    // is less than `FixedArray::kMaxLength`.
+    const len: uintptr = len < kFixedArrayMaxLength ? len
+      : convert<uintptr>(kFixedArrayMaxLength);
+    const fixedArray: FixedArray = AllocateFixedArrayWithHoles(
+      PACKED_ELEMENTS, Signed(len), kAllowLargeObjectAllocation);
+    // TODO(pwong): index, lastK, stringLen need to be passed in for
+    // continuation support.
+    return StringGapBuffer{fixedArray, 0, 0, 0};
+  }
+
+  macro BufferAdd(context: Context, buf: StringGapBuffer, str: String,
+                  k: uintptr, sepLen: uintptr): StringGapBuffer {
+    // TODO(pwong): if constexpr (CanHaveGaps<ElementsAccessor>())
+    // - FastPackedSmiElementAccessor
+    // - FastPackedDoubleElementsAccessor
+    const gap: uintptr = k - buf.lastK;
+    const fixedArray: FixedArray = buf.fixedArray;
+    let stringLen: uintptr = Unsigned(str.length) + buf.stringLen;
+    let index: uintptr = buf.index;
+
+    Print('BufferAdd - lastK', convert<Smi>(Signed(buf.lastK)));
+    Print('BufferAdd - k', convert<Smi>(Signed(k)));
+    if (gap > 1) {
+      assert(index < Unsigned(fixedArray.length_intptr));
+      const gapLen: uintptr = gap * sepLen;
+      stringLen = stringLen + gapLen;
+      StoreFixedArrayElement(fixedArray, Signed(index++), convert<Smi>(Signed(gap)),
+                             SKIP_WRITE_BARRIER);
     }
-    return IteratorState{done, gap, k, state.elements, sparseK, sparseIndices};
+    assert(index < Unsigned(fixedArray.length_intptr));
+    StoreFixedArrayElement(fixedArray, Signed(index++), str, SKIP_WRITE_BARRIER);
+
+    return StringGapBuffer{fixedArray, index, k, stringLen};
+  }
+
+  macro BufferFinalize(context: Context, buf: StringGapBuffer, len: uintptr,
+                       sepLen: uintptr): StringGapBuffer {
+    const gap: uintptr = len - buf.lastK - 1;
+    const fixedArray: FixedArray = buf.fixedArray;
+    let index: uintptr = buf.index;
+    let stringLen: uintptr = buf.stringLen;
+    Print('BufferFinalize - len', convert<Smi>(Signed(len)));
+    Print('BufferFinalize - lastK', convert<Smi>(Signed(buf.lastK)));
+    if (gap > 0) {
+      Print('BufferFinalize - gap', convert<Smi>(Signed(gap)));
+      stringLen = stringLen + sepLen * gap;
+      StoreFixedArrayElement(fixedArray, Signed(index++), convert<Smi>(Signed(gap)),
+                             SKIP_WRITE_BARRIER);
+    }
+    return StringGapBuffer{fixedArray, index, buf.lastK, stringLen};
+  }
+
+  macro BufferJoin(context: Context, buf: StringGapBuffer,
+                   sep: String): String {
+    assert(buf.stringLen <= kStringMaxLength);
+    if (buf.stringLen > kStringMaxLength) {
+      ThrowTypeError(context, kInvalidStringLength);
+    }
+
+    const fixedArray: FixedArray = buf.fixedArray;
+    const len: uintptr = buf.index;
+    const nonEmptySep: bool = !IsEmptyString(sep);
+    let r: String = EmptyString;
+    let prevWasString: bool = false;
+    for (let i: uintptr = 0; i < len; i++) {
+      const el: Object = fixedArray[Signed(i)];
+      if (TaggedIsSmi(el)) {
+        if (nonEmptySep) {
+          const seps: String = StringRepeat(context, sep, unsafe_cast<Smi>(el));
+          r = StringAdd_CheckNone_NotTenured(context, r, seps);
+        }
+        prevWasString = false;
+      } else {
+        assert(IsString(unsafe_cast<HeapObject>(el)));
+        if (nonEmptySep) {
+          if (prevWasString) {
+            r = StringAdd_CheckNone_NotTenured(context, r, sep);
+          }
+        }
+        r = StringAdd_CheckNone_NotTenured(context, r, unsafe_cast<String>(el));
+        prevWasString = true;
+      }
+    }
+    return r;
   }
 
   macro ArrayJoinImpl<ElementsAccessor: type, ToStringStrategy: type>(
-      context: Context, receiver: JSReceiver, len: intptr, sep: String,
-      initialString: String, initialIndex: intptr, initialLen: Number,
+      context: Context, receiver: JSReceiver, len: uintptr, sep: String,
+      initialString: String, initialIndex: uintptr, initialLen: Number,
       initialMap: Object, toLocaleStringLocales: Object,
       toLocaleStringOptions: Object): String
-  labels Continuation(intptr, String) {
-    const nonEmptySep: bool = sep != EmptyString;
+  labels Continuation(uintptr, String) {
+    const sepLen: uintptr = Unsigned(sep.length);
 
     // 5. Let R be the empty String.
-    let r: String = initialString;
-    let state: IteratorState =
-      InitialState<ElementsAccessor>(context, receiver, len, initialIndex);
+    let state: KeyIterator =
+      KeyIteratorInit<ElementsAccessor>(context, receiver, len, initialIndex);
+    if (state.done) {
+      return initialString;
+    }
+    const bufferLen: uintptr = EstimateBufferSize<ElementsAccessor>(state, len);
+    let stringGapBuffer: StringGapBuffer = BufferInit(bufferLen);
 
     // 6. Let k be 0.
     // 7. Repeat, while k < len
     while(!state.done) {
-      if (nonEmptySep) {
-        if (state.k > 0) {
-          // TODO(pwong): if constexpr (HasGaps<ElementsAccessor>()) {}
-          if (state.gap > 1) {
-            const gap: intptr = state.gap;
-            if (gap > from_constexpr<intptr>(kStringMaxLength)) {
-              ThrowTypeError(context, kInvalidStringLength);
-            }
-            const seps: String = StringRepeat(context, sep, convert<Smi>(gap));
-            r = StringAdd_CheckNone_NotTenured(context, r, seps);
-          } else {
-            r = StringAdd_CheckNone_NotTenured(context, r, sep);
-          }
-        }
-      }
-
+      const k: uintptr = state.k;
       try {
         // b. Let element be ? Get(O, ! ToString(k)).
         const element: Object =
-          Load<ElementsAccessor>(context, state.elements, state.k)
+          Load<ElementsAccessor>(context, state.elements, k)
         otherwise Skip;
 
         // c. If element is undefined or null, let next be the empty String;
@@ -281,44 +378,34 @@ module array {
         if constexpr (IsUseToLocaleString<ToStringStrategy>()) {
           ConvertToLocaleString(
             context, element, toLocaleStringLocales, toLocaleStringOptions)
-          otherwise Skip, IfString, IfStringWithSideEffects;
+          otherwise Skip, IfString;
         } else {
           ConvertToString<ElementsAccessor>(context, element)
-          otherwise Skip, IfString, IfStringWithSideEffects;
+          otherwise Skip, IfString;
         }
       }
-      label IfString(next: String) {
+      label IfString(next: String, mayHaveCalledJS: bool) {
         // d. Set R to the string-concatenation of R and next.
-        r = StringAdd_CheckNone_NotTenured(context, r, next);
-      }
-      label IfStringWithSideEffects(next: String) {
-        // d. Set R to the string-concatenation of R and next.
-        r = StringAdd_CheckNone_NotTenured(context, r, next);
+        stringGapBuffer = BufferAdd(context, stringGapBuffer, next, k, sepLen);
 
-        if (CannotUseSameAccessor<ElementsAccessor>(initialMap, initialLen,
-                                                    receiver)) {
-          goto Continuation(state.k + 1, r);
+        if (mayHaveCalledJS) {
+          if (CannotUseSameAccessor<ElementsAccessor>(initialMap, initialLen,
+                                                      receiver)) {
+            goto Continuation(state.k + 1, EmptyString);
+          }
         }
       }
       label Skip {}
 
       // e. Increment k by 1.
-      state = UpdateState<ElementsAccessor>(len, state);
-    }
-    // TODO(pwong): if constexpr (HasGaps<ElementsAccessor>()) {}
-    if (nonEmptySep) {
-      if (state.gap != 0) {
-        const gap: intptr = state.gap;
-        if (gap > from_constexpr<intptr>(kStringMaxLength)) {
-          ThrowTypeError(context, kInvalidStringLength);
-        }
-        const seps: String = StringRepeat(context, sep, convert<Smi>(gap));
-        r = StringAdd_CheckNone_NotTenured(context, r, seps);
-      }
+      state = KeyIteratorNext<ElementsAccessor>(len, state);
     }
 
+    stringGapBuffer = BufferFinalize(context, stringGapBuffer, len, sepLen);
+
+
     // 8. Return R.
-    return r;
+    return BufferJoin(context, stringGapBuffer, sep);
   }
 
   builtin ArrayJoinContinuation<ToStringStrategy: type>(
@@ -326,14 +413,14 @@ module array {
       initialString: String, initialIndex: Number,
       toLocaleStringLocales: Object, toLocaleStringOptions: Object): Object {
     try {
-      const initialIndexInt: intptr = NumberArrayIndexToIntPtr(initialIndex);
-      const lenInt: intptr = NumberArrayIndexToIntPtr(len);
+      const initialIndexInt: uintptr = convert<uintptr>(initialIndex);
+      const lenInt: uintptr = convert<uintptr>(len);
       return ArrayJoinImpl<GenericElementsAccessor, UseToLocaleString>(
         context, receiver, lenInt, sep, initialString, initialIndexInt, len,
         Undefined, toLocaleStringLocales, toLocaleStringOptions)
       otherwise Continuation;
     }
-    label Continuation(i: intptr, r: String) {
+    label Continuation(i: uintptr, r: String) {
       // The GenericElementsAccessor element accessor is designed to handle all
       // cases and never bails out (see Load<GenericElementsAccessor>).
       unreachable;
@@ -352,29 +439,15 @@ module array {
   }
 
   macro IsSparseDictionary(context: Context, array: JSArray,
-                           len: intptr): bool {
+                           len: uintptr): bool {
     assert(IsNumberDictionary(array.elements));
     const elements: NumberDictionary =
       unsafe_cast<NumberDictionary>(array.elements);
-    const estimated_nof: intptr =
-      convert<intptr>(GetNumberDictionaryNumberOfElements(elements));
+    const estimated_nof: uintptr =
+      convert<uintptr>(GetNumberDictionaryNumberOfElements(elements));
 
     // No more than 75% holes
-    return estimated_nof < (len >> 2);
-  }
-
-  macro NumberArrayIndexToIntPtr(i: Number): intptr {
-    assert(IsNumberArrayIndex(i));
-    return Signed(convert<uintptr>(i));
-  }
-
-  macro IntPtrToNumberArrayIndex(i: intptr): Number {
-    const result: Number =
-      IsValidPositiveSmi(i)
-          ? convert<Smi>(i)
-          : AllocateHeapNumberWithValue(RoundIntPtrToFloat64(i));
-    assert(IsNumberArrayIndex(result));
-    return result;
+    return estimated_nof < (len >>> 2);
   }
 
   builtin ArrayJoin<ToStringStrategy: type>(
@@ -391,7 +464,7 @@ module array {
 
         if (arrayLen == len) {
           const kind: ElementsKind = map.elements_kind;
-          const lenInt: intptr = NumberArrayIndexToIntPtr(len);
+          const lenInt: uintptr = convert<uintptr>(len);
 
           if(IsPrototypeInitialArrayPrototype(context, map) &&
              !IsNoElementsProtectorCellInvalid()) {
@@ -421,9 +494,9 @@ module array {
       }
       goto Continuation(0, EmptyString);
     }
-    label Continuation(i: intptr, r: String) {
+    label Continuation(i: uintptr, r: String) {
       return ArrayJoinContinuation<ToStringStrategy>(
-        context, receiver, sep, len, r, IntPtrToNumberArrayIndex(i),
+        context, receiver, sep, len, r, convert<Number>(i),
         toLocaleStringLocales, toLocaleStringOptions);
     }
   }

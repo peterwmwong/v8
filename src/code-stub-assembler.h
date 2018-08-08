@@ -1004,6 +1004,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                                       TNode<Smi> index) {
     return LoadFixedArrayElement(object, index, 0, SMI_PARAMETERS);
   }
+  TNode<Object> LoadFixedArrayElement(TNode<HeapObject> object,
+                                      TNode<UintPtrT> index) {
+    return LoadFixedArrayElement(object, Signed(index), 0, INTPTR_PARAMETERS);
+  }
 
   TNode<Object> LoadPropertyArrayElement(SloppyTNode<PropertyArray> object,
                                          SloppyTNode<IntPtrT> index);

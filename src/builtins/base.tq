@@ -65,6 +65,7 @@ type RootListIndex generates 'TNode<Int32T>' constexpr 'Heap::RootListIndex';
 
 type MessageTemplate constexpr 'MessageTemplate';
 type AllocationFlags constexpr 'AllocationFlags';
+type WriteBarrierMode constexpr 'WriteBarrierMode';
 type HasPropertyLookupMode constexpr 'HasPropertyLookupMode';
 
 const NO_ELEMENTS: constexpr ElementsKind generates 'NO_ELEMENTS';
@@ -100,6 +101,11 @@ const kPretenured: constexpr AllocationFlags generates 'kPretenured';
 const kAllowLargeObjectAllocation: constexpr AllocationFlags generates
     'kAllowLargeObjectAllocation';
 
+const UPDATE_WRITE_BARRIER: constexpr WriteBarrierMode generates
+    'UPDATE_WRITE_BARRIER';
+const SKIP_WRITE_BARRIER: constexpr WriteBarrierMode generates
+    'SKIP_WRITE_BARRIER';
+
 type FixedUint8Array extends FixedTypedArray;
 type FixedInt8Array extends FixedTypedArray;
 type FixedUint16Array extends FixedTypedArray;
@@ -121,6 +127,8 @@ const kFixedCOWArrayMapRootIndex: constexpr RootListIndex generates
 'Heap::kFixedCOWArrayMapRootIndex';
 const kEmptyFixedArrayRootIndex: constexpr RootListIndex generates
 'Heap::kEmptyFixedArrayRootIndex';
+const kTheHoleValueRootIndex: constexpr RootListIndex generates
+'Heap::kTheHoleValueRootIndex';
 
 const kInvalidArrayLength: constexpr MessageTemplate generates
 'MessageTemplate::kInvalidArrayLength';
@@ -135,6 +143,7 @@ const kHasProperty: constexpr HasPropertyLookupMode generates 'kHasProperty';
 
 const kMaxSafeInteger: constexpr float64 generates 'kMaxSafeInteger';
 const kStringMaxLength: constexpr int31 generates 'String::kMaxLength';
+const kFixedArrayMaxLength: constexpr int31 generates 'FixedArray::kMaxLength';
 
 const kNotTypedArray: constexpr MessageTemplate generates
 'MessageTemplate::kNotTypedArray';
@@ -246,10 +255,14 @@ extern operator '==' macro WordEqual(uintptr, uintptr): bool;
 extern operator '!=' macro WordNotEqual(intptr, intptr): bool;
 extern operator '!=' macro WordNotEqual(uintptr, uintptr): bool;
 extern operator '<' macro IntPtrLessThan(intptr, intptr): bool;
+extern operator '<' macro UintPtrLessThan(uintptr, uintptr): bool;
 extern operator '>' macro IntPtrGreaterThan(intptr, intptr): bool;
+extern operator '>' macro UintPtrGreaterThan(uintptr, uintptr): bool;
 extern operator '<=' macro IntPtrLessThanOrEqual(intptr, intptr): bool;
+extern operator '<=' macro UintPtrLessThanOrEqual(uintptr, uintptr): bool;
 extern operator '>=' macro IntPtrGreaterThanOrEqual(intptr, intptr): bool;
 extern operator '>=' macro UintPtrGreaterThanOrEqual(uintptr, uintptr): bool;
+
 
 extern operator '==' macro Float64Equal(float64, float64): bool;
 extern operator '!=' macro Float64NotEqual(float64, float64): bool;
@@ -275,7 +288,11 @@ extern operator '&' macro SmiAnd(Smi, Smi): Smi;
 extern operator '>>>' macro SmiShr(Smi, constexpr int31): Smi;
 
 extern operator '+' macro IntPtrAdd(intptr, intptr): intptr;
+extern operator '+' macro IntPtrAdd(uintptr, uintptr): uintptr;
 extern operator '-' macro IntPtrSub(intptr, intptr): intptr;
+extern operator '-' macro IntPtrSub(uintptr, uintptr): uintptr;
+extern operator '*' macro IntPtrMul(intptr, intptr): intptr;
+extern operator '*' macro IntPtrMul(uintptr, uintptr): uintptr;
 extern operator '>>>' macro WordShr(uintptr, uintptr): uintptr;
 extern operator '<<' macro WordShl(intptr, intptr): intptr;
 extern operator '>>' macro WordShr(intptr, intptr): intptr;
@@ -491,12 +508,19 @@ macro convert<A : type>(i: intptr): A;
 convert<int32>(i: intptr): int32 {
   return TruncateIntPtrToInt32(i);
 }
+convert<uintptr>(i: intptr): uintptr {
+  assert(i > 0);
+  return Unsigned(i);
+}
 convert<Smi>(i: intptr): Smi {
   return SmiTag(i);
 }
 macro convert<A : type>(ui: uintptr): A;
 convert<uint32>(ui: uintptr): uint32 {
   return Unsigned(TruncateIntPtrToInt32(Signed(ui)));
+}
+convert<Number>(ui: uintptr): Number {
+  return ChangeUint32ToTagged(convert<uint32>(ui));
 }
 macro convert<A : type>(s: Smi): A;
 convert<intptr>(s: Smi): intptr {
@@ -635,6 +659,7 @@ extern operator '.length' macro LoadFixedArrayBaseLength(FixedArrayBase): Smi;
 extern operator
 '.length_intptr' macro LoadAndUntagFixedArrayBaseLength(FixedArrayBase): intptr;
 extern operator '[]' macro LoadFixedArrayElement(FixedArray, intptr): Object;
+extern operator '[]' macro LoadFixedArrayElement(FixedArray, uintptr): Object;
 extern operator '[]' macro LoadFixedArrayElement(FixedArray, Smi): Object;
 extern operator
 '[]' macro LoadFixedArrayElementInt(FixedArray, constexpr int31): Object;
@@ -653,6 +678,9 @@ extern macro Float64SilenceNaN(float64): float64;
 
 extern macro StoreFixedDoubleArrayElement(
     FixedDoubleArray, Object, float64, constexpr ParameterMode);
+extern macro StoreFixedArrayElement(
+    FixedArray, intptr, Object, constexpr WriteBarrierMode): void;
+
 macro StoreFixedDoubleArrayElementWithSmiIndex(
     array: FixedDoubleArray, index: Smi, value: float64) {
   StoreFixedDoubleArrayElement(array, index, value, SMI_PARAMETERS);
@@ -673,7 +701,16 @@ extern macro IsHoleyFastElementsKind(ElementsKind): bool;
 extern macro AllocateFixedArray(constexpr ElementsKind, intptr): FixedArray;
 extern macro AllocateFixedArray(
     constexpr ElementsKind, intptr, constexpr AllocationFlags): FixedArray;
-
+extern macro FillFixedArrayWithValue(
+    constexpr ElementsKind, FixedArray, intptr, intptr,
+    constexpr RootListIndex): void;
+macro AllocateFixedArrayWithHoles(
+    kind: constexpr ElementsKind, length: intptr,
+    allocFlags: constexpr AllocationFlags): FixedArray {
+  const fixedArray: FixedArray = AllocateFixedArray(kind, length, allocFlags);
+  FillFixedArrayWithValue(kind, fixedArray, 0, length, kTheHoleValueRootIndex);
+  return fixedArray;
+}
 extern macro CopyFixedArrayElements(
     constexpr ElementsKind, FixedArray, constexpr ElementsKind, FixedArray,
     intptr, intptr, intptr): void;
@@ -790,6 +827,7 @@ extern macro HeapNumberToString(HeapNumber): String;
 extern macro SmiToString(Smi): String;
 extern macro GotoIfException(Object): void labels IfException(Object);
 extern macro IsFixedArraySubclass(HeapObject): bool;
+extern macro IsFixedArray(HeapObject): bool;
 extern macro IsFixedDoubleArray(HeapObject): bool;
 extern macro IsEmptyString(Object): bool;
 extern macro IsEmptyFixedArray(Object): bool;
@@ -800,4 +838,4 @@ extern macro IsNumberArrayIndex(Number): bool;
 extern builtin StringRepeat(Context, String, Smi): String;
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
 extern builtin ObjectToString(Context, Object): String;
-extern runtime GetSortedArrayKeys(Context, JSArray): JSArray;
+extern runtime GetSortedArrayKeys(Context, JSArray, Number): FixedArray;
