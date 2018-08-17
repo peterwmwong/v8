@@ -726,6 +726,11 @@ ExternalReference ExternalReference::search_string_raw() {
   return ExternalReference(Redirect(FUNCTION_ADDR(f)));
 }
 
+ExternalReference ExternalReference::write_fixed_array_to_flat_seq() {
+  return ExternalReference(
+      Redirect(FUNCTION_ADDR(String::WriteFixedArrayToFlatSeq)));
+}
+
 ExternalReference ExternalReference::search_string_raw_one_one() {
   return search_string_raw<const uint8_t, const uint8_t>();
 }

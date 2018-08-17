@@ -1070,6 +1070,11 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
                                           TNode<IntPtrT> index,
                                           Label* if_hole = nullptr);
+  TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
+                                          TNode<UintPtrT> index,
+                                          Label* if_hole = nullptr) {
+    return LoadDoubleWithHoleCheck(array, Signed(index), if_hole);
+  }
 
   // Load Float64 value by |base| + |offset| address. If the value is a double
   // hole then jump to |if_hole|. If |machine_type| is None then only the hole

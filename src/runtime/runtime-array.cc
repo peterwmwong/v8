@@ -351,7 +351,8 @@ MaybeHandle<Object> CopyFromPrototype(Isolate* isolate,
   return isolate->factory()->undefined_value();
 }
 
-Handle<FixedArray> GetArrayKeys(Isolate* isolate, Handle<JSObject> array, uint32_t length) {
+Handle<FixedArray> GetArrayKeys(Isolate* isolate, Handle<JSObject> array,
+                                uint32_t length) {
   KeyAccumulator accumulator(isolate, KeyCollectionMode::kOwnOnly,
                              ALL_PROPERTIES);
   for (PrototypeIterator iter(isolate, array, kStartAtReceiver);
@@ -362,7 +363,8 @@ Handle<FixedArray> GetArrayKeys(Isolate* isolate, Handle<JSObject> array, uint32
                                          Handle<JSObject>::cast(current));
   }
 
-  Handle<FixedArray> keys = accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
+  Handle<FixedArray> keys =
+      accumulator.GetKeys(GetKeysConversion::kKeepNumbers);
 
   int j = 0;
   for (int i = 0; i < keys->length(); i++) {

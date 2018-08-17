@@ -294,6 +294,7 @@ extern operator '-' macro IntPtrSub(uintptr, uintptr): uintptr;
 extern operator '*' macro IntPtrMul(intptr, intptr): intptr;
 extern operator '*' macro IntPtrMul(uintptr, uintptr): uintptr;
 extern operator '>>>' macro WordShr(uintptr, uintptr): uintptr;
+extern operator '<<' macro WordShl(uintptr, uintptr): uintptr;
 extern operator '<<' macro WordShl(intptr, intptr): intptr;
 extern operator '>>' macro WordShr(intptr, intptr): intptr;
 extern operator '&' macro WordAnd(intptr, intptr): intptr;
@@ -317,6 +318,7 @@ extern operator '<<' macro Word32Shl(int32, int32): int32;
 extern operator '<<' macro Word32Shl(uint32, uint32): uint32;
 extern operator '|' macro Word32Or(int32, int32): int32;
 extern operator '|' macro Word32Or(uint32, uint32): uint32;
+extern operator '&' macro Word32And(bool, bool): bool;
 
 extern operator '+' macro NumberAdd(Number, Number): Number;
 extern operator '-' macro NumberSub(Number, Number): Number;
@@ -725,6 +727,8 @@ extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, Smi): float64
 labels IfHole;
 extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, intptr): float64
 labels IfHole;
+extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, uintptr): float64
+labels IfHole;
 
 extern macro Call(Context, Callable, Object): Object;
 extern macro Call(Context, Callable, Object, Object): Object;
@@ -834,6 +838,9 @@ extern macro IsEmptyFixedArray(Object): bool;
 extern macro IsNumberDictionary(HeapObject): bool;
 extern macro IsNumber(Object): bool;
 extern macro IsNumberArrayIndex(Number): bool;
+extern macro IsOneByteStringInstanceType(InstanceType): bool;
+extern macro AllocateSeqOneByteString(Context, Smi): String;
+extern macro AllocateSeqTwoByteString(Context, Smi): String;
 
 extern builtin StringRepeat(Context, String, Smi): String;
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
