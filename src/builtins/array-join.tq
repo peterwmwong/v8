@@ -138,8 +138,8 @@ module array {
     done: bool;
     k: uintptr;
     elements: HeapObject;
-    sparseK: uintptr;
-    sparseIndices: FixedArrayBase;
+    sparseKeysIndex: uintptr;
+    sparseKeys: FixedArrayBase;
   }
 
   macro KeyIteratorInit<ElementsAccessor: type>(
@@ -170,33 +170,33 @@ module array {
     // Only the GenericElementsAccessor specialization (handles continuation)
     // is a non-zero `initialK` possible.
     assert(initialK == 0);
-    const sparseIndices: FixedArray =
+    const sparseKeys: FixedArray =
       GetSortedArrayKeys(context, array, convert<Number>(len));
-    const done: bool = IsEmptyFixedArray(sparseIndices);
+    const done: bool = IsEmptyFixedArray(sparseKeys);
     const k: uintptr = done ? from_constexpr<uintptr>(0)
-      : convert<uintptr>(unsafe_cast<Number>(sparseIndices[0]));
+      : convert<uintptr>(unsafe_cast<Number>(sparseKeys[0]));
 
-    return KeyIterator{done, k, array, 0, sparseIndices};
+    return KeyIterator{done, k, array, 0, sparseKeys};
   }
 
   macro KeyIteratorNext<ElementsAccessor: type>(
       len: uintptr, state: KeyIterator): KeyIterator {
     const k: uintptr = state.k + 1;
     const done: bool = k >= len;
-    return KeyIterator{done, k, state.elements, 0, state.sparseIndices};
+    return KeyIterator{done, k, state.elements, 0, state.sparseKeys};
   }
 
   KeyIteratorNext<SparseElementsAccessor>(
       len: uintptr, state: KeyIterator): KeyIterator {
-    const sparseK: uintptr = state.sparseK + 1;
-    assert(IsFixedArraySubclass(state.sparseIndices));
-    const sparseIndices: FixedArray =
-      unsafe_cast<FixedArray>(state.sparseIndices);
-    assert(sparseIndices.length_intptr >= 0);
-    const done: bool = sparseK >= Unsigned(sparseIndices.length_intptr);
+    const sparseKeysIndex: uintptr = state.sparseKeysIndex + 1;
+    assert(IsFixedArraySubclass(state.sparseKeys));
+    const sparseKeys: FixedArray =
+      unsafe_cast<FixedArray>(state.sparseKeys);
+    assert(sparseKeys.length_intptr >= 0);
+    const done: bool = sparseKeysIndex >= Unsigned(sparseKeys.length_intptr);
     const k: uintptr = done ? state.k
-      : convert<uintptr>(unsafe_cast<Number>(sparseIndices[sparseK]));
-    return KeyIterator{done, k, state.elements, sparseK, sparseIndices};
+      : convert<uintptr>(unsafe_cast<Number>(sparseKeys[sparseKeysIndex]));
+    return KeyIterator{done, k, state.elements, sparseKeysIndex, sparseKeys};
   }
 
   macro EstimateBufferSize<ElementsAccessor: type>(state: KeyIterator,
@@ -206,10 +206,10 @@ module array {
 
   EstimateBufferSize<SparseElementsAccessor>(state: KeyIterator,
                                              len: uintptr): uintptr {
-    assert(IsFixedArraySubclass(state.sparseIndices));
-    const sparseIndices: FixedArray =
-      unsafe_cast<FixedArray>(state.sparseIndices);
-    return (Unsigned(sparseIndices.length_intptr) << 1) + 1;
+    assert(IsFixedArraySubclass(state.sparseKeys));
+    const sparseKeys: FixedArray =
+      unsafe_cast<FixedArray>(state.sparseKeys);
+    return (Unsigned(sparseKeys.length_intptr) << 1) + 1;
   }
 
   // TODO(pwong): Add more documentation.
