@@ -167,8 +167,7 @@ class StatsCounter;
   V(wasm_word32_ror, "wasm::word32_ror")                                      \
   V(wasm_word64_ctz, "wasm::word64_ctz")                                      \
   V(wasm_word64_popcnt, "wasm::word64_popcnt")                                \
-  V(write_fixed_array_to_flat_seq,                                   \
-    "write_fixed_array_to_flat_seq")                                 \
+  V(write_fixed_array_to_flat_seq, "write_fixed_array_to_flat_seq")           \
   EXTERNAL_REFERENCE_LIST_INTL(V)
 
 #ifndef V8_INTERPRETED_REGEXP

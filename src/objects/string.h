@@ -379,8 +379,7 @@ class String : public Name {
 
   // Support for Array.prototype.join()
   static String* WriteFixedArrayToFlatSeq(FixedArray* fixed_array,
-                                          uintptr_t length,
-                                          String* separator,
+                                          intptr_t length, String* separator,
                                           String* dest);
 
   template <typename sinkchar>

@@ -644,6 +644,15 @@ TNode<Smi> CodeStubAssembler::SmiMin(TNode<Smi> a, TNode<Smi> b) {
   return SelectConstant<Smi>(SmiLessThan(a, b), a, b);
 }
 
+TNode<IntPtrT> CodeStubAssembler::TryIntPtrAdd(TNode<IntPtrT> a,
+                                               TNode<IntPtrT> b,
+                                               Label* if_overflow) {
+  TNode<PairT<IntPtrT, BoolT>> pair = IntPtrAddWithOverflow(a, b);
+  TNode<BoolT> overflow = Projection<1>(pair);
+  GotoIf(overflow, if_overflow);
+  return Projection<0>(pair);
+}
+
 TNode<Smi> CodeStubAssembler::TrySmiAdd(TNode<Smi> lhs, TNode<Smi> rhs,
                                         Label* if_overflow) {
   if (SmiValuesAre32Bits()) {

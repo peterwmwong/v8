@@ -168,11 +168,7 @@ for (var use_real_arrays = 0; use_real_arrays <= 1; use_real_arrays++) {
 
       // Join with '' as separator.
       var join = a.join('');
-      if (pos > 2000) {
-        assertEquals("conbaz", join);
-      } else {
-        assertEquals("con", join);
-      }
+      assertEquals("con", join);
       join = b.join('');
       assertEquals("cat", join);
       join = ab.join('');

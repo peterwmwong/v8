@@ -77,19 +77,18 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     return StoreFixedArrayElement(array, index, value);
   }
 
-  TNode<String> CallWriteFixedArrayToFlatSeq(
-      TNode<FixedArray> fixed_array, TNode<UintPtrT> length, TNode<String> sep,
-      TNode<String> dest) {
-    MachineType any_tagged = MachineType::AnyTagged();
-    MachineType uint_ptr = MachineType::UintPtr();
-    TNode<ExternalReference> func = ExternalConstant(
-        ExternalReference::write_fixed_array_to_flat_seq());
+  TNode<String> CallWriteFixedArrayToFlatSeq(TNode<FixedArray> fixed_array,
+                                             TNode<IntPtrT> length,
+                                             TNode<String> sep,
+                                             TNode<String> dest) {
+    TNode<ExternalReference> func =
+        ExternalConstant(ExternalReference::write_fixed_array_to_flat_seq());
     return UncheckedCast<String>(
-        CallCFunction4(any_tagged, /* Return String* */
-                       any_tagged, /* FixedArray* fixed_array */
-                       uint_ptr,   /* uintptr_t length */
-                       any_tagged, /* String* sep */
-                       any_tagged, /* String* dest */
+        CallCFunction4(MachineType::AnyTagged(),  // <return> String*
+                       MachineType::AnyTagged(),  // FixedArray* fixed_array
+                       MachineType::IntPtr(),     // intptr_t length
+                       MachineType::AnyTagged(),  // String* sep
+                       MachineType::AnyTagged(),  // String* dest
                        func, fixed_array, length, sep, dest));
   }
 

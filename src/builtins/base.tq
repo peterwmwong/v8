@@ -144,6 +144,7 @@ const kHasProperty: constexpr HasPropertyLookupMode generates 'kHasProperty';
 const kMaxSafeInteger: constexpr float64 generates 'kMaxSafeInteger';
 const kStringMaxLength: constexpr int31 generates 'String::kMaxLength';
 const kFixedArrayMaxLength: constexpr int31 generates 'FixedArray::kMaxLength';
+const kFixedArrayMaxRegularLength: constexpr intptr generates 'FixedArray::kMaxRegularLength';
 
 const kNotTypedArray: constexpr MessageTemplate generates
 'MessageTemplate::kNotTypedArray';
@@ -299,6 +300,8 @@ extern operator '<<' macro WordShl(intptr, intptr): intptr;
 extern operator '>>' macro WordShr(intptr, intptr): intptr;
 extern operator '&' macro WordAnd(intptr, intptr): intptr;
 extern operator '&' macro WordAnd(uintptr, uintptr): uintptr;
+extern operator '|' macro WordOr(intptr, intptr): intptr;
+extern operator '|' macro WordOr(uintptr, uintptr): uintptr;
 
 extern operator '+' macro Int32Add(int32, int32): int32;
 extern operator '-' macro Int32Sub(int32, int32): int32;
@@ -444,6 +447,9 @@ from_constexpr<Smi>(i: constexpr int31): Smi {
   return SmiConstant(i);
 }
 from_constexpr<Number>(i: constexpr int31): Number {
+  return SmiConstant(i);
+}
+from_constexpr<Object>(i: constexpr int31): Object {
   return SmiConstant(i);
 }
 from_constexpr<float64>(i: constexpr int31): float64 {
@@ -841,6 +847,7 @@ extern macro IsNumberArrayIndex(Number): bool;
 extern macro IsOneByteStringInstanceType(InstanceType): bool;
 extern macro AllocateSeqOneByteString(Context, Smi): String;
 extern macro AllocateSeqTwoByteString(Context, Smi): String;
+extern macro TryIntPtrAdd(intptr, intptr): intptr labels IfOverflow;
 
 extern builtin StringRepeat(Context, String, Smi): String;
 extern builtin StringAdd_CheckNone_NotTenured(Context, String, String): String;
