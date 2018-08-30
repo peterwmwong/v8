@@ -542,6 +542,9 @@ convert<float64>(h: HeapNumber): float64 {
   return LoadHeapNumberValue(h);
 }
 macro convert<A : type>(n: Number): A;
+convert<Object>(n: Number): Object {
+  return n;
+}
 convert<float64>(n: Number): float64 {
   return ChangeNumberToFloat64(n);
 }
