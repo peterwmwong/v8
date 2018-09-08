@@ -23,7 +23,7 @@ module array {
   labels IfHole {
     assert(IsFixedArraySubclass(elements));
     const fixedArray: FixedArray = unsafe_cast<FixedArray>(elements);
-    const element: Object = fixedArray[k];
+    const element: Object = fixedArray[Signed(k)];
 
     if (element == Hole) goto IfHole;
     return element;
@@ -36,7 +36,7 @@ module array {
     const fixedDoubleArray: FixedDoubleArray =
         unsafe_cast<FixedDoubleArray>(elements);
     const element: float64 =
-        LoadDoubleWithHoleCheck(fixedDoubleArray, k) otherwise IfHole;
+        LoadDoubleWithHoleCheck(fixedDoubleArray, Signed(k)) otherwise IfHole;
 
     return AllocateHeapNumberWithValue(element);
   }
@@ -76,12 +76,10 @@ module array {
                                                 element: Object): never
   labels IfString(String, bool), IfEmpty{
     typeswitch (element) {
-      case (smi: Smi) {
-        goto IfString(SmiToString(smi), false);
-      } case (str: String) {
+      case (str: String) {
         goto IfString(str, false);
-      } case (heapNum: HeapNumber) {
-        goto IfString(HeapNumberToString(heapNum), false);
+      } case (num: Number) {
+        goto IfString(NumberToString(num), false);
       } case (obj: HeapObject) {
         if (IsNullOrUndefined(obj)) {
           goto IfEmpty;
@@ -98,10 +96,8 @@ module array {
     // TODO(pwong): Further optimize by  creating a Float64ToString helper. This
     // would avoid allocating the heap number (see
     // LoadJoinElements<FastDoubleElements>).
-    goto IfString(HeapNumberToString(unsafe_cast<HeapNumber>(element)), false);
+    goto IfString(NumberToString(unsafe_cast<HeapNumber>(element)), false);
   }
-
-  // TODO(pwong): Consider simplify returning true/false, verify no perf impact.
 
   // Verifies the current element accessor can still be safely used
   // (see LoadJoinElements<ElementsAccessor>). As an optimization, this is only called when
@@ -232,18 +228,6 @@ module array {
       done, k, nofSeps, iter.elements, sparseKeysIndex, sparseKeys};
   }
 
-  macro EstimateBufferSize<ElementsAccessor: type>(iter: KeyIterator,
-                                                   len: uintptr): intptr {
-    return Signed(len - iter.k + 1);
-  }
-
-  EstimateBufferSize<SparseJoinElementsAccessor>(iter: KeyIterator,
-                                                 len: uintptr): intptr {
-    const sparseKeys: FixedArray = unsafe_cast<FixedArray>(iter.sparseKeys);
-    // Assumes worst case scenario, a seperator entry around each sparse entry.
-    return (sparseKeys.length_intptr << 1) + 1;
-  }
-
   // Calculates the running total length of the resulting string.  If the
   // calculated length exceeds the maximum string length (see
   // String::kMaxLength), throws a range error.
@@ -257,7 +241,6 @@ module array {
       ThrowRangeError(context, kInvalidStringLength);
     }
   }
-
 
   // Contains the information necessary to create a single, seperator delimited,
   // flatten one or two byte string.
@@ -291,11 +274,20 @@ module array {
     isOneByte: bool;
   }
 
-  macro BufferInit(len: intptr, sep: String): Buffer {
-    // TODO(pwong): Consider allocating the buffer with Smi (zeros). Simon
-    // created a badass helper (FillFixedArrayWithSmiZero) using a memset that's
-    // gotta be faster than a loop filling in holes...
-    const fixedArray: FixedArray = AllocateZeroedFixedArray(len);
+  macro EstimateBufferSize<ElementsAccessor: type>(iter: KeyIterator,
+                                                   len: uintptr): intptr {
+    return Signed(len - iter.k + 1);
+  }
+
+  EstimateBufferSize<SparseJoinElementsAccessor>(iter: KeyIterator,
+                                                 len: uintptr): intptr {
+    const sparseKeys: FixedArray = unsafe_cast<FixedArray>(iter.sparseKeys);
+    // Assumes worst case scenario, a seperator entry around each sparse entry.
+    return (sparseKeys.length_intptr << 1) + 1;
+  }
+
+  macro BufferInit(bufSize: intptr, sep: String): Buffer {
+    const fixedArray: FixedArray = AllocateZeroedFixedArray(bufSize);
     const isOneByte: bool = HasOnlyOneByteChars(sep.instanceType);
     return Buffer{fixedArray, 0, 0, isOneByte};
   }
@@ -393,6 +385,7 @@ module array {
         // d. Set R to the string-concatenation of R and next.
         buf = BufferAdd(context, buf, next);
 
+        // TODO(pwong): Try moving this up in the loop.
         // Only check whether to bailout if JS may have been called and there
         // are more entries to process.
         if (mayHaveCalledJS && (k + 1) < len) {
@@ -427,11 +420,11 @@ module array {
         HasComplexElements(context, array) == False) {
       const elements: NumberDictionary =
         unsafe_cast<NumberDictionary>(array.elements);
-      const estimated_nof: uintptr =
+      const estimatedNof: uintptr =
         convert<uintptr>(GetNumberDictionaryNumberOfElements(elements));
       const lenInt: uintptr = convert<uintptr>(len);
       // No more than 75% holes
-      return estimated_nof < (lenInt >>> 2);
+      return estimatedNof < (lenInt >>> 2);
     }
     return false;
   }
@@ -529,7 +522,6 @@ module array {
   macro JoinStackPush_Inline(context: Context, receiver: Object)
   labels CycleDetected {
     const stack: FixedArray = LoadJoinStack();
-    assert(stack.length_intptr >= kMinJoinStackSize);
 
     if (stack[0] == Hole) {
       stack[0] = receiver;
@@ -565,7 +557,6 @@ module array {
   macro JoinStackPop_Inline(context: Context, receiver: Object) {
     const stack: FixedArray = LoadJoinStack();
     const len: intptr = stack.length_intptr;
-    assert(len >= kMinJoinStackSize);
 
     // Builtin call was not nested (receiver is the first entry) and
     // did not contain other nested arrays that expanded the stack.
@@ -576,6 +567,7 @@ module array {
     }
   }
 
+  // Main entry point for all builtins using Array Join functionality.
   macro CycleProtectedArrayJoin<ToStringStrategy: type>(
       context: Context, receiver: JSReceiver, sepObj: Object, locales: Object,
       options: Object): Object {

@@ -724,7 +724,6 @@ extern operator '.length' macro LoadFixedArrayBaseLength(FixedArrayBase): Smi;
 extern operator
 '.length_intptr' macro LoadAndUntagFixedArrayBaseLength(FixedArrayBase): intptr;
 extern operator '[]' macro LoadFixedArrayElement(FixedArray, intptr): Object;
-extern operator '[]' macro LoadFixedArrayElement(FixedArray, uintptr): Object;
 extern operator '[]' macro LoadFixedArrayElement(FixedArray, Smi): Object;
 extern operator
 '[]' macro LoadFixedArrayElement(FixedArray, constexpr int31): Object;
@@ -822,7 +821,7 @@ extern operator
 
 extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, Smi): float64
 labels IfHole;
-extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, uintptr): float64
+extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, intptr): float64
 labels IfHole;
 extern macro StoreFixedDoubleArrayHoleSmi(FixedDoubleArray, Smi): void;
 
@@ -937,7 +936,7 @@ macro EnsureNotException(obj: Object): Object labels IfException(Object) {
   return obj;
 }
 
-extern macro HeapNumberToString(HeapNumber): String;
+extern macro NumberToString(Number): String;
 extern macro SmiToString(Smi): String;
 extern macro GotoIfException(Object): void labels IfException(Object);
 extern macro IsFixedArraySubclass(HeapObject): bool;

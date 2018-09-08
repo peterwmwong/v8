@@ -1033,10 +1033,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
                                       TNode<Smi> index) {
     return LoadFixedArrayElement(object, index, 0, SMI_PARAMETERS);
   }
-  TNode<Object> LoadFixedArrayElement(TNode<FixedArray> object,
-                                      TNode<UintPtrT> index) {
-    return LoadFixedArrayElement(object, Signed(index), 0, INTPTR_PARAMETERS);
-  }
 
   TNode<Object> LoadPropertyArrayElement(SloppyTNode<PropertyArray> object,
                                          SloppyTNode<IntPtrT> index);
@@ -1109,11 +1105,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
                                           TNode<IntPtrT> index,
                                           Label* if_hole = nullptr);
-  TNode<Float64T> LoadDoubleWithHoleCheck(TNode<FixedDoubleArray> array,
-                                          TNode<UintPtrT> index,
-                                          Label* if_hole = nullptr) {
-    return LoadDoubleWithHoleCheck(array, Signed(index), if_hole);
-  }
 
   // Load Float64 value by |base| + |offset| address. If the value is a double
   // hole then jump to |if_hole|. If |machine_type| is None then only the hole
@@ -1996,10 +1987,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
   TNode<Number> StringToNumber(TNode<String> input);
   // Convert a Number to a String.
   TNode<String> NumberToString(TNode<Number> input);
-  // Convert a HeapNumber to a String.
-  TNode<String> HeapNumberToString(TNode<HeapNumber> input);
-  // Convert a Smi to a String.
-  TNode<String> SmiToString(TNode<Smi> input);
   // Convert a Non-Number object to a Number.
   TNode<Number> NonNumberToNumber(
       SloppyTNode<Context> context, SloppyTNode<HeapObject> input,
