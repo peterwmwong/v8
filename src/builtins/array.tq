@@ -14,6 +14,18 @@ module array {
   type FastDoubleElements;
   type DictionaryElements;
 
+  type FixedUint8ElementsAccessor;
+  type FixedInt8ElementsAccessor;
+  type FixedUint16ElementsAccessor;
+  type FixedInt16ElementsAccessor;
+  type FixedUint32ElementsAccessor;
+  type FixedInt32ElementsAccessor;
+  type FixedFloat32ElementsAccessor;
+  type FixedFloat64ElementsAccessor;
+  type FixedUint8ClampedElementsAccessor;
+  type FixedBigUint64ElementsAccessor;
+  type FixedBigInt64ElementsAccessor;
+
   macro EnsureWriteableFastElements(array: JSArray) {
     assert(IsFastElementsKind(array.map.elements_kind));
 

@@ -1012,17 +1012,17 @@ static inline int AssembleUnaryOp(Instruction* instr, _R _r, _M _m, _I _i) {
     __ load_and_ext(output, output);                                     \
   } while (false)
 
-#define ASSEMBLE_ATOMIC_COMPARE_EXCHANGE_WORD()                          \
-  do {                                                                   \
-    Register new_val = i.InputRegister(1);                               \
-    Register output = i.OutputRegister();                                \
-    Register addr = kScratchReg;                                         \
-    size_t index = 2;                                                    \
-    AddressingMode mode = kMode_None;                                    \
-    MemOperand op = i.MemoryOperand(&mode, &index);                      \
-    __ lay(addr, op);                                                    \
-    __ CmpAndSwap(output, new_val, MemOperand(addr));                    \
-    __ LoadlW(output, output);                                           \
+#define ASSEMBLE_ATOMIC_COMPARE_EXCHANGE_WORD()       \
+  do {                                                \
+    Register new_val = i.InputRegister(1);            \
+    Register output = i.OutputRegister();             \
+    Register addr = kScratchReg;                      \
+    size_t index = 2;                                 \
+    AddressingMode mode = kMode_None;                 \
+    MemOperand op = i.MemoryOperand(&mode, &index);   \
+    __ lay(addr, op);                                 \
+    __ CmpAndSwap(output, new_val, MemOperand(addr)); \
+    __ LoadlW(output, output);                        \
   } while (false)
 
 #define ASSEMBLE_ATOMIC_BINOP_WORD(load_and_op)                           \
@@ -1037,15 +1037,15 @@ static inline int AssembleUnaryOp(Instruction* instr, _R _r, _M _m, _I _i) {
     __ LoadlW(result, result);                                            \
   } while (false)
 
-#define ASSEMBLE_ATOMIC_BINOP_WORD64(load_and_op)                         \
-  do {                                                                    \
-    Register value = i.InputRegister(2);                                  \
-    Register result = i.OutputRegister(0);                                \
-    Register addr = r1;                                                   \
-    AddressingMode mode = kMode_None;                                     \
-    MemOperand op = i.MemoryOperand(&mode);                               \
-    __ lay(addr, op);                                                     \
-    __ load_and_op(result, value, MemOperand(addr));                      \
+#define ASSEMBLE_ATOMIC_BINOP_WORD64(load_and_op)    \
+  do {                                               \
+    Register value = i.InputRegister(2);             \
+    Register result = i.OutputRegister(0);           \
+    Register addr = r1;                              \
+    AddressingMode mode = kMode_None;                \
+    MemOperand op = i.MemoryOperand(&mode);          \
+    __ lay(addr, op);                                \
+    __ load_and_op(result, value, MemOperand(addr)); \
   } while (false)
 
 #define ATOMIC_BIN_OP(bin_inst, offset, shift_amount, start, end)         \
@@ -1159,16 +1159,16 @@ static inline int AssembleUnaryOp(Instruction* instr, _R _r, _M _m, _I _i) {
     __ bind(&done);                                                       \
   } while (false)
 
-#define ASSEMBLE_ATOMIC64_COMP_EXCHANGE_WORD64()                 \
-  do {                                                           \
-    Register new_val = i.InputRegister(1);                       \
-    Register output = i.OutputRegister();                        \
-    Register addr = kScratchReg;                                 \
-    size_t index = 2;                                            \
-    AddressingMode mode = kMode_None;                            \
-    MemOperand op = i.MemoryOperand(&mode, &index);              \
-    __ lay(addr, op);                                            \
-    __ CmpAndSwap64(output, new_val, MemOperand(addr));          \
+#define ASSEMBLE_ATOMIC64_COMP_EXCHANGE_WORD64()        \
+  do {                                                  \
+    Register new_val = i.InputRegister(1);              \
+    Register output = i.OutputRegister();               \
+    Register addr = kScratchReg;                        \
+    size_t index = 2;                                   \
+    AddressingMode mode = kMode_None;                   \
+    MemOperand op = i.MemoryOperand(&mode, &index);     \
+    __ lay(addr, op);                                   \
+    __ CmpAndSwap64(output, new_val, MemOperand(addr)); \
   } while (false)
 
 void CodeGenerator::AssembleDeconstructFrame() {
@@ -2702,38 +2702,38 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kWord32AtomicCompareExchangeWord32:
       ASSEMBLE_ATOMIC_COMPARE_EXCHANGE_WORD();
       break;
-#define ATOMIC_BINOP_CASE(op, inst)                                     \
-  case kWord32Atomic##op##Int8:                                         \
-    ASSEMBLE_ATOMIC_BINOP_BYTE(inst, [&]() {                            \
-          intptr_t shift_right = static_cast<intptr_t>(shift_amount);   \
-          __ srlk(result, prev, Operand(shift_right));                  \
-          __ LoadB(result, result);                                     \
-        });                                                             \
-    break;                                                              \
-  case kS390_Word64Atomic##op##Uint8:                                   \
-  case kWord32Atomic##op##Uint8:                                        \
-    ASSEMBLE_ATOMIC_BINOP_BYTE(inst, [&]() {                            \
-          int rotate_left = shift_amount == 0 ? 0 : 64 - shift_amount;  \
-          __ RotateInsertSelectBits(result, prev, Operand(56),          \
-              Operand(63), Operand(static_cast<intptr_t>(rotate_left)), \
-              true);                                                    \
-        });                                                             \
-    break;                                                              \
-  case kWord32Atomic##op##Int16:                                        \
-    ASSEMBLE_ATOMIC_BINOP_HALFWORD(inst, [&]() {                        \
-          intptr_t shift_right = static_cast<intptr_t>(shift_amount);   \
-          __ srlk(result, prev, Operand(shift_right));                  \
-          __ LoadHalfWordP(result, result);                             \
-        });                                                             \
-    break;                                                              \
-  case kS390_Word64Atomic##op##Uint16:                                  \
-  case kWord32Atomic##op##Uint16:                                       \
-    ASSEMBLE_ATOMIC_BINOP_HALFWORD(inst, [&]() {                        \
-          int rotate_left = shift_amount == 0 ? 0 : 64 - shift_amount;  \
-          __ RotateInsertSelectBits(result, prev, Operand(48),          \
-              Operand(63), Operand(static_cast<intptr_t>(rotate_left)), \
-              true);                                                    \
-        });                                                             \
+#define ATOMIC_BINOP_CASE(op, inst)                                          \
+  case kWord32Atomic##op##Int8:                                              \
+    ASSEMBLE_ATOMIC_BINOP_BYTE(inst, [&]() {                                 \
+      intptr_t shift_right = static_cast<intptr_t>(shift_amount);            \
+      __ srlk(result, prev, Operand(shift_right));                           \
+      __ LoadB(result, result);                                              \
+    });                                                                      \
+    break;                                                                   \
+  case kS390_Word64Atomic##op##Uint8:                                        \
+  case kWord32Atomic##op##Uint8:                                             \
+    ASSEMBLE_ATOMIC_BINOP_BYTE(inst, [&]() {                                 \
+      int rotate_left = shift_amount == 0 ? 0 : 64 - shift_amount;           \
+      __ RotateInsertSelectBits(result, prev, Operand(56), Operand(63),      \
+                                Operand(static_cast<intptr_t>(rotate_left)), \
+                                true);                                       \
+    });                                                                      \
+    break;                                                                   \
+  case kWord32Atomic##op##Int16:                                             \
+    ASSEMBLE_ATOMIC_BINOP_HALFWORD(inst, [&]() {                             \
+      intptr_t shift_right = static_cast<intptr_t>(shift_amount);            \
+      __ srlk(result, prev, Operand(shift_right));                           \
+      __ LoadHalfWordP(result, result);                                      \
+    });                                                                      \
+    break;                                                                   \
+  case kS390_Word64Atomic##op##Uint16:                                       \
+  case kWord32Atomic##op##Uint16:                                            \
+    ASSEMBLE_ATOMIC_BINOP_HALFWORD(inst, [&]() {                             \
+      int rotate_left = shift_amount == 0 ? 0 : 64 - shift_amount;           \
+      __ RotateInsertSelectBits(result, prev, Operand(48), Operand(63),      \
+                                Operand(static_cast<intptr_t>(rotate_left)), \
+                                true);                                       \
+    });                                                                      \
     break;
       ATOMIC_BINOP_CASE(Add, Add32)
       ATOMIC_BINOP_CASE(Sub, Sub32)

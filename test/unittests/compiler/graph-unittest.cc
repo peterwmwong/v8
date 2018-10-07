@@ -28,9 +28,7 @@ GraphTest::GraphTest(int num_parameters)
   js_heap_broker()->SetNativeContextRef();
 }
 
-
 GraphTest::~GraphTest() = default;
-
 
 Node* GraphTest::Parameter(int32_t index) {
   return graph()->NewNode(common()->Parameter(index), graph()->start());

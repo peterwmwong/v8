@@ -132,6 +132,18 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     return CAST(result);
   }
 
+  TNode<JSTypedArray> ValidateTypedArray(TNode<Context> context,
+                                         TNode<Object> obj,
+                                         const char* method_name) {
+    // If it is not a typed array, throw
+    ThrowIfNotInstanceType(context, obj, JS_TYPED_ARRAY_TYPE, method_name);
+
+    // If the typed array's buffer is detached, throw
+    ThrowIfArrayBufferViewBufferIsDetached(context, CAST(obj), method_name);
+
+    return CAST(obj);
+  }
+
  protected:
   TNode<Context> context() { return context_; }
   TNode<Object> receiver() { return receiver_; }

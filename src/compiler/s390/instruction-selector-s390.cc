@@ -713,9 +713,9 @@ void InstructionSelector::VisitProtectedLoad(Node* node) {
   UNIMPLEMENTED();
 }
 
-static void VisitGeneralStore(InstructionSelector* selector, Node* node,
-                MachineRepresentation rep,
-                WriteBarrierKind write_barrier_kind = kNoWriteBarrier) {
+static void VisitGeneralStore(
+    InstructionSelector* selector, Node* node, MachineRepresentation rep,
+    WriteBarrierKind write_barrier_kind = kNoWriteBarrier) {
   S390OperandGenerator g(selector);
   Node* base = node->InputAt(0);
   Node* offset = node->InputAt(1);
@@ -2333,7 +2333,7 @@ void InstructionSelector::VisitWord64AtomicCompareExchange(Node* node) {
     opcode = kS390_Word64AtomicCompareExchangeUint16;
   } else if (type == MachineType::Uint32()) {
     opcode = kS390_Word64AtomicCompareExchangeUint32;
-  } else  if (type == MachineType::Uint64()) {
+  } else if (type == MachineType::Uint64()) {
     opcode = kS390_Word64AtomicCompareExchangeUint64;
   } else {
     UNREACHABLE();
@@ -2721,7 +2721,6 @@ void InstructionSelector::VisitI8x16SConvertI16x8(Node* node) {
 void InstructionSelector::VisitI8x16UConvertI16x8(Node* node) {
   UNIMPLEMENTED();
 }
-
 
 void InstructionSelector::VisitS1x4AnyTrue(Node* node) { UNIMPLEMENTED(); }
 

@@ -19,7 +19,6 @@ SelectLowering::SelectLowering(Graph* graph, CommonOperatorBuilder* common)
 
 SelectLowering::~SelectLowering() = default;
 
-
 Reduction SelectLowering::Reduce(Node* node) {
   if (node->opcode() != IrOpcode::kSelect) return NoChange();
   SelectParameters const p = SelectParametersOf(node->op());

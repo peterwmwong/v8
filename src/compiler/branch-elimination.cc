@@ -23,7 +23,6 @@ BranchElimination::BranchElimination(Editor* editor, JSGraph* js_graph,
 
 BranchElimination::~BranchElimination() = default;
 
-
 Reduction BranchElimination::Reduce(Node* node) {
   switch (node->opcode()) {
     case IrOpcode::kDead:

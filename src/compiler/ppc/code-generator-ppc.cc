@@ -688,18 +688,18 @@ void EmitWordLoadPoisoningIfNeeded(CodeGenerator* codegen, Instruction* instr,
     __ bne(&binop, cr0);                                                       \
   } while (false)
 
-#define ASSEMBLE_ATOMIC_COMPARE_EXCHANGE(cmp_inst, load_inst, store_inst)      \
-  do {                                                                         \
-    MemOperand operand = MemOperand(i.InputRegister(0), i.InputRegister(1));   \
-    Label loop;                                                                \
-    Label exit;                                                                \
-    __ bind(&loop);                                                            \
-    __ load_inst(i.OutputRegister(), operand);                                 \
-    __ cmp_inst(i.OutputRegister(), i.InputRegister(2), cr0);                  \
-    __ bne(&exit, cr0);                                                        \
-    __ store_inst(i.InputRegister(3), operand);                                \
-    __ bne(&loop, cr0);                                                        \
-    __ bind(&exit);                                                            \
+#define ASSEMBLE_ATOMIC_COMPARE_EXCHANGE(cmp_inst, load_inst, store_inst)    \
+  do {                                                                       \
+    MemOperand operand = MemOperand(i.InputRegister(0), i.InputRegister(1)); \
+    Label loop;                                                              \
+    Label exit;                                                              \
+    __ bind(&loop);                                                          \
+    __ load_inst(i.OutputRegister(), operand);                               \
+    __ cmp_inst(i.OutputRegister(), i.InputRegister(2), cr0);                \
+    __ bne(&exit, cr0);                                                      \
+    __ store_inst(i.InputRegister(3), operand);                              \
+    __ bne(&loop, cr0);                                                      \
+    __ bind(&exit);                                                          \
   } while (false)
 
 #define ASSEMBLE_ATOMIC_COMPARE_EXCHANGE_SIGN_EXT(cmp_inst, load_inst,         \

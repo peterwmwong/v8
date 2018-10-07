@@ -367,9 +367,9 @@ class ModuleDecoderImpl : public Decoder {
         seen_unordered_sections_ |= 1 << kExceptionSectionCode;
         break;
       case kSourceMappingURLSectionCode:
-        // sourceMappingURL is a custom section and currently can occur anywhere
-        // in the module. In case of multiple sourceMappingURL sections, all
-        // except the first occurrence are ignored.
+      // sourceMappingURL is a custom section and currently can occur anywhere
+      // in the module. In case of multiple sourceMappingURL sections, all
+      // except the first occurrence are ignored.
       case kNameSectionCode:
         // TODO(titzer): report out of place name section as a warning.
         // Be lenient with placement of name section. All except first

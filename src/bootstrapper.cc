@@ -1659,6 +1659,7 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
         *info);
   }
 
+  Handle<JSFunction> array_prototype_to_string_fun;
   {  // --- A r r a y ---
     Handle<JSFunction> array_function = InstallFunction(
         isolate_, global, "Array", JS_ARRAY_TYPE, JSArray::kSize, 0,
@@ -1775,8 +1776,9 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           Builtins::kArrayReduceRight, 1, false);
     SimpleInstallFunction(isolate_, proto, "toLocaleString",
                           Builtins::kArrayPrototypeToLocaleString, 0, false);
-    SimpleInstallFunction(isolate_, proto, "toString",
-                          Builtins::kArrayPrototypeToString, 0, false);
+    array_prototype_to_string_fun =
+        SimpleInstallFunction(isolate_, proto, "toString",
+                              Builtins::kArrayPrototypeToString, 0, false);
   }
 
   {  // --- A r r a y I t e r a t o r ---
@@ -3221,6 +3223,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           Builtins::kTypedArrayPrototypeIncludes, 1, false);
     SimpleInstallFunction(isolate_, prototype, "indexOf",
                           Builtins::kTypedArrayPrototypeIndexOf, 1, false);
+    SimpleInstallFunction(isolate_, prototype, "join",
+                          Builtins::kTypedArrayPrototypeJoin, 1, false);
     SimpleInstallFunction(isolate_, prototype, "lastIndexOf",
                           Builtins::kTypedArrayPrototypeLastIndexOf, 1, false);
     SimpleInstallFunction(isolate_, prototype, "map",
@@ -3241,6 +3245,11 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           Builtins::kTypedArrayPrototypeSort, 1, false);
     SimpleInstallFunction(isolate_, prototype, "subarray",
                           Builtins::kTypedArrayPrototypeSubArray, 2, false);
+    SimpleInstallFunction(isolate_, prototype, "toLocaleString",
+                          Builtins::kTypedArrayPrototypeToLocaleString, 0,
+                          false);
+    InstallFunction(isolate_, prototype, array_prototype_to_string_fun,
+                    factory->toString_string());
   }
 
   {  // -- T y p e d A r r a y s

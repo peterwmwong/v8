@@ -1281,6 +1281,7 @@ class OneByteVectorResource : public v8::String::ExternalOneByteStringResource {
   ~OneByteVectorResource() override = default;
   size_t length() const override { return data_.length(); }
   const char* data() const override { return data_.start(); }
+
  private:
   i::Vector<const char> data_;
 };

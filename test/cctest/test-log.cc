@@ -266,6 +266,7 @@ class SimpleExternalString : public v8::String::ExternalStringResource {
   ~SimpleExternalString() override = default;
   size_t length() const override { return utf_source_.length(); }
   const uint16_t* data() const override { return utf_source_.start(); }
+
  private:
   i::ScopedVector<uint16_t> utf_source_;
 };

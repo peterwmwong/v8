@@ -19,9 +19,7 @@ namespace compiler {
 
 InstructionSelectorTest::InstructionSelectorTest() : rng_(FLAG_random_seed) {}
 
-
 InstructionSelectorTest::~InstructionSelectorTest() = default;
-
 
 InstructionSelectorTest::Stream InstructionSelectorTest::StreamBuilder::Build(
     InstructionSelector::Features features,

@@ -15,9 +15,7 @@ GraphTrimmer::GraphTrimmer(Zone* zone, Graph* graph)
   live_.reserve(graph->NodeCount());
 }
 
-
 GraphTrimmer::~GraphTrimmer() = default;
-
 
 void GraphTrimmer::TrimGraph() {
   // Mark end node as live.

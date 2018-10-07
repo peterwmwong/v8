@@ -56,7 +56,6 @@ class TypedArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
   TNode<Map> LoadMapForType(TNode<JSTypedArray> array);
   TNode<UintPtrT> CalculateExternalPointer(TNode<UintPtrT> backing_store,
                                            TNode<Number> byte_offset);
-  Node* LoadDataPtr(Node* typed_array);
   TNode<BoolT> ByteLengthIsValid(TNode<Number> byte_length);
 
   // Returns true if kind is either UINT8_ELEMENTS or UINT8_CLAMPED_ELEMENTS.

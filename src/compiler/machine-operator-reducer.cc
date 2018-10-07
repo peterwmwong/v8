@@ -24,7 +24,6 @@ MachineOperatorReducer::MachineOperatorReducer(MachineGraph* mcgraph,
 
 MachineOperatorReducer::~MachineOperatorReducer() = default;
 
-
 Node* MachineOperatorReducer::Float32Constant(volatile float value) {
   return graph()->NewNode(common()->Float32Constant(value));
 }

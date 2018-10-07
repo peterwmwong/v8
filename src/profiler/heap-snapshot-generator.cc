@@ -1819,6 +1819,7 @@ class BasicHeapEntriesAllocator : public HeapEntriesAllocator {
       entries_type_(entries_type) {
   }
   HeapEntry* AllocateEntry(HeapThing ptr) override;
+
  private:
   HeapSnapshot* snapshot_;
   StringsStorage* names_;

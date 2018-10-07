@@ -252,20 +252,20 @@ void Interpreter::InitializeDispatchTable() {
   Builtins* builtins = isolate_->builtins();
   Code* illegal = builtins->builtin(Builtins::kIllegalHandler);
   int builtin_id = Builtins::kFirstBytecodeHandler;
-  ForEachBytecode([=, &builtin_id](Bytecode bytecode,
-                                   OperandScale operand_scale) {
-    Code* handler = illegal;
-    if (Bytecodes::BytecodeHasHandler(bytecode, operand_scale)) {
+  ForEachBytecode(
+      [=, &builtin_id](Bytecode bytecode, OperandScale operand_scale) {
+        Code* handler = illegal;
+        if (Bytecodes::BytecodeHasHandler(bytecode, operand_scale)) {
 #ifdef DEBUG
-      std::string builtin_name(Builtins::name(builtin_id));
-      std::string expected_name =
-          Bytecodes::ToString(bytecode, operand_scale, "") + "Handler";
-      DCHECK_EQ(expected_name, builtin_name);
+          std::string builtin_name(Builtins::name(builtin_id));
+          std::string expected_name =
+              Bytecodes::ToString(bytecode, operand_scale, "") + "Handler";
+          DCHECK_EQ(expected_name, builtin_name);
 #endif
-      handler = builtins->builtin(builtin_id++);
-    }
-    SetBytecodeHandler(bytecode, operand_scale, handler);
-  });
+          handler = builtins->builtin(builtin_id++);
+        }
+        SetBytecodeHandler(bytecode, operand_scale, handler);
+      });
   DCHECK(builtin_id == Builtins::builtin_count);
   DCHECK(IsDispatchTableInitialized());
 

@@ -659,19 +659,19 @@ bool Deserializer<AllocatorT>::ReadData(MaybeObject** current,
         break;
       }
 
-      // First kNumberOfRootArrayConstants roots are guaranteed to be in
-      // the old space.
-      STATIC_ASSERT(
-          static_cast<int>(RootIndex::kFirstImmortalImmovableRoot) == 0);
-      STATIC_ASSERT(kNumberOfRootArrayConstants <=
-                    static_cast<int>(RootIndex::kLastImmortalImmovableRoot));
-      STATIC_ASSERT(kNumberOfRootArrayConstants == 32);
-      SIXTEEN_CASES(kRootArrayConstantsWithSkip)
-      SIXTEEN_CASES(kRootArrayConstantsWithSkip + 16) {
-        int skip = source_.GetInt();
-        current = reinterpret_cast<MaybeObject**>(
-            reinterpret_cast<intptr_t>(current) + skip);
-        V8_FALLTHROUGH;
+        // First kNumberOfRootArrayConstants roots are guaranteed to be in
+        // the old space.
+        STATIC_ASSERT(
+            static_cast<int>(RootIndex::kFirstImmortalImmovableRoot) == 0);
+        STATIC_ASSERT(kNumberOfRootArrayConstants <=
+                      static_cast<int>(RootIndex::kLastImmortalImmovableRoot));
+        STATIC_ASSERT(kNumberOfRootArrayConstants == 32);
+        SIXTEEN_CASES(kRootArrayConstantsWithSkip)
+        SIXTEEN_CASES(kRootArrayConstantsWithSkip + 16) {
+          int skip = source_.GetInt();
+          current = reinterpret_cast<MaybeObject**>(
+              reinterpret_cast<intptr_t>(current) + skip);
+          V8_FALLTHROUGH;
       }
 
       SIXTEEN_CASES(kRootArrayConstants)

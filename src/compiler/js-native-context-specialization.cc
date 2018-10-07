@@ -206,7 +206,7 @@ bool IsStringConstant(JSHeapBroker* broker, Node* node) {
   HeapObjectMatcher matcher(node);
   return matcher.HasValue() && matcher.Ref(broker).IsString();
 }
-}
+}  // namespace
 
 Reduction JSNativeContextSpecialization::ReduceJSAsyncFunctionEnter(
     Node* node) {

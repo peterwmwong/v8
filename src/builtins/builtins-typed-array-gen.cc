@@ -539,13 +539,6 @@ void TypedArrayBuiltinsAssembler::ConstructByTypedArray(
   BIND(&done);
 }
 
-Node* TypedArrayBuiltinsAssembler::LoadDataPtr(Node* typed_array) {
-  CSA_ASSERT(this, IsJSTypedArray(typed_array));
-  Node* elements = LoadElements(typed_array);
-  CSA_ASSERT(this, IsFixedTypedArray(elements));
-  return LoadFixedTypedArrayBackingStore(CAST(elements));
-}
-
 TNode<BoolT> TypedArrayBuiltinsAssembler::ByteLengthIsValid(
     TNode<Number> byte_length) {
   Label smi(this), done(this);

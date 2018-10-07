@@ -35,7 +35,6 @@ JSGenericLowering::JSGenericLowering(JSGraph* jsgraph) : jsgraph_(jsgraph) {}
 
 JSGenericLowering::~JSGenericLowering() = default;
 
-
 Reduction JSGenericLowering::Reduce(Node* node) {
   switch (node->opcode()) {
 #define DECLARE_CASE(x)  \
@@ -97,14 +96,12 @@ REPLACE_STUB_CALL(RejectPromise)
 REPLACE_STUB_CALL(ResolvePromise)
 #undef REPLACE_STUB_CALL
 
-void JSGenericLowering::ReplaceWithStubCall(Node* node,
-                                            Callable callable,
+void JSGenericLowering::ReplaceWithStubCall(Node* node, Callable callable,
                                             CallDescriptor::Flags flags) {
   ReplaceWithStubCall(node, callable, flags, node->op()->properties());
 }
 
-void JSGenericLowering::ReplaceWithStubCall(Node* node,
-                                            Callable callable,
+void JSGenericLowering::ReplaceWithStubCall(Node* node, Callable callable,
                                             CallDescriptor::Flags flags,
                                             Operator::Properties properties) {
   const CallInterfaceDescriptor& descriptor = callable.descriptor();

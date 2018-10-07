@@ -23,7 +23,6 @@ ValueNumberingReducer::ValueNumberingReducer(Zone* temp_zone, Zone* graph_zone)
 
 ValueNumberingReducer::~ValueNumberingReducer() = default;
 
-
 Reduction ValueNumberingReducer::Reduce(Node* node) {
   if (!node->op()->HasProperty(Operator::kIdempotent)) return NoChange();
 

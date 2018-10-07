@@ -2247,8 +2247,8 @@ void Heap::VisitExternalResources(v8::ExternalResourceVisitor* visitor) {
     explicit ExternalStringTableVisitorAdapter(
         Isolate* isolate, v8::ExternalResourceVisitor* visitor)
         : isolate_(isolate), visitor_(visitor) {}
-    void VisitRootPointers(Root root, const char* description,
-                                   Object** start, Object** end) override {
+    void VisitRootPointers(Root root, const char* description, Object** start,
+                           Object** end) override {
       for (Object** p = start; p < end; p++) {
         DCHECK((*p)->IsExternalString());
         visitor_->VisitExternalString(
@@ -2459,8 +2459,8 @@ class LeftTrimmerVerifierRootVisitor : public RootVisitor {
   explicit LeftTrimmerVerifierRootVisitor(FixedArrayBase* to_check)
       : to_check_(to_check) {}
 
-  void VisitRootPointers(Root root, const char* description,
-                                 Object** start, Object** end) override {
+  void VisitRootPointers(Root root, const char* description, Object** start,
+                         Object** end) override {
     for (Object** p = start; p < end; ++p) {
       DCHECK_NE(*p, to_check_);
     }

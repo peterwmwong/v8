@@ -40,7 +40,6 @@ SimplifiedOperatorReducer::SimplifiedOperatorReducer(
 
 SimplifiedOperatorReducer::~SimplifiedOperatorReducer() = default;
 
-
 Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
   DisallowHeapAccess no_heap_access;
   switch (node->opcode()) {

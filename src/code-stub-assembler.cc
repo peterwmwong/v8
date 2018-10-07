@@ -2706,6 +2706,13 @@ TNode<BytecodeArray> CodeStubAssembler::LoadSharedFunctionInfoBytecodeArray(
   return CAST(var_result.value());
 }
 
+Node* CodeStubAssembler::LoadDataPtr(Node* typed_array) {
+  CSA_ASSERT(this, IsJSTypedArray(typed_array));
+  Node* elements = LoadElements(typed_array);
+  CSA_ASSERT(this, IsFixedTypedArray(elements));
+  return LoadFixedTypedArrayBackingStore(CAST(elements));
+}
+
 void CodeStubAssembler::StoreObjectByteNoWriteBarrier(TNode<HeapObject> object,
                                                       int offset,
                                                       TNode<Word32T> value) {

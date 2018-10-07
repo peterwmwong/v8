@@ -384,6 +384,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
     return CAST(p_o);
   }
 
+  TNode<JSTypedArray> UnsafeCastObjectToJSTypedArray(TNode<Object> p_o) {
+    return CAST(p_o);
+  }
+
   TNode<FixedTypedArrayBase> UnsafeCastObjectToFixedTypedArrayBase(
       TNode<Object> p_o) {
     return CAST(p_o);
@@ -1190,6 +1194,7 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
 
   TNode<BytecodeArray> LoadSharedFunctionInfoBytecodeArray(
       SloppyTNode<SharedFunctionInfo> shared);
+  Node* LoadDataPtr(Node* typed_array);
 
   void StoreObjectByteNoWriteBarrier(TNode<HeapObject> object, int offset,
                                      TNode<Word32T> value);
