@@ -219,7 +219,23 @@ module array {
     let loadJoinElements: LoadJoinElementFn = initialLoadJoinElement;
 
     // 5. Let R be the empty String.
-    let buffer: Buffer = BufferInit(nofElements, sep);
+    // TODO(tebbi): This used to work before Torque IR, but now emits the
+    // following error...
+    //
+    //    array-join.tq:228:5: Torque error: type FixedArray is not a
+    //                         subtype of intptr
+    //
+    // let buffer: Buffer = BufferInit(nofElements, sep);
+    let buffer: Buffer;
+    {
+      const bufferSize: intptr = Signed(nofElements + 1);
+      const cappedBufferSize: intptr = bufferSize > kFixedArrayMaxLength ?
+          FromConstexpr<intptr>(kFixedArrayMaxLength) :
+          bufferSize;
+      const fixedArray: FixedArray = AllocateZeroedFixedArray(cappedBufferSize);
+      const isOneByte: bool = HasOnlyOneByteChars(sep.instanceType);
+      buffer = Buffer{fixedArray, 0, 0, isOneByte};
+    }
 
     // 6. Let k be 0.
     let k: uintptr = 0;
@@ -239,7 +255,26 @@ module array {
               loadJoinElements = LoadJoinElement<GenericElementsAccessor>;
 
               const temp: String = BufferJoin(context, buffer, sep);
-              buffer = BufferInit((len - k), sep);
+
+              // TODO(tebbi): This used to work before Torque IR, but now emits
+              // the following error...
+              //
+              //    array-join.tq:265:5: Torque error: type FixedArray is not a
+              //                         subtype of intptr
+              //
+              // buffer = BufferInit((len - k), sep);
+              {
+                const bufferSize: intptr = Signed((len - k) + 1);
+                const cappedBufferSize: intptr =
+                    bufferSize > kFixedArrayMaxLength ?
+                    FromConstexpr<intptr>(kFixedArrayMaxLength) :
+                    bufferSize;
+                const fixedArray: FixedArray =
+                    AllocateZeroedFixedArray(cappedBufferSize);
+                const isOneByte: bool = HasOnlyOneByteChars(sep.instanceType);
+                buffer = Buffer{fixedArray, 0, 0, isOneByte};
+              }
+
               buffer = BufferAdd(context, buffer, temp, 0, separatorLength);
             }
         }
