@@ -909,6 +909,7 @@ macro AllowNonNumberElements(kind: ElementsKind): ElementsKind {
 extern macro AllocateZeroedFixedArray(intptr): FixedArray;
 extern macro AllocateZeroedFixedDoubleArray(intptr): FixedDoubleArray;
 extern macro CalculateNewElementsCapacity(Smi): Smi;
+extern macro CalculateNewElementsCapacity(intptr): intptr;
 
 extern macro AllocateFixedArray(
     constexpr ElementsKind, intptr, constexpr AllocationFlags): FixedArray;
@@ -1105,8 +1106,10 @@ macro GetLengthProperty(implicit context: Context)(o: Object): Number {
 
 extern macro NumberToString(Number): String;
 extern macro HasOnlyOneByteChars(InstanceType): bool;
-extern macro AllocateSeqOneByteString(Context, uint32): String;
-extern macro AllocateSeqTwoByteString(Context, uint32): String;
+extern macro AllocateSeqOneByteString(implicit context: Context)(uint32):
+    String;
+extern macro AllocateSeqTwoByteString(implicit context: Context)(uint32):
+    String;
 extern macro TryIntPtrAdd(intptr, intptr): intptr
     labels IfOverflow;
 

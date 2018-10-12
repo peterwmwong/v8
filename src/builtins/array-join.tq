@@ -8,14 +8,15 @@ module array {
   extern macro CallStringWriteFixedArrayToFlatSeq(
       FixedArray, intptr, String, String): String;
 
-  extern macro CallLoadJoinElement(Context, Code, JSReceiver, Number): Object
+  extern macro CallLoadJoinElement(implicit context: Context)(
+      Code, JSReceiver, Number): Object
       labels IfException(Object);
 
-  extern macro CallConvertToLocaleString(Context, Object, Object, Object):
-      String
+  extern macro CallConvertToLocaleString(implicit context: Context)(
+      Object, Object, Object): String
       labels IfException(Object);
 
-  extern macro CallToString(Context, Object): String
+  extern macro CallToString(implicit context: Context)(Object): String
       labels IfException(Object);
 
   type LoadJoinElementFn = builtin(Context, JSReceiver, Number) => Object;
@@ -86,9 +87,8 @@ module array {
 
   // Verifies the current element JSArray accessor can still be safely used
   // (see LoadJoinElement<ElementsAccessor>).
-  macro CannotUseSameArrayAccessor(
-      context: Context, originalMap: Object, originalLen: Object,
-      receiver: JSReceiver): never
+  macro CannotUseSameArrayAccessor(implicit context: Context)(
+      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
       labels Cannot, Can {
     const array: JSArray = UnsafeCast<JSArray>(receiver);
     if (originalMap != array.map) goto Cannot;
@@ -100,7 +100,8 @@ module array {
   // Calculates the running total length of the resulting string.  If the
   // calculated length exceeds the maximum string length (see
   // String::kMaxLength), throws a range error.
-  macro AddStringLength(context: Context, lenA: intptr, lenB: intptr): intptr {
+  macro AddStringLength(implicit context: Context)(
+      lenA: intptr, lenB: intptr): intptr {
     try {
       const length: intptr = TryIntPtrAdd(lenA, lenB) otherwise IfOverflow;
       if (length > kStringMaxLength) goto IfOverflow;
@@ -154,17 +155,17 @@ module array {
     return Buffer{fixedArray, 0, 0, isOneByte};
   }
 
-  macro BufferAdd(
-      context: Context, initialBuffer: Buffer, str: String,
-      nofSeparators: uintptr, separatorLength: intptr): Buffer {
+  macro BufferAdd(implicit context: Context)(
+      initialBuffer: Buffer, str: String, nofSeparators: uintptr,
+      separatorLength: intptr): Buffer {
     let buffer: Buffer = initialBuffer;
     // Add separators if necessary (at the beginning or more than one)
     const writeSeparators: bool = buffer.index == 0 | nofSeparators > 1;
     buffer = BufferAddSeparators(
-        context, buffer, nofSeparators, separatorLength, writeSeparators);
+        buffer, nofSeparators, separatorLength, writeSeparators);
 
     const totalStringLength: intptr =
-        AddStringLength(context, buffer.totalStringLength, str.length);
+        AddStringLength(buffer.totalStringLength, str.length);
     let index: intptr = buffer.index;
     assert(index < buffer.fixedArray.length_intptr);
     buffer.fixedArray[index++] = str;
@@ -173,9 +174,9 @@ module array {
     return Buffer{buffer.fixedArray, index, totalStringLength, isOneByte};
   }
 
-  macro BufferAddSeparators(
-      context: Context, buffer: Buffer, nofSeparators: uintptr,
-      separatorLength: intptr, write: bool): Buffer {
+  macro BufferAddSeparators(implicit context: Context)(
+      buffer: Buffer, nofSeparators: uintptr, separatorLength: intptr,
+      write: bool): Buffer {
     if (nofSeparators == 0 || separatorLength == 0) return buffer;
 
     const nofSeparatorsInt: intptr = Signed(nofSeparators);
@@ -186,7 +187,7 @@ module array {
       }
 
     const totalStringLength: intptr =
-        AddStringLength(context, buffer.totalStringLength, sepsLen);
+        AddStringLength(buffer.totalStringLength, sepsLen);
     let index: intptr = buffer.index;
     if (write) deferred {
         assert(index < buffer.fixedArray.length_intptr);
@@ -202,14 +203,14 @@ module array {
     };
   }
 
-  macro BufferJoin(context: Context, buffer: Buffer, sep: String): String {
+  macro BufferJoin(implicit context: Context)(
+      buffer: Buffer, sep: String): String {
     assert(IsValidPositiveSmi(buffer.totalStringLength));
     if (buffer.totalStringLength == 0) return kEmptyString;
 
     const length: uint32 = Convert<uint32>(Unsigned(buffer.totalStringLength));
-    const r: String = buffer.isOneByte ?
-        AllocateSeqOneByteString(context, length) :
-        AllocateSeqTwoByteString(context, length);
+    const r: String = buffer.isOneByte ? AllocateSeqOneByteString(length) :
+                                         AllocateSeqTwoByteString(length);
     return CallStringWriteFixedArrayToFlatSeq(
         buffer.fixedArray, buffer.index, sep, r);
   }
@@ -258,13 +259,12 @@ module array {
           nofSeparators = nofSeparators + 1;
 
           if (checkJSArrayAccessor &&
-              CannotUseSameArrayAccessor(
-                  context, initialMap, lengthNumber, receiver))
+              CannotUseSameArrayAccessor(initialMap, lengthNumber, receiver))
             deferred {
               checkJSArrayAccessor = false;
               loadJoinElements = LoadJoinElement<GenericElementsAccessor>;
 
-              const temp: String = BufferJoin(context, buffer, sep);
+              const temp: String = BufferJoin(buffer, sep);
 
               // TODO(tebbi): This used to work before Torque IR, but now emits
               // the following error...
@@ -285,20 +285,20 @@ module array {
                 buffer = Buffer{fixedArray, 0, 0, isOneByte};
               }
 
-              buffer = BufferAdd(context, buffer, temp, 0, separatorLength);
+              buffer = BufferAdd(buffer, temp, 0, separatorLength);
             }
         }
 
         // b. Let element be ? Get(O, ! ToString(k)).
         const element: Object = CallLoadJoinElement(
-            context, loadJoinElements, receiver, Convert<Number>(k++))
+            loadJoinElements, receiver, Convert<Number>(k++))
             otherwise IfException;
 
         // c. If element is undefined or null, let next be the empty String;
         //    otherwise, let next be ? ToString(element).
         let next: String;
         if constexpr (useToLocaleString) {
-          next = CallConvertToLocaleString(context, element, locales, options)
+          next = CallConvertToLocaleString(element, locales, options)
               otherwise IfException;
           if (next == kEmptyString) continue;
         } else {
@@ -312,14 +312,13 @@ module array {
             }
             case (obj: HeapObject): {
               if (IsNullOrUndefined(obj)) continue;
-              next = CallToString(context, obj) otherwise IfException;
+              next = CallToString(obj) otherwise IfException;
             }
           }
         }
 
         // d. Set R to the string-concatenation of R and next.
-        buffer =
-            BufferAdd(context, buffer, next, nofSeparators, separatorLength);
+        buffer = BufferAdd(buffer, next, nofSeparators, separatorLength);
         nofSeparators = 0;
       }
     } else {
@@ -328,16 +327,15 @@ module array {
     }
 
     // Add any separators at the end.
-    buffer = BufferAddSeparators(
-        context, buffer, nofSeparators, separatorLength, true);
+    buffer = BufferAddSeparators(buffer, nofSeparators, separatorLength, true);
 
     // 8. Return R.
-    return BufferJoin(context, buffer, sep);
+    return BufferJoin(buffer, sep);
   }
 
-  macro ArrayJoin(
-      useToLocaleString: constexpr bool, context: Context, receiver: JSReceiver,
-      sep: String, lenNumber: Number, locales: Object, options: Object): Object
+  macro ArrayJoin(implicit context: Context)(
+      useToLocaleString: constexpr bool, receiver: JSReceiver, sep: String,
+      lenNumber: Number, locales: Object, options: Object): Object
       labels IfException(Object) {
     const map: Map = receiver.map;
     const kind: ElementsKind = map.elements_kind;
@@ -387,7 +385,7 @@ module array {
   // JoinStackPop when visiting and leaving a receiver, respectively.
   const kMinJoinStackSize:
       constexpr int31 generates 'JSArray::kMinJoinStackSize';
-  macro LoadJoinStack(context: Context): FixedArray
+  macro LoadJoinStack(implicit context: Context)(): FixedArray
       labels IfUninitialized {
     const nativeContext: NativeContext = LoadNativeContext(context);
     const stack: HeapObject =
@@ -396,7 +394,8 @@ module array {
     assert(IsFixedArray(stack));
     return UnsafeCast<FixedArray>(stack);
   }
-  macro SetJoinStack(context: Context, stack: FixedArray): void {
+
+  macro SetJoinStack(implicit context: Context)(stack: FixedArray): void {
     const nativeContext: NativeContext = LoadNativeContext(context);
     nativeContext[ARRAY_JOIN_STACK_INDEX] = stack;
   }
@@ -404,8 +403,8 @@ module array {
   // Adds a receiver to the stack. The FixedArray will automatically grow to
   // accommodate the receiver. If the receiver already exists on the stack,
   // this indicates a cyclical call and False is returned.
-  builtin JoinStackPush(
-      context: Context, stack: FixedArray, receiver: Object): Boolean {
+  builtin JoinStackPush(implicit context: Context)(
+      stack: FixedArray, receiver: Object): Boolean {
     const capacity: intptr = stack.length_intptr;
     for (let i: intptr = 0; i < capacity; i++) {
       const previouslyVisited: Object = stack[i];
@@ -421,25 +420,23 @@ module array {
     }
 
     // If no open slots were found, grow the stack and add receiver to the end.
-    // Growth rate is analog to JSObject::NewElementsCapacity.
-    // TODO(pwong): Use CalculateNewElementsCapacity (see mstanton's slice CL)
-    const newCapacity: intptr = (capacity + (capacity >> 1)) + 16;
+    const newCapacity: intptr = CalculateNewElementsCapacity(capacity);
     const newStack: FixedArray =
         ExtractFixedArray(stack, 0, capacity, newCapacity, kFixedArrays);
     newStack[capacity] = receiver;
-    SetJoinStack(context, newStack);
+    SetJoinStack(newStack);
     return True;
   }
 
   // Fast path the common non-nested calls.
-  macro JoinStackPushInline(context: Context, receiver: Object)
+  macro JoinStackPushInline(implicit context: Context)(receiver: Object)
   labels CycleDetected {
     try {
-      const stack: FixedArray = LoadJoinStack(context)
+      const stack: FixedArray = LoadJoinStack()
           otherwise IfUninitialized;
       if (stack[0] == Hole) {
         stack[0] = receiver;
-      } else if (JoinStackPush(context, stack, receiver) == False)
+      } else if (JoinStackPush(stack, receiver) == False)
         deferred {
           goto CycleDetected;
         }
@@ -448,14 +445,14 @@ module array {
       const stack: FixedArray = AllocateFixedArrayWithHoles(
           PACKED_ELEMENTS, kMinJoinStackSize, kNone);
       stack[0] = receiver;
-      SetJoinStack(context, stack);
+      SetJoinStack(stack);
     }
   }
 
   // Removes a receiver from the stack. The FixedArray will automatically shrink
   // to Heap::kMinJoinStackSize once the stack becomes empty.
-  builtin JoinStackPop(
-      context: Context, stack: FixedArray, receiver: Object): Object {
+  builtin JoinStackPop(implicit context: Context)(
+      stack: FixedArray, receiver: Object): Object {
     const len: intptr = stack.length_intptr;
     for (let i: intptr = 0; i < len; i++) {
       if (stack[i] == receiver) {
@@ -464,7 +461,7 @@ module array {
         if (i == 0 && len > kMinJoinStackSize) deferred {
             const newStack: FixedArray = AllocateFixedArrayWithHoles(
                 PACKED_ELEMENTS, kMinJoinStackSize, kNone);
-            SetJoinStack(context, newStack);
+            SetJoinStack(newStack);
           }
         else {
           stack[i] = Hole;
@@ -476,9 +473,9 @@ module array {
   }
 
   // Fast path the common non-nested calls.
-  macro JoinStackPopInline(context: Context, receiver: Object) {
+  macro JoinStackPopInline(implicit context: Context)(receiver: Object) {
     try {
-      const stack: FixedArray = LoadJoinStack(context)
+      const stack: FixedArray = LoadJoinStack()
           otherwise IfUninitialized;
       const len: intptr = stack.length_intptr;
 
@@ -488,7 +485,7 @@ module array {
         StoreFixedArrayElement(stack, 0, Hole, SKIP_WRITE_BARRIER);
       } else
         deferred {
-          JoinStackPop(context, stack, receiver);
+          JoinStackPop(stack, receiver);
         }
     }
     label IfUninitialized {
@@ -497,9 +494,9 @@ module array {
   }
 
   // Main entry point for all builtins using Array Join functionality.
-  macro CycleProtectedArrayJoin(
-      useToLocaleString: constexpr bool, context: Context, receiver: Object,
-      sepObj: Object, locales: Object, options: Object): Object {
+  macro CycleProtectedArrayJoin(implicit context: Context)(
+      useToLocaleString: constexpr bool, receiver: Object, sepObj: Object,
+      locales: Object, options: Object): Object {
     // 1. Let O be ? ToObject(this value).
     const o: JSReceiver = ToObject_Inline(context, receiver);
 
@@ -513,20 +510,20 @@ module array {
       // Fast paths for zero elements
       if (len == 0) goto IfReturnEmpty;
 
-      JoinStackPushInline(context, o) otherwise IfReturnEmpty;
+      JoinStackPushInline(o) otherwise IfReturnEmpty;
 
       const result: Object =
-          ArrayJoin(useToLocaleString, context, o, sep, len, locales, options)
+          ArrayJoin(useToLocaleString, o, sep, len, locales, options)
           otherwise IfException;
 
-      JoinStackPopInline(context, o);
+      JoinStackPopInline(o);
       return result;
     }
     label IfReturnEmpty {
       return kEmptyString;
     }
     label IfException(e: Object) deferred {
-      JoinStackPopInline(context, o);
+      JoinStackPopInline(o);
       ReThrowError(context, e);
     }
   }
@@ -535,7 +532,7 @@ module array {
   javascript builtin ArrayPrototypeJoin(
       context: Context, receiver: Object, ...arguments): Object {
     return CycleProtectedArrayJoin(
-        false, context, receiver, arguments[0], Undefined, Undefined);
+        false, receiver, arguments[0], Undefined, Undefined);
   }
 
   // https://tc39.github.io/ecma262/#sec-array.prototype.toLocaleString
@@ -543,8 +540,7 @@ module array {
       context: Context, receiver: Object, ...arguments): Object {
     const locales: Object = arguments[0];
     const options: Object = arguments[1];
-    return CycleProtectedArrayJoin(
-        true, context, receiver, ',', locales, options);
+    return CycleProtectedArrayJoin(true, receiver, ',', locales, options);
   }
 
   // https://tc39.github.io/ecma262/#sec-array.prototype.toString
