@@ -89,6 +89,46 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
                        func, isolate_ptr, fixed_array, length, sep, dest));
   }
 
+  // Temporary Torque support for Array.prototype.join().
+  // TODO(pwong): Remove this when Torque supports exception handlers.
+  TNode<Object> CallLoadJoinElement(TNode<Context> context,
+                                    TNode<Code> loadJoinElement,
+                                    TNode<JSReceiver> receiver, TNode<Number> k,
+                                    Label* if_exception,
+                                    TVariable<Object>* var_exception) {
+    TNode<Object> result = CallStub(
+        Builtins::CallableFor(isolate(),
+                              Builtins::kLoadJoinElement20ATDictionaryElements)
+            .descriptor(),
+        loadJoinElement, context, receiver, k);
+    GotoIfException(result, if_exception, var_exception);
+    return result;
+  }
+
+  // Temporary Torque support for Array.prototype.join().
+  // TODO(pwong): Remove this when Torque supports exception handlers.
+  TNode<String> CallConvertToLocaleString(TNode<Context> context,
+                                          TNode<Object> element,
+                                          TNode<Object> locales,
+                                          TNode<Object> options,
+                                          Label* if_exception,
+                                          TVariable<Object>* var_exception) {
+    TNode<Object> result = CallBuiltin(Builtins::kConvertToLocaleString,
+                                       context, element, locales, options);
+    GotoIfException(result, if_exception, var_exception);
+    return CAST(result);
+  }
+
+  // Temporary Torque support for Array.prototype.join().
+  // TODO(pwong): Remove this when Torque supports exception handlers.
+  TNode<String> CallToString(TNode<Context> context, TNode<Object> obj,
+                             Label* if_exception,
+                             TVariable<Object>* var_exception) {
+    TNode<Object> result = CallBuiltin(Builtins::kToString, context, obj);
+    GotoIfException(result, if_exception, var_exception);
+    return CAST(result);
+  }
+
  protected:
   TNode<Context> context() { return context_; }
   TNode<Object> receiver() { return receiver_; }

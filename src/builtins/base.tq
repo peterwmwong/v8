@@ -1104,8 +1104,6 @@ macro GetLengthProperty(implicit context: Context)(o: Object): Number {
 }
 
 extern macro NumberToString(Number): String;
-extern macro GotoIfException(Object): void
-    labels IfException(Object);
 extern macro HasOnlyOneByteChars(InstanceType): bool;
 extern macro AllocateSeqOneByteString(Context, uint32): String;
 extern macro AllocateSeqTwoByteString(Context, uint32): String;

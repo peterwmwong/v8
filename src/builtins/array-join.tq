@@ -8,6 +8,16 @@ module array {
   extern macro CallStringWriteFixedArrayToFlatSeq(
       FixedArray, intptr, String, String): String;
 
+  extern macro CallLoadJoinElement(Context, Code, JSReceiver, Number): Object
+      labels IfException(Object);
+
+  extern macro CallConvertToLocaleString(Context, Object, Object, Object):
+      String
+      labels IfException(Object);
+
+  extern macro CallToString(Context, Object): String
+      labels IfException(Object);
+
   type LoadJoinElementFn = builtin(Context, JSReceiver, Number) => Object;
 
   builtin LoadJoinElement<T: type>(
@@ -280,16 +290,16 @@ module array {
         }
 
         // b. Let element be ? Get(O, ! ToString(k)).
-        const element: Object =
-            loadJoinElements(context, receiver, Convert<Number>(k++));
-        GotoIfException(element) otherwise IfException;
+        const element: Object = CallLoadJoinElement(
+            context, loadJoinElements, receiver, Convert<Number>(k++))
+            otherwise IfException;
 
         // c. If element is undefined or null, let next be the empty String;
         //    otherwise, let next be ? ToString(element).
         let next: String;
         if constexpr (useToLocaleString) {
-          next = ConvertToLocaleString(context, element, locales, options);
-          GotoIfException(next) otherwise IfException;
+          next = CallConvertToLocaleString(context, element, locales, options)
+              otherwise IfException;
           if (next == kEmptyString) continue;
         } else {
           typeswitch (element) {
@@ -300,14 +310,12 @@ module array {
               next = NumberToString(num);
             } case (obj: HeapObject): {
               if (IsNullOrUndefined(obj)) continue;
-              next = ToString(context, obj);
-              GotoIfException(next) otherwise IfException;
+              next = CallToString(context, obj) otherwise IfException;
             }
           }
         }
 
-        // d. Set R to the string-concatenation of R and
-        // next.
+        // d. Set R to the string-concatenation of R and next.
         buffer =
             BufferAdd(context, buffer, next, nofSeparators, separatorLength);
         nofSeparators = 0;
