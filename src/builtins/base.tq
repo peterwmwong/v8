@@ -357,7 +357,7 @@ extern operator '+' macro IntPtrAdd(intptr, intptr): intptr;
 extern operator '-' macro IntPtrSub(intptr, intptr): intptr;
 extern operator '*' macro IntPtrMul(intptr, intptr): intptr;
 extern operator '<<' macro WordShl(intptr, intptr): intptr;
-extern operator '>>' macro WordShr(intptr, intptr): intptr;
+extern operator '>>' macro WordSar(intptr, intptr): intptr;
 extern operator '&' macro WordAnd(intptr, intptr): intptr;
 extern operator '|' macro WordOr(intptr, intptr): intptr;
 
@@ -1031,10 +1031,6 @@ extern macro TransitionElementsKind(JSObject, Map, ElementsKind, ElementsKind):
 extern macro IsCallable(HeapObject): bool;
 extern macro IsJSArray(HeapObject): bool;
 extern macro IsJSReceiver(HeapObject): bool;
-macro ReThrowError(context: Context, error: Object): never {
-  ReThrow(context, error);
-  unreachable;
-}
 extern macro TaggedIsCallable(Object): bool;
 extern macro IsDetachedBuffer(JSArrayBuffer): bool;
 extern macro IsHeapNumber(HeapObject): bool;

@@ -735,9 +735,10 @@ ExternalReference ExternalReference::search_string_raw() {
   return ExternalReference(Redirect(FUNCTION_ADDR(f)));
 }
 
-ExternalReference ExternalReference::string_write_fixed_array_to_flat_seq() {
+ExternalReference
+ExternalReference::jsarray_array_join_concat_to_sequential_string() {
   return ExternalReference(
-      Redirect(FUNCTION_ADDR(String::WriteFixedArrayToFlatSeq)));
+      Redirect(FUNCTION_ADDR(JSArray::ArrayJoinConcatToSequentialString)));
 }
 
 ExternalReference ExternalReference::search_string_raw_one_one() {

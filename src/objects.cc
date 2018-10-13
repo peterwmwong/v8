@@ -11478,13 +11478,17 @@ void WriteFixedArrayToFlat(FixedArray* fixed_array, int length,
 
 }  // namespace
 
-String* String::WriteFixedArrayToFlatSeq(Isolate* isolate,
-                                         FixedArray* fixed_array,
-                                         intptr_t length, String* separator,
-                                         String* dest) {
+// static
+String* JSArray::ArrayJoinConcatToSequentialString(Isolate* isolate,
+                                                   FixedArray* fixed_array,
+                                                   intptr_t length,
+                                                   String* separator,
+                                                   String* dest) {
   DisallowHeapAllocation no_allocation;
   DisallowJavascriptExecution no_js(isolate);
-  DCHECK(StringShape(dest).IsSequential());
+  DCHECK(fixed_array->IsFixedArray());
+  DCHECK(StringShape(dest).IsSequentialOneByte() ||
+         StringShape(dest).IsSequentialTwoByte());
 
   if (StringShape(dest).IsSequentialOneByte()) {
     WriteFixedArrayToFlat(fixed_array, static_cast<int>(length), separator,

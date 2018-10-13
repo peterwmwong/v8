@@ -2851,16 +2851,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler : public compiler::CodeAssembler {
 
   void BranchIfNumberEqual(TNode<Number> left, TNode<Number> right,
                            Label* if_true, Label* if_false) {
-    Smi* smi_constant;
-    if (ToSmiConstant(right, smi_constant) ||
-        ToSmiConstant(left, smi_constant)) {
-      Branch(
-          WordEqual(UncheckedCast<Object>(left), UncheckedCast<Object>(right)),
-          if_true, if_false);
-    } else {
-      BranchIfNumberRelationalComparison(Operation::kEqual, left, right,
-                                         if_true, if_false);
-    }
+    BranchIfNumberRelationalComparison(Operation::kEqual, left, right, if_true,
+                                       if_false);
   }
 
   void BranchIfNumberNotEqual(TNode<Number> left, TNode<Number> right,

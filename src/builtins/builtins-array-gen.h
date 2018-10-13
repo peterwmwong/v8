@@ -72,11 +72,11 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
   void FillFixedArrayWithSmiZero(TNode<FixedArray> array,
                                  TNode<Smi> smi_length);
 
-  TNode<String> CallStringWriteFixedArrayToFlatSeq(
+  TNode<String> CallJSArrayArrayJoinConcatToSequentialString(
       TNode<FixedArray> fixed_array, TNode<IntPtrT> length, TNode<String> sep,
       TNode<String> dest) {
     TNode<ExternalReference> func = ExternalConstant(
-        ExternalReference::string_write_fixed_array_to_flat_seq());
+        ExternalReference::jsarray_array_join_concat_to_sequential_string());
     TNode<ExternalReference> isolate_ptr =
         ExternalConstant(ExternalReference::isolate_address(isolate()));
     return UncheckedCast<String>(
@@ -96,6 +96,9 @@ class ArrayBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
                                     TNode<JSReceiver> receiver, TNode<Number> k,
                                     Label* if_exception,
                                     TVariable<Object>* var_exception) {
+    // Calling a specialization of LoadJoinElement (see array-join.tq), requires
+    // a descriptor.  We arbritrarily use one of specialization's descriptor, as
+    // all specializations share the same interface.
     TNode<Object> result = CallStub(
         Builtins::CallableFor(isolate(),
                               Builtins::kLoadJoinElement20ATDictionaryElements)

@@ -5,7 +5,7 @@
 module array {
   // Fast C call to write a fixed array (see Buffer.fixedArray) to a single
   // string.
-  extern macro CallStringWriteFixedArrayToFlatSeq(
+  extern macro CallJSArrayArrayJoinConcatToSequentialString(
       FixedArray, intptr, String, String): String;
 
   extern macro CallLoadJoinElement(implicit context: Context)(
@@ -73,12 +73,12 @@ module array {
       let result: Object;
       if (IsNullOrUndefined(locales)) {
         result = Call(context, callable, element);
+      } else if (IsNullOrUndefined(options)) {
+        result = Call(context, callable, element, locales);
       } else {
-        result = IsNullOrUndefined(options) ?
-            Call(context, callable, element, locales) :
-            Call(context, callable, element, locales, options);
+        result = Call(context, callable, element, locales, options);
       }
-      return ToString(context, result);
+      return ToString_Inline(context, result);
     }
     label TypeError {
       ThrowTypeError(context, kCalledNonCallable, prop);
@@ -145,8 +145,8 @@ module array {
     isOneByte: bool;
   }
 
-  macro BufferInit(nofElements: uintptr, sep: String): Buffer {
-    const bufferSize: intptr = Signed(nofElements + 1);
+  macro BufferInit(estimatedNonHoleyElements: uintptr, sep: String): Buffer {
+    const bufferSize: intptr = Signed(estimatedNonHoleyElements + 1);
     const cappedBufferSize: intptr = bufferSize > kFixedArrayMaxLength ?
         FromConstexpr<intptr>(kFixedArrayMaxLength) :
         bufferSize;
@@ -211,14 +211,14 @@ module array {
     const length: uint32 = Convert<uint32>(Unsigned(buffer.totalStringLength));
     const r: String = buffer.isOneByte ? AllocateSeqOneByteString(length) :
                                          AllocateSeqTwoByteString(length);
-    return CallStringWriteFixedArrayToFlatSeq(
+    return CallJSArrayArrayJoinConcatToSequentialString(
         buffer.fixedArray, buffer.index, sep, r);
   }
 
   macro ArrayJoinImpl(
       context: Context, receiver: JSReceiver, sep: String, lengthNumber: Number,
       useToLocaleString: constexpr bool, locales: Object, options: Object,
-      nofElements: uintptr, initialCheckJSArrayAccessor: bool,
+      estimatedNonHoleyElements: uintptr, initialCheckJSArrayAccessor: bool,
       initialLoadJoinElement: LoadJoinElementFn): String
       labels IfException(Object) {
     const initialMap: Map = receiver.map;
@@ -236,10 +236,10 @@ module array {
     //    array-join.tq:228:5: Torque error: type FixedArray is not a
     //                         subtype of intptr
     //
-    // let buffer: Buffer = BufferInit(nofElements, sep);
+    // let buffer: Buffer = BufferInit(estimatedNonHoleyElements, sep);
     let buffer: Buffer;
     {
-      const bufferSize: intptr = Signed(nofElements + 1);
+      const bufferSize: intptr = Signed(estimatedNonHoleyElements + 1);
       const cappedBufferSize: intptr = bufferSize > kFixedArrayMaxLength ?
           FromConstexpr<intptr>(kFixedArrayMaxLength) :
           bufferSize;
@@ -251,13 +251,16 @@ module array {
     // 6. Let k be 0.
     let k: uintptr = 0;
 
-    if (nofElements != 0) {
+    if (estimatedNonHoleyElements != 0) {
       // 7. Repeat, while k < len
       while (k < len) {
         if (k > 0) {
           // a. If k > 0, let R be the string-concatenation of R and sep.
           nofSeparators = nofSeparators + 1;
 
+          // Verify the current LoadJoinElement specialization can safely be
+          // used. Otherwise, fall back to generic element access (see
+          // LoadJoinElement<GenericElementsAccessor>).
           if (checkJSArrayAccessor &&
               CannotUseSameArrayAccessor(initialMap, lengthNumber, receiver))
             deferred {
@@ -341,7 +344,10 @@ module array {
     const kind: ElementsKind = map.elements_kind;
     const len: uintptr = Convert<uintptr>(lenNumber);
 
-    let nofElements: uintptr = len;
+    // Estimated number of elements that are not holes. This is conservatively
+    // defaulted to `len`. When the receiver has dictionary elements, a better
+    // estimate can be determined through GetNumberDictionaryNumberOfElements.
+    let estimatedNonHoleyElements: uintptr = len;
     let checkJSArrayAccessor: bool = true;
     let loadJoinElements: LoadJoinElementFn;
 
@@ -360,7 +366,7 @@ module array {
           HasComplexElements(context, array) == False) {
         const dict: NumberDictionary =
             UnsafeCast<NumberDictionary>(array.elements);
-        nofElements =
+        estimatedNonHoleyElements =
             Unsigned(Convert<intptr>(GetNumberDictionaryNumberOfElements(dict)))
             << 1;
         loadJoinElements = LoadJoinElement<DictionaryElements>;
@@ -374,7 +380,7 @@ module array {
     }
     return ArrayJoinImpl(
         context, receiver, sep, lenNumber, useToLocaleString, locales, options,
-        nofElements, checkJSArrayAccessor, loadJoinElements)
+        estimatedNonHoleyElements, checkJSArrayAccessor, loadJoinElements)
         otherwise IfException;
   }
 
@@ -524,15 +530,17 @@ module array {
     }
     label IfException(e: Object) deferred {
       JoinStackPopInline(o);
-      ReThrowError(context, e);
+      ReThrow(context, e);
+      unreachable;
     }
   }
 
   // https://tc39.github.io/ecma262/#sec-array.prototype.join
   javascript builtin ArrayPrototypeJoin(
       context: Context, receiver: Object, ...arguments): Object {
+    const separator: Object = arguments[0];
     return CycleProtectedArrayJoin(
-        false, receiver, arguments[0], Undefined, Undefined);
+        false, receiver, separator, Undefined, Undefined);
   }
 
   // https://tc39.github.io/ecma262/#sec-array.prototype.toLocaleString

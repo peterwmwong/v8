@@ -374,27 +374,6 @@ class String : public Name {
   template <typename sinkchar>
   static void WriteToFlat(String* source, sinkchar* sink, int from, int to);
 
-  // Support for Array.prototype.join().
-  // Writes a fixed array of strings and separators to a single destination
-  // string. This helpers assumes the fixed array encodes separators in two
-  // ways:
-  //   1) Explicitly with a smi, whos value represents the number of repeated
-  //      separators.
-  //   2) Implicitly between two consecutive strings a single separator.
-  //
-  // Here are some input/output examples given the separator string is ',':
-  //
-  //   [1, 'hello', 2, 'world', 1] => ',hello,,world,'
-  //   ['hello', 'world']          => 'hello,world'
-  //
-  // To avoid any allocations, this helper assumes the destination string is the
-  // exact length necessary to write the strings and separators from the fixed
-  // array.
-  static String* WriteFixedArrayToFlatSeq(Isolate* isolate,
-                                          FixedArray* fixed_array,
-                                          intptr_t length, String* separator,
-                                          String* dest);
-
   // The return value may point to the first aligned word containing the first
   // non-one-byte character, rather than directly to the non-one-byte character.
   // If the return value is >= the passed length, the entire string was

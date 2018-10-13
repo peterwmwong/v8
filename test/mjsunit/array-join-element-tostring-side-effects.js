@@ -80,6 +80,25 @@ function ArrayTests() {
     assertSame('1,777,7.7,', a.join());
   })();
 
+  (function ElementsKindChangedToHoleyThroughDeletion() {
+    let callCount = 0;
+    const a = [
+      {
+        toString() {
+          callCount++;
+          delete a[1];
+          a[2] = 7.7;
+          return '1';
+        }
+      },
+      2,
+      3
+    ];
+    assertSame('1,,7.7', a.join());
+    assertSame(1, callCount);
+    assertSame('1,,7.7', a.join());
+  })();
+
   (function NumberDictionaryChanged() {
     let callCount = 0;
     const a = [];

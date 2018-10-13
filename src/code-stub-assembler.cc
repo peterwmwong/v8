@@ -5895,9 +5895,7 @@ TNode<BoolT> CodeStubAssembler::IsOneByteStringInstanceType(
 TNode<BoolT> CodeStubAssembler::HasOnlyOneByteChars(
     TNode<Int32T> instance_type) {
   CSA_ASSERT(this, IsStringInstanceType(instance_type));
-  TNode<Word32T> const mask =
-      Int32Constant(kStringEncodingMask | kOneByteDataHintMask);
-  return Word32NotEqual(Word32And(instance_type, mask), Int32Constant(0));
+  return IsSetWord32(instance_type, kStringEncodingMask | kOneByteDataHintMask);
 }
 
 TNode<BoolT> CodeStubAssembler::IsSequentialStringInstanceType(

@@ -93,7 +93,6 @@ assertEquals(246244, a.join("oo").length);
 
 a = new Array(Math.pow(2,32) - 1);  // Max length.
 assertEquals("", a.join(""));
-a[123123123] = "o";
 
 a = new Array(100001);
 for (var i = 0; i < a.length; i++) a[i] = undefined;

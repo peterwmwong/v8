@@ -1777,8 +1777,6 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           Builtins::kArrayPrototypeToLocaleString, 0, false);
     SimpleInstallFunction(isolate_, proto, "toString",
                           Builtins::kArrayPrototypeToString, 0, false);
-
-    native_context()->set_array_join_stack(*factory->undefined_value());
   }
 
   {  // --- A r r a y I t e r a t o r ---
