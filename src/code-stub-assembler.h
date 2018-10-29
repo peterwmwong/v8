@@ -309,6 +309,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
     return CAST(heap_object);
   }
 
+  TNode<JSTypedArray> HeapObjectToJSTypedArray(TNode<HeapObject> heap_object,
+                                               Label* fail) {
+    GotoIfNot(IsJSTypedArray(heap_object), fail);
+    return CAST(heap_object);
+  }
+
   TNode<JSReceiver> HeapObjectToCallable(TNode<HeapObject> heap_object,
                                          Label* fail) {
     GotoIfNot(IsCallable(heap_object), fail);
@@ -1065,6 +1071,7 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
       MachineType machine_type = MachineType::Float64());
   TNode<RawPtrT> LoadFixedTypedArrayBackingStore(
       TNode<FixedTypedArrayBase> typed_array);
+  Node* LoadDataPtr(Node* typed_array);
   Node* LoadFixedTypedArrayElementAsTagged(
       Node* data_pointer, Node* index_node, ElementsKind elements_kind,
       ParameterMode parameter_mode = INTPTR_PARAMETERS);
@@ -1498,8 +1505,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   TNode<JSReceiver> ArraySpeciesCreate(TNode<Context> context,
                                        TNode<Object> originalArray,
                                        TNode<Number> len);
-  TNode<JSReceiver> InternalArrayCreate(TNode<Context> context,
-                                        TNode<Number> len);
 
   void FillFixedArrayWithValue(ElementsKind kind, Node* array, Node* from_index,
                                Node* to_index, RootIndex value_root_index,
@@ -2730,6 +2735,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   // Store value to an elements array with given elements kind.
   void StoreElement(Node* elements, ElementsKind kind, Node* index, Node* value,
                     ParameterMode mode);
+
+  TNode<JSTypedArray> ValidateTypedArray(TNode<Context> context,
+                                         TNode<Object> obj,
+                                         const char* method_name);
 
   void EmitBigTypedArrayElementStore(TNode<JSTypedArray> object,
                                      TNode<FixedTypedArrayBase> elements,

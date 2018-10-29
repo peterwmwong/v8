@@ -171,6 +171,9 @@ type FixedUint8ClampedArray extends FixedTypedArray;
 type FixedBigUint64Array extends FixedTypedArray;
 type FixedBigInt64Array extends FixedTypedArray;
 
+extern macro ValidateTypedArray(
+    Context, Object, constexpr string): JSTypedArray;
+
 const kFixedDoubleArrays: constexpr ExtractFixedArrayFlags
     generates 'CodeStubAssembler::ExtractFixedArrayFlag::kFixedDoubleArrays';
 const kAllFixedArrays: constexpr ExtractFixedArrayFlags
@@ -308,7 +311,6 @@ extern macro ThrowTypeError(
     Context, constexpr MessageTemplate, Object, Object, Object): never;
 extern macro ArraySpeciesCreate(Context, Object, Number): JSReceiver;
 extern macro ArrayCreate(implicit context: Context)(Number): JSArray;
-extern macro InternalArrayCreate(Context, Number): JSArray;
 extern macro EnsureArrayPushable(Map): ElementsKind
     labels Bailout;
 extern macro EnsureArrayLengthWritable(Map) labels Bailout;
@@ -496,6 +498,8 @@ extern macro IsValidPositiveSmi(intptr): bool;
 
 extern macro HeapObjectToJSDataView(HeapObject): JSDataView
     labels CastError;
+extern macro HeapObjectToJSTypedArray(HeapObject): JSTypedArray
+    labels CastError;
 extern macro TaggedToHeapObject(Object): HeapObject
     labels CastError;
 extern macro TaggedToSmi(Object): Smi
@@ -546,6 +550,11 @@ CastHeapObject<SloppyArgumentsElements>(o: HeapObject): SloppyArgumentsElements
 CastHeapObject<JSDataView>(o: HeapObject): JSDataView
     labels CastError {
   return HeapObjectToJSDataView(o) otherwise CastError;
+}
+
+CastHeapObject<JSTypedArray>(o: HeapObject): JSTypedArray
+    labels CastError {
+  return HeapObjectToJSTypedArray(o) otherwise CastError;
 }
 
 CastHeapObject<Callable>(o: HeapObject): Callable
@@ -981,6 +990,8 @@ macro StoreFixedDoubleArrayElementWithSmiIndex(
     array: FixedDoubleArray, index: Smi, value: float64) {
   StoreFixedDoubleArrayElement(array, index, value, SMI_PARAMETERS);
 }
+extern macro LoadFixedTypedArrayElementAsTagged(
+    RawPtr, Smi, constexpr ElementsKind, constexpr ParameterMode): Object;
 extern macro GetNumberDictionaryNumberOfElements(NumberDictionary): Smi;
 
 extern macro BasicLoadNumberDictionaryElement(NumberDictionary, intptr): Object

@@ -60,7 +60,6 @@ class TypedArrayBuiltinsAssembler : public CodeStubAssembler {
   TNode<Map> LoadMapForType(TNode<JSTypedArray> array);
   TNode<UintPtrT> CalculateExternalPointer(TNode<UintPtrT> backing_store,
                                            TNode<Number> byte_offset);
-  Node* LoadDataPtr(Node* typed_array);
   TNode<BoolT> ByteLengthIsValid(TNode<Number> byte_length);
 
   // Returns true if kind is either UINT8_ELEMENTS or UINT8_CLAMPED_ELEMENTS.
@@ -91,10 +90,6 @@ class TypedArrayBuiltinsAssembler : public CodeStubAssembler {
 
   TNode<JSArrayBuffer> GetBuffer(TNode<Context> context,
                                  TNode<JSTypedArray> array);
-
-  TNode<JSTypedArray> ValidateTypedArray(TNode<Context> context,
-                                         TNode<Object> obj,
-                                         const char* method_name);
 
   // Fast path for setting a TypedArray (source) onto another TypedArray
   // (target) at an element offset.

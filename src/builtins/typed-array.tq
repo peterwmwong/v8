@@ -4,11 +4,7 @@
 
 namespace typed_array {
   extern runtime TypedArraySortFast(Context, Object): JSTypedArray;
-  extern macro TypedArrayBuiltinsAssembler::ValidateTypedArray(
-      Context, Object, constexpr string): JSTypedArray;
 
-  extern macro LoadFixedTypedArrayElementAsTagged(
-      RawPtr, Smi, constexpr ElementsKind, constexpr ParameterMode): Object;
   extern macro StoreFixedTypedArrayElementFromTagged(
       Context, FixedTypedArrayBase, Smi, Object, constexpr ElementsKind,
       constexpr ParameterMode);
