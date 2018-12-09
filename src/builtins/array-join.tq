@@ -13,14 +13,6 @@ namespace array {
 
   transitioning builtin LoadJoinElement<T: type>(
       context: Context, receiver: JSReceiver, k: Number): Object {
-    const typedArray: JSTypedArray = UnsafeCast<JSTypedArray>(receiver);
-    return LoadFixedTypedArrayElementAsTagged(
-        typedArray.data_ptr, UnsafeCast<Smi>(k), typed_array::KindForArrayType<T>(),
-        SMI_PARAMETERS);
-  }
-
-  LoadJoinElement<GenericElementsAccessor>(
-      context: Context, receiver: JSReceiver, k: Number): Object {
     return GetProperty(receiver, k);
   }
 
@@ -63,6 +55,14 @@ namespace array {
     }
   }
 
+  builtin LoadJoinTypedElement<T: type>(
+      context: Context, receiver: JSReceiver, k: Number): Object {
+    const typedArray: JSTypedArray = UnsafeCast<JSTypedArray>(receiver);
+    return LoadFixedTypedArrayElementAsTagged(
+        typedArray.data_ptr, UnsafeCast<Smi>(k),
+        typed_array::KindForArrayType<T>(), SMI_PARAMETERS);
+  }
+
   transitioning builtin ConvertToLocaleString(
       context: Context, element: Object, locales: Object,
       options: Object): String {
@@ -88,13 +88,32 @@ namespace array {
 
   // Verifies the current element JSArray accessor can still be safely used
   // (see LoadJoinElement<ElementsAccessor>).
-  macro CannotUseSameArrayAccessor(implicit context: Context)(
-      originalMap: Object, originalLen: Object, receiver: JSReceiver): never
+  macro CannotUseSameArrayAccessor<T: type>(implicit context: Context)(
+      loadFn: LoadJoinElementFn, receiver: JSReceiver, originalMap: Map,
+      originalLen: Number): never
+      labels Cannot, Can;
+
+  CannotUseSameArrayAccessor<JSArray>(implicit context: Context)(
+      loadFn: LoadJoinElementFn, receiver: JSReceiver, originalMap: Map,
+      originalLen: Number): never
       labels Cannot, Can {
-    const array: JSArray = UnsafeCast<JSArray>(receiver);
+    if (loadFn == LoadJoinElement<GenericElementsAccessor>) goto Can;
+
+    const array: JSArray = Cast<JSArray>(receiver) otherwise unreachable;
     if (originalMap != array.map) goto Cannot;
     if (originalLen != array.length) goto Cannot;
     if (IsNoElementsProtectorCellInvalid()) goto Cannot;
+    goto Can;
+  }
+
+  CannotUseSameArrayAccessor<JSTypedArray>(implicit context: Context)(
+      loadFn: LoadJoinElementFn, receiver: JSReceiver, initialMap: Map,
+      initialLen: Number): never
+      labels Cannot, Can {
+    // It is assumed that neither loading a typed array element nor converting a
+    // number to string have side-effects. As such, it safe to use the initial
+    // LoadJoinElement specialization and it cannot change through out the join
+    // call.
     goto Can;
   }
 
@@ -253,16 +272,15 @@ namespace array {
         buffer.fixedArray, buffer.index, sep, r);
   }
 
-  transitioning macro ArrayJoinImpl(implicit context: Context)(
+  transitioning macro ArrayJoinImpl<T: type>(implicit context: Context)(
       receiver: JSReceiver, sep: String, lengthNumber: Number,
-      checkAccessor: constexpr bool, useToLocaleString: constexpr bool,
-      locales: Object, options: Object,
-      initialLoadJoinElement: LoadJoinElementFn): String {
+      useToLocaleString: constexpr bool, locales: Object, options: Object,
+      initialLoadFn: LoadJoinElementFn): String {
     const initialMap: Map = receiver.map;
     const len: uintptr = Convert<uintptr>(lengthNumber);
     const separatorLength: intptr = sep.length;
     let nofSeparators: intptr = 0;
-    let loadJoinElement: LoadJoinElementFn = initialLoadJoinElement;
+    let loadFn: LoadJoinElementFn = initialLoadFn;
     let buffer: Buffer = BufferInit(len, sep);
 
     // 6. Let k be 0.
@@ -273,25 +291,15 @@ namespace array {
       if (k > 0) {
         // a. If k > 0, let R be the string-concatenation of R and sep.
         nofSeparators = nofSeparators + 1;
-
-        // Only check array access and fall back to the generic element access
-        // only if it is needed. For TypedArrays, side-effects are mitigated
-        // upfront by ValidateTypedArray.
-        if constexpr (checkAccessor) {
-          // Verify the current LoadJoinElement specialization can safely be
-          // used. Otherwise, fall back to generic element access (see
-          // LoadJoinElement<GenericElementsAccessor>).
-          if (loadJoinElement != LoadJoinElement<GenericElementsAccessor>&&
-              CannotUseSameArrayAccessor(initialMap, lengthNumber, receiver))
-            deferred {
-              loadJoinElement = LoadJoinElement<GenericElementsAccessor>;
-            }
-        }
+        if (CannotUseSameArrayAccessor<T>(
+                loadFn, receiver, initialMap, lengthNumber))
+          deferred {
+            loadFn = LoadJoinElement<GenericElementsAccessor>;
+          }
       }
 
       // b. Let element be ? Get(O, ! ToString(k)).
-      const element: Object =
-          loadJoinElement(context, receiver, Convert<Number>(k++));
+      const element: Object = loadFn(context, receiver, Convert<Number>(k++));
 
       // c. If element is undefined or null, let next be the empty String;
       //    otherwise, let next be ? ToString(element).
@@ -327,18 +335,16 @@ namespace array {
     return BufferJoin(buffer, sep);
   }
 
-  transitioning macro ArrayJoin<T: type>(
-      context: Context, useToLocaleString: constexpr bool, receiver: JSReceiver,
-      sep: String, lenNumber: Number, locales: Object, options: Object): Object;
+  transitioning macro ArrayJoin<T: type>(implicit context: Context)(
+      useToLocaleString: constexpr bool, receiver: JSReceiver, sep: String,
+      lenNumber: Number, locales: Object, options: Object): Object;
 
-  ArrayJoin<JSArray>(
-      context: Context, useToLocaleString: constexpr bool, receiver: JSReceiver,
-      sep: String, lenNumber: Number, locales: Object,
-      options: Object): Object {
-    const checkAccessor: constexpr bool = true;
+  ArrayJoin<JSArray>(implicit context: Context)(
+      useToLocaleString: constexpr bool, receiver: JSReceiver, sep: String,
+      lenNumber: Number, locales: Object, options: Object): Object {
     const map: Map = receiver.map;
     const kind: ElementsKind = map.elements_kind;
-    let loadJoinElement: LoadJoinElementFn;
+    let loadFn: LoadJoinElementFn;
 
     try {
       const array: JSArray = Cast<JSArray>(receiver) otherwise IfSlowPath;
@@ -347,9 +353,9 @@ namespace array {
       if (IsNoElementsProtectorCellInvalid()) goto IfSlowPath;
 
       if (IsElementsKindLessThanOrEqual(kind, HOLEY_ELEMENTS)) {
-        loadJoinElement = LoadJoinElement<FastSmiOrObjectElements>;
+        loadFn = LoadJoinElement<FastSmiOrObjectElements>;
       } else if (IsElementsKindLessThanOrEqual(kind, HOLEY_DOUBLE_ELEMENTS)) {
-        loadJoinElement = LoadJoinElement<FastDoubleElements>;
+        loadFn = LoadJoinElement<FastDoubleElements>;
       } else if (kind == DICTIONARY_ELEMENTS)
         deferred {
           const dict: NumberDictionary =
@@ -366,7 +372,7 @@ namespace array {
               ThrowInvalidStringLength(context);
             }
           } else {
-            loadJoinElement = LoadJoinElement<DictionaryElements>;
+            loadFn = LoadJoinElement<DictionaryElements>;
           }
         }
       else {
@@ -374,56 +380,52 @@ namespace array {
       }
     }
     label IfSlowPath {
-      loadJoinElement = LoadJoinElement<GenericElementsAccessor>;
+      loadFn = LoadJoinElement<GenericElementsAccessor>;
     }
-    return ArrayJoinImpl(
-        receiver, sep, lenNumber, checkAccessor, useToLocaleString, locales,
-        options, loadJoinElement);
+    return ArrayJoinImpl<JSArray>(
+        receiver, sep, lenNumber, useToLocaleString, locales, options, loadFn);
   }
 
-  ArrayJoin<JSTypedArray>(
-      context: Context, useToLocaleString: constexpr bool, receiver: JSReceiver,
-      sep: String, lenNumber: Number, locales: Object,
-      options: Object): Object {
-    const checkAccessor: constexpr bool = false;
-
-    let loadJoinElement: LoadJoinElementFn;
+  ArrayJoin<JSTypedArray>(implicit context: Context)(
+      useToLocaleString: constexpr bool, receiver: JSReceiver, sep: String,
+      lenNumber: Number, locales: Object, options: Object): Object {
     const map: Map = receiver.map;
     const kind: ElementsKind = map.elements_kind;
+    let loadFn: LoadJoinElementFn;
+
     if (IsElementsKindGreaterThan(kind, UINT32_ELEMENTS)) {
       if (kind == INT32_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedInt32Array>;
+        loadFn = LoadJoinTypedElement<FixedInt32Array>;
       } else if (kind == FLOAT32_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedFloat32Array>;
+        loadFn = LoadJoinTypedElement<FixedFloat32Array>;
       } else if (kind == FLOAT64_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedFloat64Array>;
+        loadFn = LoadJoinTypedElement<FixedFloat64Array>;
       } else if (kind == UINT8_CLAMPED_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedUint8ClampedArray>;
+        loadFn = LoadJoinTypedElement<FixedUint8ClampedArray>;
       } else if (kind == BIGUINT64_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedBigUint64Array>;
+        loadFn = LoadJoinTypedElement<FixedBigUint64Array>;
       } else if (kind == BIGINT64_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedBigInt64Array>;
+        loadFn = LoadJoinTypedElement<FixedBigInt64Array>;
       } else {
         unreachable;
       }
     } else {
       if (kind == UINT8_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedUint8Array>;
+        loadFn = LoadJoinTypedElement<FixedUint8Array>;
       } else if (kind == INT8_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedInt8Array>;
+        loadFn = LoadJoinTypedElement<FixedInt8Array>;
       } else if (kind == UINT16_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedUint16Array>;
+        loadFn = LoadJoinTypedElement<FixedUint16Array>;
       } else if (kind == INT16_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedInt16Array>;
+        loadFn = LoadJoinTypedElement<FixedInt16Array>;
       } else if (kind == UINT32_ELEMENTS) {
-        loadJoinElement = LoadJoinElement<FixedUint32Array>;
+        loadFn = LoadJoinTypedElement<FixedUint32Array>;
       } else {
         unreachable;
       }
     }
-    return ArrayJoinImpl(
-        receiver, sep, lenNumber, checkAccessor, useToLocaleString, locales,
-        options, loadJoinElement);
+    return ArrayJoinImpl<JSTypedArray>(
+        receiver, sep, lenNumber, useToLocaleString, locales, options, loadFn);
   }
 
   // The Join Stack detects cyclical calls to Array Join builtins
@@ -552,8 +554,8 @@ namespace array {
     // the normal join algorithm.
     if (len > 0 && JoinStackPushInline(o)) {
       try {
-        const result: Object = ArrayJoin<T>(
-            context, useToLocaleString, o, sep, len, locales, options);
+        const result: Object =
+            ArrayJoin<T>(useToLocaleString, o, sep, len, locales, options);
         JoinStackPopInline(o);
         return result;
       } catch (e) deferred {
