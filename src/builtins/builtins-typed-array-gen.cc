@@ -10,6 +10,7 @@
 #include "src/builtins/growable-fixed-array-gen.h"
 #include "src/handles-inl.h"
 #include "src/heap/factory-inl.h"
+#include "torque-generated/builtins-typed-array-from-dsl-gen.h"
 
 namespace v8 {
 namespace internal {
@@ -123,6 +124,8 @@ TF_BUILTIN(TypedArrayInitializeWithBuffer, TypedArrayBuiltinsAssembler) {
   Return(UndefinedConstant());
 }
 
+// 22.2.4.2.2 Runtime Semantics: AllocateTypedArrayBuffer ( O, length )
+// TODO(pwong): Rename to AllocateTypedArrayBuffer
 TF_BUILTIN(TypedArrayInitialize, TypedArrayBuiltinsAssembler) {
   TNode<JSTypedArray> holder = CAST(Parameter(Descriptor::kHolder));
   TNode<Smi> length = CAST(Parameter(Descriptor::kLength));
@@ -132,6 +135,9 @@ TF_BUILTIN(TypedArrayInitialize, TypedArrayBuiltinsAssembler) {
       CAST(Parameter(Descriptor::kBufferConstructor));
   TNode<Context> context = CAST(Parameter(Descriptor::kContext));
 
+  // 1. Assert: O is an Object that has a [[ViewedArrayBuffer]] internal slot.
+  // 2. Assert: O.[[ViewedArrayBuffer]] is undefined.
+  // 3. Assert: length ≥ 0.
   CSA_ASSERT(this, TaggedIsPositiveSmi(length));
   CSA_ASSERT(this, TaggedIsPositiveSmi(element_size));
   CSA_ASSERT(this, IsBoolean(initialize));
@@ -147,9 +153,14 @@ TF_BUILTIN(TypedArrayInitialize, TypedArrayBuiltinsAssembler) {
       allocate_off_heap_no_init(this), attach_buffer(this), done(this);
   TVARIABLE(IntPtrT, var_total_size);
 
+  // 4. Let constructorName be the String value of O.[[TypedArrayName]].
+  // 5. Let elementSize be the Element Size value in Table 56 for
+  // constructorName.
+  // 6. Let byteLength be elementSize × length.
   // SmiMul returns a heap number in case of Smi overflow.
   TNode<Number> byte_length = SmiMul(length, element_size);
 
+  // 7. Let data be ? AllocateArrayBuffer(%ArrayBuffer%, byteLength).
   TNode<Map> fixed_typed_map = LoadMapForType(holder);
 
   // If target and new_target for the buffer differ, allocate off-heap.
@@ -312,8 +323,14 @@ TF_BUILTIN(TypedArrayInitialize, TypedArrayBuiltinsAssembler) {
   }
 
   BIND(&done);
+
+  // 8. Set O.[[ViewedArrayBuffer]] to data.
+  // 9. Set O.[[ByteLength]] to byteLength.
+  // 10. Set O.[[ByteOffset]] to 0.
+  // 11. Set O.[[ArrayLength]] to length.
   SetupTypedArray(holder, length, ChangeNonnegativeNumberToUintPtr(byte_offset),
                   ChangeNonnegativeNumberToUintPtr(byte_length));
+  // 12. Return O.
   Return(UndefinedConstant());
 }
 
@@ -666,7 +683,25 @@ TF_BUILTIN(TypedArrayBaseConstructor, TypedArrayBuiltinsAssembler) {
                  "TypedArray");
 }
 
+void TypedArrayBuiltinsAssembler::StoreByteOffset(
+    TNode<JSTypedArray> typed_array, TNode<UintPtrT> byte_offset) {
+  StoreObjectFieldNoWriteBarrier<UintPtrT>(
+      typed_array, JSTypedArray::kByteOffsetOffset, byte_offset);
+}
+
+void TypedArrayBuiltinsAssembler::StoreByteLength(
+    TNode<JSTypedArray> typed_array, TNode<UintPtrT> byte_length) {
+  StoreObjectFieldNoWriteBarrier<UintPtrT>(
+      typed_array, JSTypedArray::kByteLengthOffset, byte_length);
+}
+
+TNode<UintPtrT> TypedArrayBuiltinsAssembler::LoadByteLength(
+    TNode<JSArrayBuffer> buffer) {
+  return LoadObjectField<UintPtrT>(buffer, JSArrayBuffer::kByteLengthOffset);
+}
+
 // ES #sec-typedarray-constructors
+// 22.2.4 The TypedArray Constructors
 TF_BUILTIN(CreateTypedArray, TypedArrayBuiltinsAssembler) {
   TNode<Context> context = CAST(Parameter(Descriptor::kContext));
   TNode<JSFunction> target = CAST(Parameter(Descriptor::kTarget));
@@ -682,19 +717,15 @@ TF_BUILTIN(CreateTypedArray, TypedArrayBuiltinsAssembler) {
       if_arg1isreceiver(this), if_arg1isnumber(this), return_result(this);
 
   ConstructorBuiltinsAssembler constructor_assembler(this->state());
-  TNode<JSTypedArray> result = CAST(
-      constructor_assembler.EmitFastNewObject(context, target, new_target));
+  TNode<JSTypedArray> result = CAST(constructor_assembler.EmitFastNewObject(
+      context, target, new_target, false));
   // We need to set the byte_offset / byte_length to some sane values
   // to keep the heap verifier happy.
   // TODO(bmeurer): Fix this initialization to not use EmitFastNewObject,
   // which causes the problem, since it puts Undefined into all slots of
   // the object even though that doesn't make any sense for these fields.
-  StoreObjectFieldNoWriteBarrier(result, JSTypedArray::kByteOffsetOffset,
-                                 UintPtrConstant(0),
-                                 MachineType::PointerRepresentation());
-  StoreObjectFieldNoWriteBarrier(result, JSTypedArray::kByteLengthOffset,
-                                 UintPtrConstant(0),
-                                 MachineType::PointerRepresentation());
+  StoreByteOffset(result, UintPtrConstant(0));
+  StoreByteLength(result, UintPtrConstant(0));
 
   TNode<Smi> element_size =
       SmiTag(GetTypedArrayElementSize(LoadElementsKind(result)));
@@ -709,8 +740,9 @@ TF_BUILTIN(CreateTypedArray, TypedArrayBuiltinsAssembler) {
   // https://tc39.github.io/ecma262/#sec-typedarray-buffer-byteoffset-length
   BIND(&if_arg1isbuffer);
   {
-    ConstructByArrayBuffer(context, result, CAST(arg1), arg2, arg3,
-                           element_size);
+    TypedArrayBuiltinsFromDSLAssembler typedarray_dsl_assembler(this->state());
+    typedarray_dsl_assembler.ConstructByArrayBuffer(context, result, CAST(arg1),
+                                                    arg2, arg3, element_size);
     Goto(&return_result);
   }
 
@@ -758,7 +790,9 @@ TF_BUILTIN(CreateTypedArray, TypedArrayBuiltinsAssembler) {
   // a number. https://tc39.github.io/ecma262/#sec-typedarray-length
   BIND(&if_arg1isnumber);
   {
-    ConstructByLength(context, result, arg1, element_size);
+    TypedArrayBuiltinsFromDSLAssembler typedarray_dsl_assembler(this->state());
+    typedarray_dsl_assembler.ConstructByLengthObject(context, result, arg1,
+                                                     element_size);
     Goto(&return_result);
   }
 

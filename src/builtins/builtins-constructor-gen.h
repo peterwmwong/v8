@@ -31,10 +31,12 @@ class ConstructorBuiltinsAssembler : public CodeStubAssembler {
                                        Label* call_runtime);
   Node* EmitCreateEmptyObjectLiteral(Node* context);
 
-  Node* EmitFastNewObject(Node* context, Node* target, Node* new_target);
+  Node* EmitFastNewObject(Node* context, Node* target, Node* new_target,
+                          bool handleDictionaryMaps = true);
 
   Node* EmitFastNewObject(Node* context, Node* target, Node* new_target,
-                          Label* call_runtime);
+                          Label* call_runtime,
+                          bool handleDictionaryMaps = true);
 };
 
 }  // namespace internal

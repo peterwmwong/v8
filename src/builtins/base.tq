@@ -66,6 +66,11 @@ transient type FastJSArrayForCopy extends FastJSArray
 transient type FastJSArrayWithNoCustomIteration extends FastJSArray
     generates 'TNode<JSArray>';
 
+// A HeapObject that has a non-undefined/non-null @@iterator property.
+transient type Iterable extends HeapObject generates 'TNode<HeapObject>';
+
+transient type PositiveSmi extends Smi generates 'TNode<Smi>';
+
 type SharedFunctionInfo extends HeapObject
     generates 'TNode<SharedFunctionInfo>';
 
@@ -99,19 +104,23 @@ intrinsic %RawPointerCast<A: type>(p: RawPtr): A;
 intrinsic %RawConstexprCast<To: type, From: type>(f: From): To;
 
 type NativeContextSlot generates 'TNode<IntPtrT>' constexpr 'int32_t';
+const ARRAY_BUFFER_FUN_INDEX: constexpr NativeContextSlot
+    generates 'Context::ARRAY_BUFFER_FUN_INDEX';
 const ARRAY_JOIN_STACK_INDEX: constexpr NativeContextSlot
     generates 'Context::ARRAY_JOIN_STACK_INDEX';
-const OBJECT_FUNCTION_INDEX: constexpr NativeContextSlot
-    generates 'Context::OBJECT_FUNCTION_INDEX';
 const ITERATOR_RESULT_MAP_INDEX: constexpr NativeContextSlot
     generates 'Context::ITERATOR_RESULT_MAP_INDEX';
+const OBJECT_FUNCTION_INDEX: constexpr NativeContextSlot
+    generates 'Context::OBJECT_FUNCTION_INDEX';
 extern operator '[]' macro LoadContextElement(
-    NativeContext, NativeContextSlot): Object;
+    NativeContext, constexpr NativeContextSlot): Object;
 extern operator '[]=' macro StoreContextElement(
-    NativeContext, NativeContextSlot, Object): void;
+    NativeContext, constexpr NativeContextSlot, Object): void;
 
 extern operator '[]' macro LoadContextElement(Context, intptr): Object;
 extern operator '[]' macro LoadContextElement(Context, Smi): Object;
+extern operator '.native_context' macro LoadNativeContext(Context):
+    NativeContext;
 
 type JSArrayBuffer extends JSObject generates 'TNode<JSArrayBuffer>';
 type JSArrayBufferView extends JSObject
@@ -209,12 +218,18 @@ const kEmptyFixedArrayRootIndex:
 const kTheHoleValueRootIndex:
     constexpr RootIndex generates 'RootIndex::kTheHoleValue';
 
-const kInvalidArrayLength: constexpr MessageTemplate
-    generates 'MessageTemplate::kInvalidArrayLength';
 const kCalledNonCallable: constexpr MessageTemplate
     generates 'MessageTemplate::kCalledNonCallable';
 const kCalledOnNullOrUndefined: constexpr MessageTemplate
     generates 'MessageTemplate::kCalledOnNullOrUndefined';
+const kInvalidArrayLength: constexpr MessageTemplate
+    generates 'MessageTemplate::kInvalidArrayLength';
+const kInvalidOffset: constexpr MessageTemplate
+    generates 'MessageTemplate::kInvalidOffset';
+const kInvalidTypedArrayLength: constexpr MessageTemplate
+    generates 'MessageTemplate::kInvalidTypedArrayLength';
+const kIteratorSymbolNonCallable: constexpr MessageTemplate
+    generates 'MessageTemplate::kIteratorSymbolNonCallable';
 const kIteratorValueNotAnObject: constexpr MessageTemplate
     generates 'MessageTemplate::kIteratorValueNotAnObject';
 const kNotIterable: constexpr MessageTemplate
@@ -312,6 +327,10 @@ extern macro ToInteger_Inline(
 extern macro ToLength_Inline(Context, Object): Number;
 extern macro ToNumber_Inline(Context, Object): Number;
 extern macro ToString_Inline(Context, Object): String;
+// TODO(pwong): review comment - I could change argument order to be consistent
+// with other helpers and allow context to be an implicit parameter.
+extern macro ToSmiIndex(Object, Context): Smi
+    labels RangeError;
 extern transitioning macro GetProperty(implicit context: Context)(
     Object, Object): Object;
 extern transitioning builtin SetProperty(implicit context: Context)(
@@ -326,6 +345,7 @@ extern transitioning macro HasProperty_Inline(implicit context: Context)(
     JSReceiver, Object): Boolean;
 
 extern macro ThrowRangeError(Context, constexpr MessageTemplate): never;
+extern macro ThrowRangeError(Context, constexpr MessageTemplate, Object): never;
 extern macro ThrowTypeError(Context, constexpr MessageTemplate): never;
 extern macro ThrowTypeError(Context, constexpr MessageTemplate, Object): never;
 extern macro ThrowTypeError(
@@ -429,6 +449,41 @@ extern operator '==' macro Float64Equal(float64, float64): bool;
 extern operator '!=' macro Float64NotEqual(float64, float64): bool;
 extern operator '>' macro Float64GreaterThan(float64, float64): bool;
 
+extern builtin Divide(Context, Object, Object): Numeric;
+extern builtin Equal(Context, Object, Object): Boolean;
+extern builtin LessThan(Context, Object, Object): Boolean;
+extern builtin Modulus(Context, Object, Object): Numeric;
+extern builtin Subtract(Context, Object, Object): Numeric;
+
+operator '/' macro NumericDiv(implicit context: Context)(
+    a: Numeric, b: Numeric): Numeric {
+  return Divide(context, a, b);
+}
+operator '==' macro NumericEqual(implicit context: Context)(
+    a: Numeric, b: Numeric): never
+    labels Taken, NotTaken {
+  if (Equal(context, a, b) == True) goto Taken;
+  goto NotTaken;
+}
+operator '<' macro NumericLessThan(implicit context: Context)(
+    a: Numeric, b: Numeric): never
+    labels Taken, NotTaken {
+  if (LessThan(context, a, b) == True) goto Taken;
+  goto NotTaken;
+}
+operator '%' macro NumericMod(implicit context: Context)(
+    a: Numeric, b: Numeric): Numeric {
+  return Modulus(context, a, b);
+}
+operator '!=' macro NumericNotEqual(implicit context: Context)(
+    a: Numeric, b: Numeric): never
+    labels Taken, NotTaken {
+  NumericEqual(a, b) otherwise NotTaken, Taken;
+}
+operator '-' macro NumericSub(implicit context: Context)(
+    a: Numeric, b: Numeric): Numeric {
+  return Subtract(context, a, b);
+}
 extern operator '==' macro BranchIfNumberEqual(Number, Number): never
     labels Taken, NotTaken;
 extern operator '!=' macro BranchIfNumberNotEqual(Number, Number): never
@@ -449,6 +504,8 @@ extern operator '!=' macro WordNotEqual(Object, Object): bool;
 
 extern operator '+' macro SmiAdd(Smi, Smi): Smi;
 extern operator '-' macro SmiSub(Smi, Smi): Smi;
+extern operator '*' macro SmiMul(Smi, Smi): Number;
+extern operator '%' macro SmiMod(Smi, Smi): Smi;
 extern operator '&' macro SmiAnd(Smi, Smi): Smi;
 extern operator '|' macro SmiOr(Smi, Smi): Smi;
 extern operator '<<' macro SmiShl(Smi, constexpr int31): Smi;
@@ -537,9 +594,13 @@ extern macro HeapObjectToJSDataView(HeapObject): JSDataView
     labels CastError;
 extern macro HeapObjectToJSTypedArray(HeapObject): JSTypedArray
     labels CastError;
+extern macro HeapObjectToJSArrayBuffer(HeapObject): JSArrayBuffer
+    labels CastError;
 extern macro TaggedToHeapObject(Object): HeapObject
     labels CastError;
 extern macro TaggedToSmi(Object): Smi
+    labels CastError;
+extern macro TaggedToPositiveSmi(Object): Smi
     labels CastError;
 extern macro HeapObjectToJSArray(HeapObject): JSArray
     labels CastError;
@@ -603,6 +664,11 @@ CastHeapObject<Callable>(o: HeapObject): Callable
 CastHeapObject<JSArray>(o: HeapObject): JSArray
     labels CastError {
   return HeapObjectToJSArray(o) otherwise CastError;
+}
+
+CastHeapObject<JSArrayBuffer>(o: HeapObject): JSArrayBuffer
+    labels CastError {
+  return HeapObjectToJSArrayBuffer(o) otherwise CastError;
 }
 
 CastHeapObject<Context>(o: HeapObject): Context
@@ -712,6 +778,12 @@ CastHeapObject<JSFunction>(implicit context: Context)(o: HeapObject): JSFunction
   goto CastError;
 }
 
+CastHeapObject<Iterable>(implicit context: Context)(o: HeapObject):
+    Iterable labels CastError {
+  GetIteratorMethod(o) otherwise CastError;
+  return %RawObjectCast<Iterable>(o);
+}
+
 macro Cast<A: type>(implicit context: Context)(o: HeapObject): A
     labels CastError {
   return CastHeapObject<A>(o) otherwise CastError;
@@ -728,6 +800,12 @@ macro Cast<A: type>(implicit context: Context)(o: Object): A
 Cast<Smi>(o: Object): Smi
     labels CastError {
   return TaggedToSmi(o) otherwise CastError;
+}
+
+Cast<PositiveSmi>(o: Object): PositiveSmi
+    labels CastError {
+  const smi: Smi = TaggedToPositiveSmi(o) otherwise CastError;
+  return %RawObjectCast<PositiveSmi>(smi);
 }
 
 Cast<Number>(o: Object): Number
@@ -758,7 +836,6 @@ extern macro ChangeNumberToFloat64(Number): float64;
 extern macro ChangeFloat64ToUintPtr(float64): uintptr;
 extern macro ChangeInt32ToIntPtr(int32): intptr;   // Sign-extends.
 extern macro ChangeUint32ToWord(uint32): uintptr;  // Doesn't sign-extend.
-extern macro LoadNativeContext(Context): NativeContext;
 extern macro LoadJSArrayElementsMap(constexpr ElementsKind, Context): Map;
 extern macro ChangeNonnegativeNumberToUintPtr(Number): uintptr;
 
@@ -826,6 +903,9 @@ FromConstexpr<Number, constexpr float64>(f: constexpr float64): Number {
 FromConstexpr<Number, constexpr int31>(i: constexpr int31): Number {
   return %FromConstexpr<Number>(i);
 }
+FromConstexpr<Numeric, constexpr int31>(i: constexpr int31): Numeric {
+  return SmiConstant(i);
+}
 FromConstexpr<Number, constexpr Smi>(s: constexpr Smi): Number {
   return SmiConstant(s);
 }
@@ -854,10 +934,6 @@ FromConstexpr<ElementsKind, constexpr ElementsKind>(e: constexpr ElementsKind):
 }
 FromConstexpr<Object, constexpr string>(s: constexpr string): Object {
   return StringConstant(s);
-}
-FromConstexpr<NativeContextSlot, constexpr NativeContextSlot>(
-    c: constexpr NativeContextSlot): NativeContextSlot {
-  return IntPtrConstant(c);
 }
 
 macro Convert<To: type, From: type>(i: From): To {
@@ -989,12 +1065,24 @@ TypedArrayBuiltinsAssembler::LoadTypedArrayBuffer(JSTypedArray): JSArrayBuffer;
 extern operator '.data_ptr' macro TypedArrayBuiltinsAssembler::LoadDataPtr(
     JSTypedArray): RawPtr;
 
+extern operator '.byte_offset=' macro
+TypedArrayBuiltinsAssembler::StoreByteOffset(JSTypedArray, uintptr): void;
+extern operator '.byte_length=' macro
+TypedArrayBuiltinsAssembler::StoreByteLength(JSTypedArray, uintptr): void;
+extern operator '.byte_length' macro
+TypedArrayBuiltinsAssembler::LoadByteLength(JSArrayBuffer): uintptr;
+
 extern operator '.elements_kind' macro LoadMapElementsKind(Map): ElementsKind;
 extern operator '.elements_kind' macro LoadElementsKind(JSTypedArray):
     ElementsKind;
 
 extern operator '.elements' macro LoadElements(JSObject): FixedArrayBase;
 extern operator '.elements=' macro StoreElements(JSObject, FixedArrayBase);
+
+operator '.iterator_function' macro GetIterableIteratorSymbol(
+    implicit context: Context)(iterable: Iterable): Object {
+  return GetIteratorMethod(iterable) otherwise unreachable;
+}
 
 extern operator '.length' macro LoadJSTypedArrayLength(JSTypedArray): Smi;
 extern operator '.length' macro LoadJSArrayLength(JSArray): Number;
@@ -1046,6 +1134,8 @@ macro StoreFixedDoubleArrayElementWithSmiIndex(
   StoreFixedDoubleArrayElement(array, index, value, SMI_PARAMETERS);
 }
 extern macro GetNumberDictionaryNumberOfElements(NumberDictionary): Smi;
+extern macro GetIteratorMethod(implicit context: Context)(HeapObject): Object
+    labels IfIteratorUndefined;
 
 extern macro BasicLoadNumberDictionaryElement(NumberDictionary, intptr): Object
     labels NotData, IfHole;
@@ -1109,8 +1199,13 @@ extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, intptr): float64
 extern macro StoreFixedDoubleArrayHoleSmi(FixedDoubleArray, Smi): void;
 
 macro GetObjectFunction(implicit context: Context)(): JSFunction {
-  return UnsafeCast<JSFunction>(
-      LoadNativeContext(context)[OBJECT_FUNCTION_INDEX]);
+  return UnsafeCast<JSFunction>(context.native_context[OBJECT_FUNCTION_INDEX]);
+}
+macro GetArrayBufferFunction(implicit context: Context)(): JSFunction {
+  return UnsafeCast<JSFunction>(context.native_context[ARRAY_BUFFER_FUN_INDEX]);
+}
+macro GetIteratorResultMap(implicit context: Context)(): Map {
+  return UnsafeCast<Map>(context.native_context[ITERATOR_RESULT_MAP_INDEX]);
 }
 
 extern transitioning macro Call(Context, Callable, Object): Object;

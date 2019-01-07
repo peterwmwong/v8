@@ -101,7 +101,7 @@ namespace array {
         return ExtractFastJSArray(context, a, start, count);
       }
       case (a: JSArgumentsObjectWithLength): {
-        const nativeContext: NativeContext = LoadNativeContext(context);
+        const nativeContext: NativeContext = context.native_context;
         const map: Map = a.map;
         if (IsFastAliasedArgumentsMap(map)) {
           return HandleFastAliasedSloppyArgumentsSlice(context, a, start, count)

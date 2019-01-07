@@ -161,13 +161,15 @@ TF_BUILTIN(FastNewObject, ConstructorBuiltinsAssembler) {
   TailCallRuntime(Runtime::kNewObject, context, target, new_target);
 }
 
-Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
-                                                      Node* target,
-                                                      Node* new_target) {
+// TODO(pwong): Figure out how to verify dictionary maps is NEVER passed to
+// CreateTypedArray.
+Node* ConstructorBuiltinsAssembler::EmitFastNewObject(
+    Node* context, Node* target, Node* new_target, bool handleDictionaryMaps) {
   VARIABLE(var_obj, MachineRepresentation::kTagged);
   Label call_runtime(this), end(this);
 
-  Node* result = EmitFastNewObject(context, target, new_target, &call_runtime);
+  Node* result = EmitFastNewObject(context, target, new_target, &call_runtime,
+                                   handleDictionaryMaps);
   var_obj.Bind(result);
   Goto(&end);
 
@@ -179,10 +181,9 @@ Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
   return var_obj.value();
 }
 
-Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
-                                                      Node* target,
-                                                      Node* new_target,
-                                                      Label* call_runtime) {
+Node* ConstructorBuiltinsAssembler::EmitFastNewObject(
+    Node* context, Node* target, Node* new_target, Label* call_runtime,
+    bool handleDictionaryMaps) {
   CSA_ASSERT(this, HasInstanceType(target, JS_FUNCTION_TYPE));
   CSA_ASSERT(this, IsJSReceiver(new_target));
 
@@ -205,21 +206,22 @@ Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
       LoadObjectField(initial_map, Map::kConstructorOrBackPointerOffset);
   GotoIf(WordNotEqual(target, new_target_constructor), call_runtime);
 
-  VARIABLE(properties, MachineRepresentation::kTagged);
+  VARIABLE(properties, MachineRepresentation::kTagged,
+           EmptyFixedArrayConstant());
 
-  Label instantiate_map(this), allocate_properties(this);
-  GotoIf(IsDictionaryMap(initial_map), &allocate_properties);
-  {
-    properties.Bind(EmptyFixedArrayConstant());
-    Goto(&instantiate_map);
+  if (handleDictionaryMaps) {
+    Label instantiate_map(this), allocate_properties(this);
+    Branch(IsDictionaryMap(initial_map), &allocate_properties,
+           &instantiate_map);
+    BIND(&allocate_properties);
+    {
+      properties.Bind(AllocateNameDictionary(NameDictionary::kInitialCapacity));
+      Goto(&instantiate_map);
+    }
+    BIND(&instantiate_map);
+  } else {
+    CSA_ASSERT(this, Word32BinaryNot(IsDictionaryMap(initial_map)));
   }
-  BIND(&allocate_properties);
-  {
-    properties.Bind(AllocateNameDictionary(NameDictionary::kInitialCapacity));
-    Goto(&instantiate_map);
-  }
-
-  BIND(&instantiate_map);
   return AllocateJSObjectFromMap(initial_map, properties.value(), nullptr,
                                  kNone, kWithSlackTracking);
 }

@@ -385,8 +385,6 @@ namespace data_view {
     return MakeBigInt(lowWord, highWord, signed);
   }
 
-  extern macro ToSmiIndex(Object, Context): Smi
-      labels RangeError;
   extern macro DataViewBuiltinsAssembler::DataViewElementSize(
       constexpr ElementsKind): constexpr int31;
 

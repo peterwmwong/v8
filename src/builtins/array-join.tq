@@ -437,7 +437,7 @@ namespace array {
       constexpr int31 generates 'JSArray::kMinJoinStackSize';
   macro LoadJoinStack(implicit context: Context)(): FixedArray
       labels IfUninitialized {
-    const nativeContext: NativeContext = LoadNativeContext(context);
+    const nativeContext: NativeContext = context.native_context;
     const stack: HeapObject =
         UnsafeCast<HeapObject>(nativeContext[ARRAY_JOIN_STACK_INDEX]);
     if (stack == Undefined) goto IfUninitialized;
@@ -446,7 +446,7 @@ namespace array {
   }
 
   macro SetJoinStack(implicit context: Context)(stack: FixedArray): void {
-    const nativeContext: NativeContext = LoadNativeContext(context);
+    const nativeContext: NativeContext = context.native_context;
     nativeContext[ARRAY_JOIN_STACK_INDEX] = stack;
   }
 

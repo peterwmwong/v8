@@ -9113,6 +9113,14 @@ Node* CodeStubAssembler::GetMethod(Node* context, Node* object,
   return method;
 }
 
+TNode<Object> CodeStubAssembler::GetIteratorMethod(
+    TNode<Context> context, TNode<HeapObject> heap_obj,
+    Label* if_iteratorundefined) {
+  return CAST(GetMethod(context, heap_obj,
+                        isolate()->factory()->iterator_symbol(),
+                        if_iteratorundefined));
+}
+
 void CodeStubAssembler::LoadPropertyFromFastObject(
     Node* object, Node* map, TNode<DescriptorArray> descriptors,
     Node* name_index, Variable* var_details, Variable* var_value) {

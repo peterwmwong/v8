@@ -299,6 +299,11 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
     return UncheckedCast<Smi>(value);
   }
 
+  TNode<Smi> TaggedToPositiveSmi(TNode<Object> value, Label* fail) {
+    GotoIfNot(TaggedIsPositiveSmi(value), fail);
+    return UncheckedCast<Smi>(value);
+  }
+
   TNode<Number> TaggedToNumber(TNode<Object> value, Label* fail) {
     GotoIfNot(IsNumber(value), fail);
     return UncheckedCast<Number>(value);
@@ -313,6 +318,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
                                      Label* fail) {
     GotoIfNot(IsJSArray(heap_object), fail);
     return UncheckedCast<JSArray>(heap_object);
+  }
+
+  TNode<JSArrayBuffer> HeapObjectToJSArrayBuffer(TNode<HeapObject> heap_object,
+                                                 Label* fail) {
+    GotoIfNot(IsJSArrayBuffer(heap_object), fail);
+    return UncheckedCast<JSArrayBuffer>(heap_object);
   }
 
   TNode<JSArray> TaggedToFastJSArray(TNode<Context> context,
@@ -1188,6 +1199,13 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   template <class T = Object>
   TNode<T> StoreObjectFieldNoWriteBarrier(TNode<HeapObject> object,
                                           TNode<IntPtrT> offset,
+                                          TNode<T> value) {
+    return UncheckedCast<T>(StoreObjectFieldNoWriteBarrier(
+        object, offset, value, MachineRepresentationOf<T>::value));
+  }
+
+  template <class T = Object>
+  TNode<T> StoreObjectFieldNoWriteBarrier(TNode<HeapObject> object, int offset,
                                           TNode<T> value) {
     return UncheckedCast<T>(StoreObjectFieldNoWriteBarrier(
         object, offset, value, MachineRepresentationOf<T>::value));
@@ -2603,6 +2621,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   Node* GetMethod(Node* context, Node* object, Handle<Name> name,
                   Label* if_null_or_undefined);
+
+  TNode<Object> GetIteratorMethod(TNode<Context> context,
+                                  TNode<HeapObject> heap_obj,
+                                  Label* if_iteratorundefined);
 
   template <class... TArgs>
   TNode<Object> CallBuiltin(Builtins::Name id, SloppyTNode<Object> context,

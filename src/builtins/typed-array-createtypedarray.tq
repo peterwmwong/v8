@@ -1,0 +1,207 @@
+// Copyright 2019 the V8 project authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#include 'src/builtins/builtins-constructor-gen.h'
+
+namespace typed_array {
+  extern macro
+  ConstructorBuiltinsAssembler::EmitFastNewObject(
+      Context, JSFunction, JSReceiver): JSTypedArray;
+
+  extern macro TypedArrayBuiltinsAssembler::GetTypedArrayElementSize(
+      ElementsKind): intptr;
+
+  extern builtin TypedArrayInitialize(
+      Context, JSTypedArray, Smi, Smi, Boolean, JSFunction): void;
+  extern builtin TypedArrayInitializeWithBuffer(
+      Context, JSTypedArray, Smi, JSArrayBuffer, Smi, Number): void;
+
+  extern builtin IterableToListMayPreserveHoles(Context, Object, Object):
+      JSArray;
+
+  extern runtime TypedArrayCopyElements(Context, JSTypedArray, Object, Number):
+      void;
+
+  extern runtime ThrowInvalidTypedArrayAlignment(Context, Map, String): never;
+
+  // 22.2.4.1 TypedArray ( )
+  // 22.2.4.2 TypedArray ( length )
+  macro ConstructByLength(implicit context: Context)(
+      typedArray: JSTypedArray, length: PositiveSmi, elementSize: Smi): void {
+    const defaultConstructor: JSFunction = GetArrayBufferFunction();
+    TypedArrayInitialize(
+        context, typedArray, length, elementSize, True, defaultConstructor);
+  }
+
+  macro ConstructByLengthObject(implicit context: Context)(
+      typedArray: JSTypedArray, lengthObj: Object, elementSize: Smi): void {
+    const lengthNumber: Number =
+        ToInteger_Inline(context, lengthObj, kTruncateMinusZero);
+    const length: PositiveSmi = Cast<PositiveSmi>(lengthNumber)
+        otherwise ThrowRangeError(context, kInvalidTypedArrayLength, lengthNumber);
+    ConstructByLength(typedArray, length, elementSize);
+  }
+
+  macro CheckByteOffset<T: type>(implicit context:
+                                      Context)(offset: T, elementSize: Smi)
+      labels IfInvalid, IfInvalidAlignment(String) {
+    if (offset < 0) goto IfInvalid;
+    // if (offset % elementSize != 0) {
+    // TODO(pwong): review comment - This is matching what the CSA version did.
+    if (WordNotEqual(offset % elementSize, FromConstexpr<Smi>(0))) {
+      goto IfInvalidAlignment('start offset');
+    }
+  }
+
+  // 22.2.4.5 TypedArray ( buffer, byteOffset, length )
+  macro ConstructByArrayBuffer(implicit context: Context)(
+      typedArray: JSTypedArray, buffer: JSArrayBuffer, maybeByteOffset: Object,
+      maybeLength: Object, elementSize: Smi): void {
+    try {
+      let offset: Number = 0;
+      if (maybeByteOffset != Undefined) {
+        offset = ToInteger_Inline(context, maybeByteOffset, kTruncateMinusZero);
+        typeswitch (offset) {
+          case (offset: Smi): {
+            CheckByteOffset(offset, elementSize) otherwise IfInvalidOffset,
+                IfInvalidAlignment;
+          }
+          case (offset: Numeric): deferred {
+            CheckByteOffset(offset, elementSize) otherwise IfInvalidOffset,
+                IfInvalidAlignment;
+          }
+        }
+      }
+
+      let length: Smi;
+      if (maybeLength == Undefined) {
+        if (IsDetachedBuffer(buffer)) goto IfDetached;
+
+        const byteLength: Numeric = Convert<Number>(buffer.byte_length);
+        if (byteLength % elementSize != 0)
+          goto IfInvalidAlignment('byte length');
+
+        const newByteLength: Numeric = byteLength - offset;
+        if (newByteLength < 0) goto IfInvalidLength;
+
+        length =
+            Cast<Smi>(newByteLength / elementSize) otherwise IfInvalidLength;
+      } else {
+        length = ToSmiIndex(maybeLength, context) otherwise IfInvalidLength;
+        if (IsDetachedBuffer(buffer)) goto IfDetached;
+
+        const byteLength: Numeric = Convert<Number>(buffer.byte_length);
+        if (byteLength - offset < length * elementSize) goto IfInvalidLength;
+      }
+
+      TypedArrayInitializeWithBuffer(
+          context, typedArray, length, buffer, elementSize, offset);
+    }
+    label IfInvalidOffset deferred {
+      ThrowRangeError(context, kInvalidOffset, maybeByteOffset);
+    }
+    label IfInvalidAlignment(problemString: String) deferred {
+      ThrowInvalidTypedArrayAlignment(context, typedArray.map, problemString);
+    }
+    label IfInvalidLength deferred {
+      ThrowRangeError(context, kInvalidTypedArrayLength, maybeLength);
+    }
+    label IfDetached deferred {
+      ThrowTypeError(context, kDetachedOperation, 'Construct');
+    }
+  }
+
+  // 22.2.4.3 TypedArray ( typedArray )
+  macro ConstructByTypedArray(implicit context: Context)(
+      typedArray: JSTypedArray, srcTypedArray: JSTypedArray,
+      elementSize: Smi): void {
+    // let bufferConstructor: JSFunction =
+    //     Cast<JSFunction>(context.native_context[ARRAY_BUFFER_FUN_INDEX])
+    //     otherwise unreachable;
+    // const sourceBuffer: JSArrayBuffer = srcTypedArray.buffer;
+    // try {
+    //   if (IsDetachedBuffer(typedArray.buffer)) goto IfDetached;
+
+    //   const length: Smi = typedArray.length;
+    //   // TODO(pwong): Check SAB
+    //   // bufferConstructor = SpeciesConstructor(context, sourceBuffer,
+    //   // bufferConstructor);
+
+    //   // TODO(petermarshall): Throw on detached typedArray.
+    //   if (IsDetachedBuffer(typedArray.buffer)) goto IfDetached;
+
+    //   TypedArrayInitialize(
+    //       context, typedArray, length, elementSize, False,
+    //       bufferConstructor);
+
+    //   if (IsDetachedBuffer(typedArray.buffer)) goto IfDetached;
+    // }
+    // label IfDetached {
+    //   TypedArrayInitialize(
+    //       context, typedArray, 0, elementSize, False, bufferConstructor);
+    // }
+  }
+
+  // 22.2.4.4 TypedArray ( object )
+  transitioning macro ConstructByArrayLike(implicit context: Context)(
+      typedArray: JSTypedArray, arrayLike: HeapObject, elementSize: Smi): void {
+    // const length: Number = GetLengthProperty(arrayLike);
+    // TypedArrayCopyElements(context, typedArray, arrayLike, length);
+  }
+
+  transitioning macro ConstructByIterable(implicit context: Context)(
+      typedArray: JSTypedArray, iterable: Iterable, elementSize: Smi): void {
+    // const iteratorFn: Callable = Cast<Callable>(iterable.iterator_function)
+    //     otherwise ThrowTypeError(context, kIteratorSymbolNonCallable);
+    // const array: JSArray =
+    //     IterableToListMayPreserveHoles(context, iterable, iteratorFn);
+    // ConstructByArrayLike(typedArray, array, elementSize);
+  }
+
+  transitioning builtin CreateTypedArray2(
+      context: Context, target: JSFunction, newTarget: JSReceiver, arg1: Object,
+      arg2: Object, arg3: Object): Object {
+    // Initialize empty TypedArray.
+    const result: JSTypedArray = EmitFastNewObject(context, target, newTarget);
+    result.byte_offset = 0;
+    result.byte_length = 0;
+
+    const elementSize: Smi =
+        Convert<Smi>(GetTypedArrayElementSize(result.elements_kind));
+
+    try {
+      typeswitch (arg1) {
+        case (length: PositiveSmi): {
+          goto IfConstructByLength(length);
+        }
+        case (buffer: JSArrayBuffer): {
+          ConstructByArrayBuffer(result, buffer, arg2, arg3, elementSize);
+        }
+        case (typedArray: JSTypedArray): {
+          ConstructByTypedArray(result, typedArray, elementSize);
+        }
+        case (iterable: Iterable): {
+          ConstructByIterable(result, iterable, elementSize);
+        }
+        case (obj: JSReceiver): {
+          ConstructByArrayLike(result, obj, elementSize);
+        }
+        case (lengthObj: Object): {
+          const lengthNumber: Number =
+              ToInteger_Inline(context, lengthObj, kTruncateMinusZero);
+          const length: PositiveSmi = Cast<PositiveSmi>(lengthNumber)
+              otherwise ThrowRangeError(
+              context, kInvalidTypedArrayLength, lengthNumber);
+          goto IfConstructByLength(length);
+        }
+      }
+    }
+    label IfConstructByLength(length: PositiveSmi) {
+      // The first argument was a number or fell through and is treated as
+      // a number. https://tc39.github.io/ecma262/#sec-typedarray-length
+      ConstructByLength(result, length, elementSize);
+    }
+    return result;
+  }
+}

@@ -50,6 +50,12 @@ class TypedArrayBuiltinsAssembler : public CodeStubAssembler {
                            TNode<JSReceiver> iterator_fn,
                            TNode<Smi> element_size);
 
+  void StoreByteOffset(TNode<JSTypedArray> typed_array,
+                       TNode<UintPtrT> byte_offset);
+  void StoreByteLength(TNode<JSTypedArray> typed_array,
+                       TNode<UintPtrT> byte_length);
+  TNode<UintPtrT> LoadByteLength(TNode<JSArrayBuffer> buffer);
+
   void SetupTypedArray(TNode<JSTypedArray> holder, TNode<Smi> length,
                        TNode<UintPtrT> byte_offset,
                        TNode<UintPtrT> byte_length);
