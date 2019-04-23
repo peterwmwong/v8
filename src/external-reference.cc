@@ -622,6 +622,9 @@ ExternalReference ExternalReference::search_string_raw() {
 FUNCTION_REFERENCE(jsarray_array_join_concat_to_sequential_string,
                    JSArray::ArrayJoinConcatToSequentialString)
 
+FUNCTION_REFERENCE(jsregexp_regexp_replace_to_sequential_string,
+                   JSRegExp::RegExpReplaceToSequentialString)
+
 ExternalReference ExternalReference::search_string_raw_one_one() {
   return search_string_raw<const uint8_t, const uint8_t>();
 }

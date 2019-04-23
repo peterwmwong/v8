@@ -146,6 +146,8 @@ class StatsCounter;
   V(jsarray_array_join_concat_to_sequential_string,                           \
     "jsarray_array_join_concat_to_sequential_string")                         \
   V(jsreceiver_create_identity_hash, "jsreceiver_create_identity_hash")       \
+  V(jsregexp_regexp_replace_to_sequential_string,                             \
+    "jsregexp_regexp_replace_to_sequential_string")                           \
   V(libc_memchr_function, "libc_memchr")                                      \
   V(libc_memcpy_function, "libc_memcpy")                                      \
   V(libc_memmove_function, "libc_memmove")                                    \

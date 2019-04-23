@@ -4495,6 +4495,58 @@ void WriteFixedArrayToFlat(FixedArray fixed_array, int length, String separator,
   DCHECK_EQ(sink, sink_end);
 }
 
+template <typename sinkchar>
+void WriteFixedArraySlicesToFlat(String subject, FixedArray fixed_array,
+                                 int length, String separator, sinkchar* sink,
+                                 int sink_length) {
+  DisallowHeapAllocation no_allocation;
+  CHECK_GT(length, 0);
+  CHECK_LE(length, fixed_array->length());
+#ifdef DEBUG
+  sinkchar* sink_end = sink + sink_length;
+#endif
+
+  const int separator_length = separator->length();
+  uint32_t slice_end = 0;
+  uint32_t last_slice_end = 0;
+  for (int i = 0; i < length;) {
+    uint32_t slice_start = 0;
+    CHECK(fixed_array->get(i++)->ToUint32(&slice_start));
+    CHECK(fixed_array->get(i++)->ToUint32(&slice_end));
+    DCHECK_LE(slice_start, slice_end);
+
+    // Write the subject string before the match
+    // TODO(pwong): Assess performance of these conditionals nowrite vs branching.
+    if (last_slice_end < slice_start) {
+      DCHECK_LE(sink, sink_end);
+      DCHECK_LE(last_slice_end, slice_start);
+      String::WriteToFlat(subject, sink, last_slice_end, slice_start);
+      sink += (slice_start - last_slice_end);
+    }
+
+    last_slice_end = slice_end;
+
+    // Write the seperator
+    if (separator_length != 0) {
+      DCHECK_LE(sink, sink_end);
+      String::WriteToFlat(separator, sink, 0, separator_length);
+      sink += separator_length;
+    }
+  }
+
+  // Write the subject string after the last match
+  const int subject_length = subject->length();
+  if (last_slice_end < static_cast<uint32_t>(subject_length)) {
+    DCHECK_LE(sink, sink_end);
+    DCHECK_LE(last_slice_end, subject_length);
+    String::WriteToFlat(subject, sink, last_slice_end, subject_length);
+    sink += (subject_length - last_slice_end);
+  }
+
+  // Verify we have written to the end of the sink.
+  DCHECK_EQ(sink, sink_end);
+}
+
 }  // namespace
 
 // static
@@ -4525,8 +4577,31 @@ Address JSArray::ArrayJoinConcatToSequentialString(Isolate* isolate,
   return dest->ptr();
 }
 
+Address JSRegExp::RegExpReplaceToSequentialString(
+    Isolate* isolate, Address raw_subject_string, Address raw_fixed_array,
+    intptr_t length, Address raw_replace_string, Address raw_dest) {
+  DisallowHeapAllocation no_allocation;
+  DisallowJavascriptExecution no_js(isolate);
+  String subject = String::cast(Object(raw_subject_string));
+  FixedArray fixed_array = FixedArray::cast(Object(raw_fixed_array));
+  String replace = String::cast(Object(raw_replace_string));
+  String dest = String::cast(Object(raw_dest));
+  DCHECK(fixed_array->IsFixedArray());
+  DCHECK(StringShape(dest).IsSequentialOneByte() ||
+         StringShape(dest).IsSequentialTwoByte());
 
-
+  if (StringShape(dest).IsSequentialOneByte()) {
+    WriteFixedArraySlicesToFlat(
+        subject, fixed_array, static_cast<int>(length), replace,
+        SeqOneByteString::cast(dest)->GetChars(no_allocation), dest->length());
+  } else {
+    DCHECK(StringShape(dest).IsSequentialTwoByte());
+    WriteFixedArraySlicesToFlat(
+        subject, fixed_array, static_cast<int>(length), replace,
+        SeqTwoByteString::cast(dest)->GetChars(no_allocation), dest->length());
+  }
+  return dest->ptr();
+}
 
 uint32_t StringHasher::MakeArrayIndexHash(uint32_t value, int length) {
   // For array indexes mix the length into the hash as an array index could

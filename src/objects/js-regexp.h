@@ -95,6 +95,11 @@ class JSRegExp : public JSObject {
                                           Handle<String> source,
                                           Handle<String> flags_string);
 
+  // Support for RegExp.prototype[@@replace]().
+  static Address RegExpReplaceToSequentialString(
+      Isolate* isolate, Address raw_subject_string, Address raw_fixed_array,
+      intptr_t length, Address raw_replace_string, Address raw_dest);
+
   inline Type TypeTag() const;
   // Number of captures (without the match itself).
   inline int CaptureCount();

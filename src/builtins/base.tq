@@ -984,6 +984,13 @@ extern class JSRegExp extends JSObject {
   flags: Smi | Undefined;
 }
 
+extern operator '.unicode' macro RegExpBuiltinsAssembler::SlowFlagGetterUnicode(implicit context: Context)(JSRegExp): bool;
+extern operator '.global' macro RegExpBuiltinsAssembler::SlowFlagGetterGlobal(implicit context: Context)(JSRegExp): bool;
+extern operator '.lastIndex' macro RegExpBuiltinsAssembler::SlowLoadLastIndex(implicit context: Context)(
+    JSRegExp): Number;
+extern operator '.lastIndex=' macro RegExpBuiltinsAssembler::SlowStoreLastIndex(implicit context: Context)(
+    JSRegExp, Number): void;
+
 // Note: Although a condition for a FastJSRegExp is having a positive smi
 // lastIndex (see RegExpBuiltinsAssembler::BranchIfFastRegExp), it is possible
 // for this to change without transitioning the transient type. As a precaution,
@@ -1021,6 +1028,8 @@ macro GetStartOfCaptureIndex(captureIndex: constexpr int31): constexpr int31 {
 }
 
 extern class RegExpMatchInfo extends FixedArray {
+  // TODO(pwong): Can we load the start and end in one 64-bit load?
+  // TODO(pwong): Consider returning a struct { GetStart(){ return this.startEnd | mask; } startEnd: int64; }
   GetStartOfCapture(implicit context: Context)(captureIndex: constexpr int31):
       Smi {
     const index: constexpr int31 = GetStartOfCaptureIndex(captureIndex);
