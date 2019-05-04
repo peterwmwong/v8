@@ -218,11 +218,12 @@ namespace regexp_replace {
       }
     }
     EnsureCapacity2(implicit context: Context)() {
-      assert(this.length <= this.capacity);
-      if (this.length >= this.capacity - 1) {
+      const capacity = this.capacity;
+      assert(this.length <= capacity);
+      if (this.length >= capacity - 1) {
         // Growth rate is analog to JSObject::NewElementsCapacity:
         // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
-        this.capacity = this.capacity + (this.capacity >> 1) + 16;
+        this.capacity = capacity + (capacity >> 1) + 16;
         this.array = this.ResizeFixedArray(this.capacity);
       }
     }
@@ -233,8 +234,9 @@ namespace regexp_replace {
   }
 
   macro NewGrowableFixedArray(): GrowableFixedArray {
-    // return GrowableFixedArray{array: kEmptyFixedArray, capacity: 0, length: 0};
-    return GrowableFixedArray{array: AllocateFixedArrayWithHoles(4, kNone), capacity: 0, length: 0};
+    const kInitialCapacity: intptr = 16;
+    // return GrowableFixedArray{array: AllocateFixedArrayWithHoles(kInitialCapacity, kNone), capacity: kInitialCapacity, length: 0};
+    return GrowableFixedArray{array: kEmptyFixedArray, capacity: 0, length: 0};
   }
 
   // type AddMatchFn =
@@ -401,6 +403,45 @@ namespace regexp_replace {
       const matchStart: Smi = match.GetStartOfCapture(0);
       const matchEnd: Smi = match.GetEndOfCapture(0);
 
+      result = result + SubString(string, lastMatchEnd, matchStart);
+      lastMatchEnd = matchEnd;
+
+      if (replaceLength != 0) result = result + replaceString;
+
+      // Non-global case ends here after the first replacement.
+      if (!global) break;
+
+      // If match is the empty string, we have to increment lastIndex.
+      if (matchEnd == matchStart) {
+        AdvanceLastIndex(regexp, string);
+      }
+    }
+
+    return result + SubString(string, lastMatchEnd, string.length_smi);
+  }
+
+  transitioning macro RegExpReplaceFastStringOLD(implicit context: Context)(
+      regexp: FastJSRegExp, string: String, replaceString: String): String {
+    // The fast path is reached only if {receiver} is an unmodified JSRegExp
+    // instance, {replace_value} is non-callable, and ToString({replace_value})
+    // does not contain '$', i.e. we're doing a simple string replacement.
+    let result: String = kEmptyString;
+    let lastMatchEnd: Smi = 0;
+    let unicode: bool = false;
+    let replaceLength: Smi = replaceString.length_smi;
+    const global: bool = regexp.global;
+
+    if (global) {
+      unicode = regexp.unicode;
+      regexp.lastIndex = 0;
+    }
+
+    while (true) {
+      const match: RegExpMatchInfo = RegExpPrototypeExecBodyWithoutResult(
+          regexp, string, true) otherwise break;
+      const matchStart: Smi = match.GetStartOfCapture(0);
+      const matchEnd: Smi = match.GetEndOfCapture(0);
+
       // TODO(jgruber): We could skip many of the checks that using SubString
       // here entails.
       result = result + SubString(string, lastMatchEnd, matchStart);
@@ -446,10 +487,11 @@ namespace regexp_replace {
             goto Runtime;
           }
 
-          let processor: Processor =
-              NewProcessorForSimpleStringReplacement(stableRegexp);
-          return processor.Process(string, replaceString);
-          // return RegExpReplaceFastString(fastRegexp, string, replaceString);
+          // let processor: Processor =
+          //     NewProcessorForSimpleStringReplacement(stableRegexp);
+          // return processor.Process(string, replaceString);
+          return RegExpReplaceFastString(fastRegexp, string, replaceString);
+          // return RegExpReplaceFastStringOLD(fastRegexp, string, replaceString);
         }
         label Runtime deferred {
           return RegExpReplaceRT(context, stableRegexp, string, replaceString);
