@@ -44,11 +44,11 @@ function Replace4Setup() {
 }
 
 var benchmarks = [ [ StringReplace1, Replace1Setup],
-                   [ StringReplace1, Replace2Setup],
-                   [ StringReplace2, Replace1Setup],
+                  //  [ StringReplace1, Replace2Setup],
+                   /*[ StringReplace2, Replace1Setup],
                    [ StringReplace2, Replace2Setup],
                    [ StringReplace3, Replace3Setup],
                    [ StringReplace3, Replace4Setup],
                    [ FunctionReplace1, Replace3Setup],
-                   [ FunctionReplace1, Replace4Setup],
+                   [ FunctionReplace1, Replace4Setup],*/
                  ];

@@ -185,7 +185,7 @@ namespace regexp_replace {
     return global;
   }
 
-  class GrowableFixedArray {
+  struct GrowableFixedArray {
     Push(implicit context: Context)(obj: Object) {
       this.EnsureCapacity();
       this.array.objects[this.length++] = obj;
@@ -194,11 +194,17 @@ namespace regexp_replace {
       this.EnsureCapacity();
       this.array.objects[this.length++] = smi;
     }
-    ResizeFixedArray(implicit context: Context)(newCapacity: Smi): FixedArray {
+    Push2(implicit context: Context)(smi: Smi, smi2: Smi) {
+      this.EnsureCapacity2();
+      this.array.objects[this.length++] = smi;
+      this.array.objects[this.length++] = smi2;
+    }
+    ResizeFixedArray(implicit context: Context)(newCapacity: intptr):
+        FixedArray {
       assert(this.length >= 0);
       assert(newCapacity >= 0);
       assert(newCapacity >= this.length);
-      const first: Smi = 0;
+      const first: intptr = 0;
       return UnsafeCast<FixedArray>(ExtractFixedArray(
           this.array, first, this.length, newCapacity, kFixedArrays));
     }
@@ -211,35 +217,39 @@ namespace regexp_replace {
         this.array = this.ResizeFixedArray(this.capacity);
       }
     }
-    ToJSArray(implicit context: Context)(): JSArray {
-      const nativeContext: NativeContext = LoadNativeContext(context);
-      const map: Map = LoadJSArrayElementsMap(PACKED_ELEMENTS, nativeContext);
-      return AllocateJSArray(
-          map, this.ResizeFixedArray(this.length), this.length);
+    EnsureCapacity2(implicit context: Context)() {
+      assert(this.length <= this.capacity);
+      if (this.length >= this.capacity - 1) {
+        // Growth rate is analog to JSObject::NewElementsCapacity:
+        // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
+        this.capacity = this.capacity + (this.capacity >> 1) + 16;
+        this.array = this.ResizeFixedArray(this.capacity);
+      }
     }
 
     array: FixedArray;
-    capacity: Smi;
-    length: Smi;
+    capacity: intptr;
+    length: intptr;
   }
 
   macro NewGrowableFixedArray(): GrowableFixedArray {
-    return new
-    GrowableFixedArray{array: kEmptyFixedArray, capacity: 0, length: 0};
+    // return GrowableFixedArray{array: kEmptyFixedArray, capacity: 0, length: 0};
+    return GrowableFixedArray{array: AllocateFixedArrayWithHoles(4, kNone), capacity: 0, length: 0};
   }
 
-  type AddMatchFn =
-      builtin(Context, GrowableFixedArray, Smi, Smi, RegExpMatchInfo) => Object;
+  // type AddMatchFn =
+  //     builtin(Context, GrowableFixedArray, Smi, Smi, RegExpMatchInfo) =>
+  //     Object;
   type FinalizeFn = builtin(Context, FixedArray, Smi, Smi, String, Object) =>
       String;
 
-  builtin AddMatchForStringReplacement(
-      context: Context, acc: GrowableFixedArray, matchStart: Smi, matchEnd: Smi,
-      match: RegExpMatchInfo): Object {
-    acc.Push(matchStart);
-    acc.Push(matchEnd);
-    return Undefined;
-  }
+  // builtin AddMatchForStringReplacement(
+  //     context: Context, acc: GrowableFixedArray, matchStart: Smi, matchEnd:
+  //     Smi, match: RegExpMatchInfo): Object {
+  //   acc.Push(matchStart);
+  //   acc.Push(matchEnd);
+  //   return Undefined;
+  // }
 
   // TODO(pwong): Rename totalMatchLength
   // TODO(pwong): Bitcast Smis
@@ -259,25 +269,48 @@ namespace regexp_replace {
         string, matches, matchesLengthInt, replace, dest);
   }
 
+  macro FinalizeWithStringReplacement2(
+      context: Context, matches: FixedArray, matchesLength: Smi,
+      totalMatchLength: Smi, string: String, replaceObj: Object): String {
+    const replace = UnsafeCast<String>(replaceObj);
+    const isOneByte: bool = IsOneByteStringInstanceType(string.instanceType) &
+        IsOneByteStringInstanceType(replace.instanceType);
+    const matchesLengthInt = Convert<intptr>(matchesLength);
+    const nofChars = Convert<intptr>(totalMatchLength) +
+        replace.length_intptr * (matchesLengthInt >> 1);
+    const length = Convert<uint32>(Unsigned(nofChars));
+    const dest: String = isOneByte ? AllocateSeqOneByteString(length) :
+                                     AllocateSeqTwoByteString(length);
+    return CallJSRegExpRegExpReplaceToSequentialString(
+        string, matches, matchesLengthInt, replace, dest);
+  }
+
   struct Processor {
     Process(implicit context: Context)(
         string: String, replacer: Object): String {
-      const addMatchFn: AddMatchFn = this.addMatchFn;
-      const regexp: JSRegExp = this.regexp;
-      const matches: GrowableFixedArray = NewGrowableFixedArray();
+      // const addMatchFn: AddMatchFn = this.addMatchFn;
+      const regexp: FastJSRegExp =
+          Cast<FastJSRegExp>(this.regexp) otherwise unreachable;
+      let matches: GrowableFixedArray = NewGrowableFixedArray();
       let lastMatchEnd: Smi = 0;
       let unmatchedLength: Smi = 0;
       while (true) {
-        const regexpExecFn: RegExpExecFn = this.regexpExecFn;
-        const matchOrNull: RegExpMatchInfoOrNull =
-            regexpExecFn(context, regexp, string);
-        if (matchOrNull == Null) break;
+        // const regexpExecFn: RegExpExecFn = this.regexpExecFn;
+        // const matchOrNull: RegExpMatchInfoOrNull =
+        //     regexpExecFn(context, regexp, string);
+        // if (matchOrNull == Null) break;
+        // const match: RegExpMatchInfo =
+        //     %RawDownCast<RegExpMatchInfo>(matchOrNull);
 
-        const match: RegExpMatchInfo =
-            %RawDownCast<RegExpMatchInfo>(matchOrNull);
+        const kIsFast: constexpr bool = true;
+        const match: RegExpMatchInfo = RegExpPrototypeExecBodyWithoutResult(
+            regexp, string, kIsFast) otherwise break;
         const matchStart: Smi = match.GetStartOfCapture(0);
         const matchEnd: Smi = match.GetEndOfCapture(0);
-        addMatchFn(context, matches, matchStart, matchEnd, match);
+        // addMatchFn(context, matches, matchStart, matchEnd, match);
+        matches.Push2(matchStart, matchEnd);
+        // matches.Push(matchStart);
+        // matches.Push(matchEnd);
         unmatchedLength += (matchStart - lastMatchEnd);
         lastMatchEnd = matchEnd;
 
@@ -286,36 +319,40 @@ namespace regexp_replace {
 
         // If match is the empty string, we have to increment lastIndex.
         if (matchEnd == matchStart) deferred {
-            try {
-              const fastRegexp = Cast<FastJSRegExp>(regexp) otherwise Slow;
+            // try {
+              const fastRegexp = Cast<FastJSRegExp>(regexp) otherwise unreachable;
               AdvanceLastIndex(fastRegexp, string);
-            }
-            label Slow {
-              // TODO(pwong): tecnically this should ONLY happen if we're
-              // already on the slow path. assert(this.regexpExecFn ==
-              // RegExpPrototypeExecBodyWithoutResult<JSRegExp>);
-              this.regexpExecFn =
-                  RegExpPrototypeExecBodyWithoutResult<JSRegExp>;
-              AdvanceLastIndex(regexp, string);
-            }
+            // }
+            // label Slow {
+            //   // TODO(pwong): tecnically this should ONLY happen if we're
+            //   // already on the slow path. assert(this.regexpExecFn ==
+            //   // RegExpPrototypeExecBodyWithoutResult<JSRegExp>);
+            //   this.regexpExecFn =
+            //       RegExpPrototypeExecBodyWithoutResult<JSRegExp>;
+            //   AdvanceLastIndex(regexp, string);
+            // }
           }
       }
 
-      const matchesLength: Smi = matches.length;
-      if (matchesLength == 0) return string;
+      const matchesLength: intptr = matches.length;
+      // TODO(pwong): decreased perf
+      // if (matchesLength == 0) deferred {
+      //   return string;
+      // }
 
       unmatchedLength += (string.length_smi - lastMatchEnd);
       const finalizeFn: FinalizeFn = this.finalizeFn;
-      return finalizeFn(
-          context, matches.array, matchesLength, unmatchedLength, string,
-          replacer);
+      // return finalizeFn(
+      return FinalizeWithStringReplacement2(
+          context, matches.array, Convert<Smi>(matchesLength), unmatchedLength,
+          string, replacer);
     }
 
     const regexp: JSRegExp;
     const unicode: bool;
     const global: bool;
     regexpExecFn: RegExpExecFn;
-    const addMatchFn: AddMatchFn;
+    // const addMatchFn: AddMatchFn;
     const finalizeFn: FinalizeFn;
   }
 
@@ -326,7 +363,7 @@ namespace regexp_replace {
       unicode: regexp.unicode,
       global: ResetLastIndexIfGlobal(regexp),
       regexpExecFn: RegExpPrototypeExecBodyWithoutResult<T>,
-      addMatchFn: AddMatchForStringReplacement,
+      // addMatchFn: AddMatchForStringReplacement,
       finalizeFn
     };
   }
@@ -337,7 +374,7 @@ namespace regexp_replace {
       const fastRegexp = Cast<FastJSRegExp>(regexp) otherwise Slow;
       return NewProcessor(fastRegexp, FinalizeWithStringReplacement);
     }
-    label Slow {
+    label Slow deferred {
       return NewProcessor(regexp, FinalizeWithStringReplacement);
     }
   }
