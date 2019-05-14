@@ -5,23 +5,7 @@
 
 load('../base.js');
 
-load('ctor.js');
-load('exec.js');
-load('flags.js');
-load('inline_test.js')
-load('case_test.js');
-load('match.js');
 load('replace.js');
-load('search.js');
-load('split.js');
-load('test.js');
-load('slow_exec.js');
-load('slow_flags.js');
-load('slow_match.js');
-load('slow_replace.js');
-load('slow_search.js');
-load('slow_split.js');
-load('slow_test.js');
 
 var success = true;
 

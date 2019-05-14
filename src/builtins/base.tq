@@ -1039,6 +1039,13 @@ macro NewJSIteratorResult(implicit context: Context)(
   };
 }
 
+extern operator '.unicode' macro RegExpBuiltinsAssembler::SlowFlagGetterUnicode(implicit context: Context)(JSRegExp): bool;
+extern operator '.global' macro RegExpBuiltinsAssembler::SlowFlagGetterGlobal(implicit context: Context)(JSRegExp): bool;
+extern operator '.lastIndex' macro RegExpBuiltinsAssembler::SlowLoadLastIndex(implicit context: Context)(
+    JSRegExp): Number;
+extern operator '.lastIndex=' macro RegExpBuiltinsAssembler::SlowStoreLastIndex(implicit context: Context)(
+    JSRegExp, Number): void;
+
 // Note: Although a condition for a FastJSRegExp is having a positive smi
 // lastIndex (see RegExpBuiltinsAssembler::BranchIfFastRegExp), it is possible
 // for this to change without transitioning the transient type. As a precaution,

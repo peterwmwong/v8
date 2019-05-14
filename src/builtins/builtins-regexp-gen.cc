@@ -666,7 +666,7 @@ TNode<HeapObject> RegExpBuiltinsAssembler::RegExpExecInternal(
 TNode<RegExpMatchInfo>
 RegExpBuiltinsAssembler::RegExpPrototypeExecBodyWithoutResult(
     TNode<Context> context, TNode<JSReceiver> maybe_regexp,
-    TNode<String> string, Label* if_didnotmatch, const bool is_fastpath) {
+    TNode<String> string, const bool is_fastpath, Label* if_didnotmatch) {
   if (!is_fastpath) {
     ThrowIfNotInstanceType(context, maybe_regexp, JS_REGEXP_TYPE,
                            "RegExp.prototype.exec");
@@ -781,14 +781,6 @@ RegExpBuiltinsAssembler::RegExpPrototypeExecBodyWithoutResult(
   return CAST(var_result.value());
 }
 
-TNode<RegExpMatchInfo>
-RegExpBuiltinsAssembler::RegExpPrototypeExecBodyWithoutResultFast(
-    TNode<Context> context, TNode<JSReceiver> maybe_regexp,
-    TNode<String> string, Label* if_didnotmatch) {
-  return RegExpPrototypeExecBodyWithoutResult(context, maybe_regexp, string,
-                                              if_didnotmatch, true);
-}
-
 // ES#sec-regexp.prototype.exec
 // RegExp.prototype.exec ( string )
 TNode<HeapObject> RegExpBuiltinsAssembler::RegExpPrototypeExecBody(
@@ -798,7 +790,7 @@ TNode<HeapObject> RegExpBuiltinsAssembler::RegExpPrototypeExecBody(
 
   Label if_didnotmatch(this), out(this);
   TNode<RegExpMatchInfo> match_indices = RegExpPrototypeExecBodyWithoutResult(
-      context, maybe_regexp, string, &if_didnotmatch, is_fastpath);
+      context, maybe_regexp, string, is_fastpath, &if_didnotmatch);
 
   // Successful match.
   {
@@ -1789,7 +1781,7 @@ TF_BUILTIN(RegExpPrototypeTest, RegExpBuiltinsAssembler) {
   {
     Label if_didnotmatch(this);
     RegExpPrototypeExecBodyWithoutResult(context, receiver, string,
-                                         &if_didnotmatch, true);
+                                         true, &if_didnotmatch);
     Return(TrueConstant());
 
     BIND(&if_didnotmatch);
@@ -1814,8 +1806,7 @@ TF_BUILTIN(RegExpPrototypeTestFast, RegExpBuiltinsAssembler) {
 
   Label if_didnotmatch(this);
   CSA_ASSERT(this, IsFastRegExpWithOriginalExec(context, regexp));
-  RegExpPrototypeExecBodyWithoutResult(context, regexp, string, &if_didnotmatch,
-                                       true);
+  RegExpPrototypeExecBodyWithoutResult(context, regexp, string, true, &if_didnotmatch);
   Return(TrueConstant());
 
   BIND(&if_didnotmatch);
@@ -1935,7 +1926,7 @@ void RegExpBuiltinsAssembler::RegExpPrototypeMatchBody(Node* const context,
         // array.
         TNode<RegExpMatchInfo> match_indices =
             RegExpPrototypeExecBodyWithoutResult(CAST(context), CAST(regexp),
-                                                 string, &if_didnotmatch, true);
+                                                 string, true, &if_didnotmatch);
 
         Node* const match_from = UnsafeLoadFixedArrayElement(
             match_indices, RegExpMatchInfo::kFirstCaptureIndex);
@@ -2229,7 +2220,7 @@ void RegExpBuiltinsAssembler::RegExpPrototypeSearchBodyFast(
   // Call exec.
   Label if_didnotmatch(this);
   TNode<RegExpMatchInfo> match_indices = RegExpPrototypeExecBodyWithoutResult(
-      CAST(context), CAST(regexp), CAST(string), &if_didnotmatch, true);
+      CAST(context), CAST(regexp), CAST(string), true, &if_didnotmatch);
 
   // Successful match.
   {
@@ -2770,8 +2761,7 @@ TF_BUILTIN(RegExpStringIteratorPrototypeNext, RegExpStringIteratorAssembler) {
     {
       TNode<RegExpMatchInfo> match_indices =
           RegExpPrototypeExecBodyWithoutResult(context, CAST(iterating_regexp),
-                                               iterating_string, &if_no_match,
-                                               true);
+                                               iterating_string, true, &if_no_match);
       var_match = ConstructNewResultFromMatchInfo(
           context, CAST(iterating_regexp), match_indices, iterating_string);
       var_is_fast_regexp = Int32TrueConstant();

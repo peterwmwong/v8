@@ -21,11 +21,25 @@ namespace regexp_replace {
   StringReplaceNonGlobalRegExpWithFunction(implicit context: Context)(
       String, JSRegExp, Callable): String;
 
+  // TODO(pwong): consider supporting special keyword replacement `$`.
+  // extern macro StringBuiltinsAssembler::GetSubstitution(
+  //   implicit context: Context)(String, Smi, Smi, String): String;
+
+  // Fast
   extern macro
-  RegExpBuiltinsAssembler::AdvanceStringIndexFast(String, Number, bool): Smi;
+  RegExpBuiltinsAssembler::AdvanceStringIndex(String, Smi, bool): Smi;
+  // Slow
   extern macro
-  RegExpBuiltinsAssembler::RegExpPrototypeExecBodyWithoutResultFast(
-      implicit context: Context)(JSReceiver, String):
+  RegExpBuiltinsAssembler::AdvanceStringIndex(String, Number, bool): Number;
+  extern macro
+  RegExpBuiltinsAssembler::CallJSRegExpRegExpReplaceToSequentialString(
+      String, FixedArray, intptr, String, String): String;
+
+  // TODO(pwong): Consider optimizing to pass `collectCaptures: bool` to collect
+  // capture start/end indices or not.
+  extern macro
+  RegExpBuiltinsAssembler::RegExpPrototypeExecBodyWithoutResult(
+      implicit context: Context)(JSReceiver, String, constexpr bool):
       RegExpMatchInfo labels IfDidNotMatch;
 
   transitioning macro RegExpReplaceCallableNoExplicitCaptures(implicit context:
@@ -130,46 +144,119 @@ namespace regexp_replace {
     return StringBuilderConcat(matches, matchesLength, string);
   }
 
-  transitioning macro RegExpReplaceFastString(implicit context: Context)(
-      regexp: FastJSRegExp, string: String, replaceString: String): String {
+  type RegExpMatchInfoOrNull = RegExpMatchInfo | Null;
+
+  macro IsFastRegExpType<T: type>(): constexpr bool {
+    return false;
+  }
+  IsFastRegExpType<FastJSRegExp>(): constexpr bool {
+    return true;
+  }
+
+  type ExecFn = builtin(Context, JSReceiver, String) => RegExpMatchInfoOrNull;
+  builtin Exec<T: type>(context: Context, regex: JSReceiver, subject: String):
+      RegExpMatchInfoOrNull {
+    const isFast: constexpr bool = IsFastRegExpType<T>();
+    return RegExpPrototypeExecBodyWithoutResult(regex, subject, isFast)
+        otherwise return Null;
+  }
+
+  type OnMatchFn =
+      builtin(Context, Object, String, Object, RegExpMatchInfo, Smi) => Object;
+  builtin OnMatchSimpleStringReplace(
+      context: Context, acc: Object, subject: String, replace: Object,
+      match: RegExpMatchInfo, lastMatchEnd: Smi): Object {
+    const matchStart: Smi = match.GetStartOfCapture(0);
+    let result: String = UnsafeCast<String>(acc);
+    if (lastMatchEnd != matchStart) {
+      result += SubString(subject, lastMatchEnd, matchStart);
+    }
+
+    const replaceString = UnsafeCast<String>(replace);
+    if (replaceString.length_uint32 == 0) return result;
+    return result + replaceString;
+  }
+
+  type AdvanceLastIndexFn = builtin(Context, JSRegExp, String) => Undefined;
+  builtin AdvanceLastIndex<T: type>(
+      context: Context, regexp: JSRegExp, string: String): Undefined {
+    const rx: T = UnsafeCast<T>(regexp);
+    rx.lastIndex = AdvanceStringIndex(string, rx.lastIndex, rx.unicode);
+    return Undefined;
+  }
+
+  type OnFinalizeFn = builtin(Context, Object, String, Smi) => String;
+  builtin OnFinalizeSimpleStringReplace(
+      context: Context, acc: Object, subject: String,
+      lastMatchEnd: Smi): String {
+    return UnsafeCast<String>(acc) +
+        SubString(subject, lastMatchEnd, subject.length_smi);
+  }
+
+  struct ReplaceStrategy {
+    Exec(implicit context: Context)(subject: String):
+        RegExpMatchInfo labels IfNoMatch {
+      const execFn: ExecFn = this.execFn;
+      const matchOrNull: RegExpMatchInfoOrNull =
+          execFn(context, this.regexp, subject);
+      if (matchOrNull == Null) goto IfNoMatch;
+      return %RawDownCast<RegExpMatchInfo>(matchOrNull);
+    }
+    Process(implicit context: Context)(
+        subject: String, replacer: Object): String {
+      let lastMatchEnd: Smi = 0;
+      let acc: Object = this.initialAccumulatorValue;
+      while (true) {
+        const match: RegExpMatchInfo = this.Exec(subject) otherwise break;
+        const onMatchFn: OnMatchFn = this.onMatchFn;
+        acc = onMatchFn(context, acc, subject, replacer, match, lastMatchEnd);
+
+        const matchEnd: Smi = match.GetEndOfCapture(0);
+        const matchStart: Smi = match.GetStartOfCapture(0);
+        lastMatchEnd = matchEnd;
+
+        // Non-global case ends here after the first replacement.
+        if (!this.global) break;
+
+        // If match is the empty string, we have to increment lastIndex.
+        if (matchEnd == matchStart) {
+          const advanceLastIndexFn: AdvanceLastIndexFn =
+              this.advanceLastIndexFn;
+          advanceLastIndexFn(context, this.regexp, subject);
+        }
+      }
+
+      const onFinalizeFn: OnFinalizeFn = this.onFinalizeFn;
+      return onFinalizeFn(context, acc, subject, lastMatchEnd);
+    }
+    const regexp: JSRegExp;
+    const global: bool;
+    const initialAccumulatorValue: Object;
+    const execFn: ExecFn;
+    const onMatchFn: OnMatchFn;
+    const advanceLastIndexFn: AdvanceLastIndexFn;
+    const onFinalizeFn: OnFinalizeFn;
+  }
+
+  macro NewReplaceStrategy<T: type>(implicit context: Context)(regexp: T):
+      ReplaceStrategy {
     // The fast path is reached only if {receiver} is an unmodified JSRegExp
     // instance, {replace_value} is non-callable, and ToString({replace_value})
     // does not contain '$', i.e. we're doing a simple string replacement.
-    let result: String = kEmptyString;
-    let lastMatchEnd: Smi = 0;
-    let unicode: bool = false;
-    let replaceLength: Smi = replaceString.length_smi;
+    // TODO(pwong): Reduce cost of loading global and unicde. Load flags once
+    // and bit manipulate.
     const global: bool = regexp.global;
+    if (global) regexp.lastIndex = 0;
 
-    if (global) {
-      unicode = regexp.unicode;
-      regexp.lastIndex = 0;
-    }
-
-    while (true) {
-      const match: RegExpMatchInfo = RegExpPrototypeExecBodyWithoutResultFast(
-          regexp, string) otherwise break;
-      const matchStart: Smi = match.GetStartOfCapture(0);
-      const matchEnd: Smi = match.GetEndOfCapture(0);
-
-      // TODO(jgruber): We could skip many of the checks that using SubString
-      // here entails.
-      result = result + SubString(string, lastMatchEnd, matchStart);
-      lastMatchEnd = matchEnd;
-
-      if (replaceLength != 0) result = result + replaceString;
-
-      // Non-global case ends here after the first replacement.
-      if (!global) break;
-
-      // If match is the empty string, we have to increment lastIndex.
-      if (matchEnd == matchStart) {
-        regexp.lastIndex =
-            AdvanceStringIndexFast(string, regexp.lastIndex, unicode);
-      }
-    }
-
-    return result + SubString(string, lastMatchEnd, string.length_smi);
+    return ReplaceStrategy{
+      regexp,
+      global,
+      initialAccumulatorValue: kEmptyString,
+      execFn: Exec<T>,
+      onMatchFn: OnMatchSimpleStringReplace,
+      advanceLastIndexFn: AdvanceLastIndex<T>,
+      onFinalizeFn: OnFinalizeSimpleStringReplace
+    };
   }
 
   transitioning builtin RegExpReplace(implicit context: Context)(
@@ -189,21 +276,25 @@ namespace regexp_replace {
         const stableRegexp: JSRegExp = regexp;
         const replaceString: String = ToString_Inline(context, replaceValue);
 
-        try {
-          // ToString(replaceValue) could potentially change the shape of the
-          // RegExp object. Recheck that we are still on the fast path and bail
-          // to runtime otherwise.
-          const fastRegexp = Cast<FastJSRegExp>(stableRegexp) otherwise Runtime;
-          if (StringIndexOf(
-                  replaceString, SingleCharacterStringConstant('$'), 0) != -1) {
-            goto Runtime;
+        // ToString(replaceValue) could potentially change the shape of the
+        // RegExp object. Recheck that we are still on the fast path and bail
+        // to runtime otherwise.
+        if (StringIndexOf(
+                replaceString, SingleCharacterStringConstant('$'), 0) != -1)
+          deferred {
+            return RegExpReplaceRT(
+                context, stableRegexp, string, replaceString);
           }
 
-          return RegExpReplaceFastString(fastRegexp, string, replaceString);
+        let strategy: ReplaceStrategy;
+        try {
+          const fastRegexp = Cast<FastJSRegExp>(stableRegexp) otherwise IfSlow;
+          strategy = NewReplaceStrategy<FastJSRegExp>(fastRegexp);
         }
-        label Runtime deferred {
-          return RegExpReplaceRT(context, stableRegexp, string, replaceString);
+        label IfSlow {
+          strategy = NewReplaceStrategy<JSRegExp>(stableRegexp);
         }
+        return strategy.Process(string, replaceString);
       }
     }
   }

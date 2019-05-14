@@ -73,10 +73,7 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
 
   TNode<RegExpMatchInfo> RegExpPrototypeExecBodyWithoutResult(
       TNode<Context> context, TNode<JSReceiver> maybe_regexp,
-      TNode<String> string, Label* if_didnotmatch, const bool is_fastpath);
-  TNode<RegExpMatchInfo> RegExpPrototypeExecBodyWithoutResultFast(
-      TNode<Context> context, TNode<JSReceiver> maybe_regexp,
-      TNode<String> string, Label* if_didnotmatch);
+      TNode<String> string, const bool is_fastpath, Label* if_didnotmatch);
 
   TNode<HeapObject> RegExpPrototypeExecBody(TNode<Context> context,
                                             TNode<JSReceiver> maybe_regexp,
@@ -115,6 +112,16 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
   TNode<BoolT> FastFlagGetterUnicode(TNode<JSRegExp> regexp) {
     return ReinterpretCast<BoolT>(FastFlagGetter(regexp, JSRegExp::kUnicode));
   }
+  TNode<BoolT> SlowFlagGetterUnicode(TNode<Context> context,
+                                     TNode<JSRegExp> regexp) {
+    return ReinterpretCast<BoolT>(
+        SlowFlagGetter(context, regexp, JSRegExp::kUnicode));
+  }
+  TNode<BoolT> SlowFlagGetterGlobal(TNode<Context> context,
+                                    TNode<JSRegExp> regexp) {
+    return ReinterpretCast<BoolT>(
+        SlowFlagGetter(context, regexp, JSRegExp::kGlobal));
+  }
   TNode<Int32T> SlowFlagGetter(TNode<Context> context, TNode<Object> regexp,
                                JSRegExp::Flag flag);
   TNode<Int32T> FlagGetter(TNode<Context> context, TNode<Object> regexp,
@@ -130,6 +137,14 @@ class RegExpBuiltinsAssembler : public CodeStubAssembler {
 
   Node* AdvanceStringIndex(Node* const string, Node* const index,
                            Node* const is_unicode, bool is_fastpath);
+  TNode<Smi> AdvanceStringIndex(TNode<String> string, TNode<Smi> index,
+                                TNode<BoolT> is_unicode) {
+    return CAST(AdvanceStringIndex(string, index, is_unicode, true));
+  }
+  TNode<Number> AdvanceStringIndex(TNode<String> string, TNode<Number> index,
+                                   TNode<BoolT> is_unicode) {
+    return CAST(AdvanceStringIndex(string, index, is_unicode, false));
+  }
 
   Node* AdvanceStringIndexFast(Node* const string, Node* const index,
                                Node* const is_unicode) {
