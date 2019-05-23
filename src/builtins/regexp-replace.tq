@@ -37,10 +37,28 @@ namespace regexp_replace {
 
   // TODO(pwong): Consider optimizing to pass `collectCaptures: bool` to collect
   // capture start/end indices or not.
+  // TODO(pwong): Create a method that takes a FastJSRegExp and one that
+  // doesn't.  Both won't need to the isFast: constexpr bool. This will remove
+  // the need for IsFastRegExpType.
   extern macro
   RegExpBuiltinsAssembler::RegExpPrototypeExecBodyWithoutResult(
       implicit context: Context)(JSReceiver, String, constexpr bool):
       RegExpMatchInfo labels IfDidNotMatch;
+
+  macro IsFastRegExpType<T: type>(): constexpr bool {
+    return false;
+  }
+  IsFastRegExpType<FastJSRegExp>(): constexpr bool {
+    return true;
+  }
+
+  macro RegExpPrototypeExecBodyWithoutResult<T: type>(
+      implicit context: Context)(regex: T, subject: String):
+      RegExpMatchInfo labels IfDidNotMatch {
+    return RegExpPrototypeExecBodyWithoutResult(
+        regex, subject, IsFastRegExpType<T>())
+        otherwise IfDidNotMatch;
+  }
 
   macro SubStringInline(implicit context: Context)(
       string: String, start: Smi, end: Smi): String {
@@ -147,23 +165,6 @@ namespace regexp_replace {
     }
 
     return StringBuilderConcat(matches, matchesLength, string);
-  }
-
-  type RegExpMatchInfoOrNull = RegExpMatchInfo | Null;
-
-  macro IsFastRegExpType<T: type>(): constexpr bool {
-    return false;
-  }
-  IsFastRegExpType<FastJSRegExp>(): constexpr bool {
-    return true;
-  }
-
-  type ExecFn = builtin(Context, JSReceiver, String) => RegExpMatchInfoOrNull;
-  builtin Exec<T: type>(context: Context, regex: JSReceiver, subject: String):
-      RegExpMatchInfoOrNull {
-    const isFast: constexpr bool = IsFastRegExpType<T>();
-    return RegExpPrototypeExecBodyWithoutResult(regex, subject, isFast)
-        otherwise return Null;
   }
 
   type OnMatchFn =
@@ -304,12 +305,9 @@ namespace regexp_replace {
     return gfa.array;
   }
 
-  type AdvanceLastIndexFn = builtin(Context, JSRegExp, String) => Undefined;
-  builtin AdvanceLastIndex<T: type>(
-      context: Context, regexp: JSRegExp, string: String): Undefined {
-    const rx: T = UnsafeCast<T>(regexp);
+  macro AdvanceLastIndex<T: type>(implicit context:
+                                       Context)(rx: T, string: String) {
     rx.lastIndex = AdvanceStringIndex(string, rx.lastIndex, rx.unicode);
-    return Undefined;
   }
 
   type OnFinalizeFn = builtin(Context, Object, String, Object) => String;
@@ -376,132 +374,97 @@ namespace regexp_replace {
   }
 
   struct ReplaceStrategy {
-    Exec(implicit context: Context)(subject: String):
-        RegExpMatchInfo labels IfNoMatch {
-      const execFn: ExecFn = this.execFn;
-      const matchOrNull: RegExpMatchInfoOrNull =
-          execFn(context, this.regexp, subject);
-      if (matchOrNull == Null) goto IfNoMatch;
-      return %RawDownCast<RegExpMatchInfo>(matchOrNull);
-    }
-    Process(implicit context: Context)(
-        subject: String, replacer: Object): String {
-      let lastMatchEnd: Smi = 0;
-      let acc: Object = this.initialAccumulatorValue;
-      let hasMatches: bool = false;
-
-      while (true) {
-        const match: RegExpMatchInfo = this.Exec(subject) otherwise break;
-        hasMatches = true;
-
-        const onMatchFn: OnMatchFn = this.onMatchFn;
-        acc = onMatchFn(context, acc, subject, replacer, match, lastMatchEnd);
-
-        const matchEnd: Smi = match.GetEndOfCapture(0);
-        const matchStart: Smi = match.GetStartOfCapture(0);
-        lastMatchEnd = matchEnd;
-
-        // Non-global case ends here after the first replacement.
-        if (!this.global) break;
-
-        // If match is the empty string, we have to increment lastIndex.
-        if (matchEnd == matchStart) {
-          const advanceLastIndexFn: AdvanceLastIndexFn =
-              this.advanceLastIndexFn;
-          advanceLastIndexFn(context, this.regexp, subject);
-        }
-      }
-      if (!hasMatches) return subject;
-
-      const subjectLength: Smi = subject.length_smi;
-      const onFinalizeFn: OnFinalizeFn = this.onFinalizeFn;
-      const result: String = onFinalizeFn(context, acc, subject, replacer);
-      if (lastMatchEnd == subjectLength) return result;
-      return result + SubStringInline(subject, lastMatchEnd, subjectLength);
-    }
-    const regexp: JSRegExp;
-    const global: bool;
     const initialAccumulatorValue: Object;
-    const execFn: ExecFn;
     const onMatchFn: OnMatchFn;
-    const advanceLastIndexFn: AdvanceLastIndexFn;
     const onFinalizeFn: OnFinalizeFn;
   }
 
-  macro NewReplaceStrategy<T: type>(implicit context: Context)(regexp: T):
-      ReplaceStrategy {
+  macro Process<T: type>(implicit context: Context)(
+      rx: T, subject: String, replacer: Object,
+      strategy: ReplaceStrategy): String {
+    let lastMatchEnd: Smi = 0;
+    let acc: Object = strategy.initialAccumulatorValue;
+    let hasMatches: bool = false;
+    let regexp: T = rx;
+    const stableRegexp: JSRegExp = regexp;
+    const global: bool = regexp.global;
+    // TODO(pwong): Reduce cost of loading global and unicde. Load flags once
+    // and bit manipulate.
+    if (global) regexp.lastIndex = 0;
+
+    while (true) {
+      const match: RegExpMatchInfo =
+          RegExpPrototypeExecBodyWithoutResult(regexp, subject) otherwise break;
+      hasMatches = true;
+
+      const onMatchFn: OnMatchFn = strategy.onMatchFn;
+      acc = onMatchFn(context, acc, subject, replacer, match, lastMatchEnd);
+      regexp = %RawDownCast<T>(stableRegexp);
+
+      const matchEnd: Smi = match.GetEndOfCapture(0);
+      const matchStart: Smi = match.GetStartOfCapture(0);
+      lastMatchEnd = matchEnd;
+
+      // Non-global case ends here after the first replacement.
+      if (!global) break;
+
+      // If match is the empty string, we have to increment lastIndex.
+      if (matchEnd == matchStart) AdvanceLastIndex(regexp, subject);
+    }
+    if (!hasMatches) return subject;
+
+    const subjectLength: Smi = subject.length_smi;
+    const onFinalizeFn: OnFinalizeFn = strategy.onFinalizeFn;
+    const result: String = onFinalizeFn(context, acc, subject, replacer);
+    if (lastMatchEnd == subjectLength) return result;
+    return result + SubStringInline(subject, lastMatchEnd, subjectLength);
+  }
+
+  macro NewReplaceStrategy(implicit context: Context)(regexp: JSRegExp): ReplaceStrategy {
     // The fast path is reached only if {receiver} is an unmodified JSRegExp
     // instance, {replace_value} is non-callable, and ToString({replace_value})
     // does not contain '$', i.e. we're doing a simple string replacement.
-    // TODO(pwong): Reduce cost of loading global and unicde. Load flags once
-    // and bit manipulate.
-    const global: bool = regexp.global;
-    if (global) regexp.lastIndex = 0;
-
     return ReplaceStrategy{
-      regexp,
-      global,
       initialAccumulatorValue: kEmptyString,
-      execFn: Exec<T>,
       onMatchFn: OnMatchSimpleStringReplace,
-      advanceLastIndexFn: AdvanceLastIndex<T>,
       onFinalizeFn: OnFinalizeSimpleStringReplace
     };
   }
 
-  macro NewReplaceStrategyForCallable<T: type>(implicit context: Context)(
-      regexp: T): ReplaceStrategy {
-    // TODO(pwong): Consolidate with other constructor.
-    const global: bool = regexp.global;
-    if (global) regexp.lastIndex = 0;
-
-    const stableRegexp: JSRegExp = regexp;
-    const captureCount: Smi = stableRegexp.CaptureCount();
+  macro NewReplaceStrategyForCallable(implicit context: Context)(
+      regexp: JSRegExp): ReplaceStrategy {
+    const captureCount: Smi = regexp.CaptureCount();
     if (captureCount == 0) {
       return ReplaceStrategy{
-        regexp,
-        global,
         initialAccumulatorValue: kEmptyFixedArray,
-        execFn: Exec<T>,
         onMatchFn: OnMatchCallableNoCaptures,
-        advanceLastIndexFn: AdvanceLastIndex<T>,
         onFinalizeFn: OnFinalizeCallableNoCaptures
       };
     }
     try {
       // TODO(pwong): Unfortunately CaptureNameMap is NOT available until after
       // Exec is called :(
-      const namedCaptures: FixedArray =
-          stableRegexp.CaptureNameMap() otherwise IfNoNamedCaptures;
+      const namedCaptures: FixedArray = regexp.CaptureNameMap() otherwise IfNoNamedCaptures;
       return ReplaceStrategy{
-        regexp,
-        global,
         initialAccumulatorValue: kEmptyFixedArray,
-        execFn: Exec<T>,
         onMatchFn: OnMatchCallableWithCaptures,
-        advanceLastIndexFn: AdvanceLastIndex<T>,
         onFinalizeFn: OnFinalizeCallableWithCaptures
       };
     }
     label IfNoNamedCaptures {
       return ReplaceStrategy{
-        regexp,
-        global,
         initialAccumulatorValue: kEmptyFixedArray,
-        execFn: Exec<T>,
         onMatchFn: OnMatchCallableWithCaptures,
-        advanceLastIndexFn: AdvanceLastIndex<T>,
         onFinalizeFn: OnFinalizeCallableWithCaptures
       };
     }
   }
 
   transitioning builtin RegExpReplace(implicit context: Context)(
-      regexp: FastJSRegExp, string: String, replaceValue: Object): String {
+      regexp: JSRegExp, string: String, replaceValue: Object): String {
     // TODO(pwong): Remove assert when all callers (StringPrototypeReplace) are
     // from Torque.
     assert(Is<FastJSRegExp>(regexp));
-    const stableRegexp: JSRegExp = regexp;
 
     // 2. Is {replace_value} callable?
     let strategy: ReplaceStrategy;
@@ -509,18 +472,14 @@ namespace regexp_replace {
     typeswitch (replaceValue) {
       case (replaceFn: Callable): {
         replacer = replaceFn;
-        try {
-          const fastRegexp = Cast<FastJSRegExp>(stableRegexp) otherwise IfSlow;
-          strategy = NewReplaceStrategyForCallable(fastRegexp);
-        }
-        label IfSlow {
-          strategy = NewReplaceStrategyForCallable(stableRegexp);
-        }
+        strategy = NewReplaceStrategyForCallable(regexp);
+        // return regexp.global ?
+        //     RegExpReplaceFastGlobalCallable(regexp, string, replaceFn) :
+        //     StringReplaceNonGlobalRegExpWithFunction(string, regexp,
+        //     replaceFn);
       }
       case (Object): {
-        const replaceString: String = ToString_Inline(context, replaceValue);
-        replacer = replaceString;
-
+        const replaceString: String = replacer = ToString_Inline(context, replaceValue);
         // ToString(replaceValue) could potentially change the shape of the
         // RegExp object. Recheck that we are still on the fast path and bail
         // to runtime otherwise.
@@ -528,19 +487,19 @@ namespace regexp_replace {
                 replaceString, SingleCharacterStringConstant('$'), 0) != -1)
           deferred {
             return RegExpReplaceRT(
-                context, stableRegexp, string, replaceString);
+                context, regexp, string, replaceString);
           }
-
-        try {
-          const fastRegexp = Cast<FastJSRegExp>(stableRegexp) otherwise IfSlow;
-          strategy = NewReplaceStrategy(fastRegexp);
-        }
-        label IfSlow {
-          strategy = NewReplaceStrategy(stableRegexp);
-        }
+        strategy = NewReplaceStrategy(regexp);
       }
     }
-    return strategy.Process(string, replacer);
+
+    try {
+      const fastRegexp = Cast<FastJSRegExp>(regexp) otherwise IfSlow;
+      return Process(fastRegexp, string, replacer, strategy);
+    }
+    label IfSlow deferred {
+      return Process(regexp, string, replacer, strategy);
+    }
   }
 
   transitioning javascript builtin RegExpPrototypeReplace(
@@ -578,8 +537,8 @@ namespace regexp_replace {
 
     // Fast-path checks: 1. Is the {receiver} an unmodified JSRegExp instance?
     try {
-      const fastRx: FastJSRegExp = Cast<FastJSRegExp>(rx) otherwise Runtime;
-      return RegExpReplace(fastRx, s, replaceValue);
+      const regexp: FastJSRegExp = Cast<FastJSRegExp>(rx) otherwise Runtime;
+      return RegExpReplace(regexp, s, replaceValue);
     }
     label Runtime deferred {
       return RegExpReplaceRT(context, rx, s, replaceValue);
