@@ -167,20 +167,26 @@ namespace regexp_replace {
     return StringBuilderConcat(matches, matchesLength, string);
   }
 
-  type OnMatchFn =
-      builtin(Context, Object, String, Object, RegExpMatchInfo, Smi) => Object;
+  type OnMatchFn = builtin(
+      Context, Object, String, Object, RegExpMatchInfo, Smi, Smi,
+      Smi) => Object;
   builtin OnMatchSimpleStringReplace(
       context: Context, acc: Object, subject: String, replace: Object,
-      match: RegExpMatchInfo, lastMatchEnd: Smi): Object {
-    const matchStart: Smi = match.GetStartOfCapture(0);
+      match: RegExpMatchInfo, matchStart: Smi, matchEnd: Smi,
+      lastMatchEnd: Smi): Object {
+    unreachable;
+  }
+  macro OnMatchSimpleStringReplaceInline(implicit context: Context)(
+      acc: Object, subject: String, replace: Object, matchStart: Smi,
+      lastMatchEnd: Smi): Object {
     let result: String = UnsafeCast<String>(acc);
     if (lastMatchEnd != matchStart) {
       result += SubString(subject, lastMatchEnd, matchStart);
     }
 
     const replaceString = UnsafeCast<String>(replace);
-    if (replaceString.length_uint32 == 0) return result;
-    return result + replaceString;
+    assert(replaceString == kEmptyString || replaceString.length_uint32 != 0);
+    return replaceString == kEmptyString ? result : result + replaceString;
   }
 
   // TODO(pwong): Support FixedTypedArrays.
@@ -253,11 +259,10 @@ namespace regexp_replace {
 
   builtin OnMatchCallableNoCaptures(
       context: Context, acc: Object, subject: String, replace: Object,
-      match: RegExpMatchInfo, lastMatchEnd: Smi): Object {
+      match: RegExpMatchInfo, matchStart: Smi, matchEnd: Smi,
+      lastMatchEnd: Smi): Object {
     // TODO(pwong): Add RegExpResultsCache::Lookup() (see SearchRegExpMultiple)
     // TODO(pwong): Add RegExpResultsCache::Enter() (see SearchRegExpMultiple)
-    const matchStart: Smi = match.GetStartOfCapture(0);
-    const matchEnd: Smi = match.GetEndOfCapture(0);
     const matched: String = SubStringInline(subject, matchStart, matchEnd);
     const unmatched: String =
         SubStringInline(subject, lastMatchEnd, matchStart);
@@ -270,13 +275,14 @@ namespace regexp_replace {
 
   builtin OnMatchCallableWithCaptures(
       context: Context, acc: Object, subject: String, replace: Object,
-      match: RegExpMatchInfo, lastMatchEnd: Smi): Object {
+      match: RegExpMatchInfo, matchStart: Smi, matchEnd: Smi,
+      lastMatchEnd: Smi): Object {
     const nofCaptured: intptr = Convert<intptr>(match.NumberOfCaptures()) >> 1;
 
     // Aguments for callable:
-    // [0..n] - Captured Strings
-    // [n+1]  - Matched Start Index
-    // [n+2]  - Last Matched End Index
+    // [0...n] - Captured Strings
+    // [n]  - Matched Start Index
+    // [n+1]  - Last Matched End Index
     const length: intptr = 2 + nofCaptured;
     const callableArgs: FixedArray =
         AllocateFixedArrayWithUndefined(length, kNone);
@@ -293,9 +299,9 @@ namespace regexp_replace {
       }
       i++;
     }
-    // [n+1] - Matched Start Index
-    callableArgs.objects[i++] = match.GetStartOfCapture(0);
-    // [n+2]  - Unmatched String
+    // [n] - Matched Start Index
+    callableArgs.objects[i++] = matchStart;
+    // [n+1]  - Unmatched String
     callableArgs.objects[i++] = lastMatchEnd;
     assert(i == length);
 
@@ -307,6 +313,11 @@ namespace regexp_replace {
 
   macro AdvanceLastIndex<T: type>(implicit context:
                                        Context)(rx: T, string: String) {
+    // TODO(pwong): Rewrite external macro AdvanceStringIndex to torque.
+    // - Take a string length
+    // - For FastJSRegExp, use Smi arithmetic (avoid NumberInc)
+    // - Test for unicode FIRST. Currently, unicode is checked AFTER adding 1 to
+    // lastIndex, which if unicode is false the addition is thrown away.
     rx.lastIndex = AdvanceStringIndex(string, rx.lastIndex, rx.unicode);
   }
 
@@ -314,7 +325,7 @@ namespace regexp_replace {
   builtin OnFinalizeSimpleStringReplace(
       context: Context, acc: Object, subject: String,
       replacer: Object): String {
-    return UnsafeCast<String>(acc);
+    unreachable;
   }
   transitioning builtin OnFinalizeCallableNoCaptures(
       context: Context, acc: Object, subject: String,
@@ -374,6 +385,26 @@ namespace regexp_replace {
   }
 
   struct ReplaceStrategy {
+    Match(implicit context: Context)(
+        acc: Object, subject: String, replacer: Object, match: RegExpMatchInfo,
+        matchStart: Smi, matchEnd: Smi, lastMatchEnd: Smi): Object {
+      const onMatchFn: OnMatchFn = this.onMatchFn;
+      if (onMatchFn == OnMatchSimpleStringReplace) {
+        return OnMatchSimpleStringReplaceInline(
+            acc, subject, replacer, matchStart, lastMatchEnd);
+      } else {
+        return onMatchFn(
+            context, acc, subject, replacer, match, matchStart, matchEnd,
+            lastMatchEnd);
+      }
+    }
+    Finalize(implicit context: Context)(
+        acc: Object, subject: String, replacer: Object): String {
+      const onFinalizeFn: OnFinalizeFn = this.onFinalizeFn;
+      return onFinalizeFn == OnFinalizeSimpleStringReplace ?
+          UnsafeCast<String>(acc) :
+          onFinalizeFn(context, acc, subject, replacer);
+    }
     const initialAccumulatorValue: Object;
     const onMatchFn: OnMatchFn;
     const onFinalizeFn: OnFinalizeFn;
@@ -396,31 +427,29 @@ namespace regexp_replace {
       const match: RegExpMatchInfo =
           RegExpPrototypeExecBodyWithoutResult(regexp, subject) otherwise break;
       hasMatches = true;
-
-      const onMatchFn: OnMatchFn = strategy.onMatchFn;
-      acc = onMatchFn(context, acc, subject, replacer, match, lastMatchEnd);
-      regexp = %RawDownCast<T>(stableRegexp);
-
-      const matchEnd: Smi = match.GetEndOfCapture(0);
       const matchStart: Smi = match.GetStartOfCapture(0);
+      const matchEnd: Smi = match.GetEndOfCapture(0);
+      acc = strategy.Match(
+          acc, subject, replacer, match, matchStart, matchEnd, lastMatchEnd);
+      regexp = %RawDownCast<T>(stableRegexp);
       lastMatchEnd = matchEnd;
 
       // Non-global case ends here after the first replacement.
       if (!global) break;
 
       // If match is the empty string, we have to increment lastIndex.
-      if (matchEnd == matchStart) AdvanceLastIndex(regexp, subject);
+      if (lastMatchEnd == matchStart) AdvanceLastIndex(regexp, subject);
     }
     if (!hasMatches) return subject;
 
+    const result: String = strategy.Finalize(acc, subject, replacer);
     const subjectLength: Smi = subject.length_smi;
-    const onFinalizeFn: OnFinalizeFn = strategy.onFinalizeFn;
-    const result: String = onFinalizeFn(context, acc, subject, replacer);
     if (lastMatchEnd == subjectLength) return result;
     return result + SubStringInline(subject, lastMatchEnd, subjectLength);
   }
 
-  macro NewReplaceStrategy(implicit context: Context)(regexp: JSRegExp): ReplaceStrategy {
+  macro NewReplaceStrategy(implicit context: Context)(regexp: JSRegExp):
+      ReplaceStrategy {
     // The fast path is reached only if {receiver} is an unmodified JSRegExp
     // instance, {replace_value} is non-callable, and ToString({replace_value})
     // does not contain '$', i.e. we're doing a simple string replacement.
@@ -444,7 +473,8 @@ namespace regexp_replace {
     try {
       // TODO(pwong): Unfortunately CaptureNameMap is NOT available until after
       // Exec is called :(
-      const namedCaptures: FixedArray = regexp.CaptureNameMap() otherwise IfNoNamedCaptures;
+      const namedCaptures: FixedArray =
+          regexp.CaptureNameMap() otherwise IfNoNamedCaptures;
       return ReplaceStrategy{
         initialAccumulatorValue: kEmptyFixedArray,
         onMatchFn: OnMatchCallableWithCaptures,
@@ -458,6 +488,10 @@ namespace regexp_replace {
         onFinalizeFn: OnFinalizeCallableWithCaptures
       };
     }
+  }
+
+  macro CanonicalizeEmptyString(s: String): String {
+    return s.length_uint32 == 0 ? kEmptyString : s;
   }
 
   transitioning builtin RegExpReplace(implicit context: Context)(
@@ -479,15 +513,15 @@ namespace regexp_replace {
         //     replaceFn);
       }
       case (Object): {
-        const replaceString: String = replacer = ToString_Inline(context, replaceValue);
+        const replaceString: String = replacer =
+            CanonicalizeEmptyString(ToString_Inline(context, replaceValue));
         // ToString(replaceValue) could potentially change the shape of the
         // RegExp object. Recheck that we are still on the fast path and bail
         // to runtime otherwise.
         if (StringIndexOf(
                 replaceString, SingleCharacterStringConstant('$'), 0) != -1)
           deferred {
-            return RegExpReplaceRT(
-                context, regexp, string, replaceString);
+            return RegExpReplaceRT(context, regexp, string, replaceString);
           }
         strategy = NewReplaceStrategy(regexp);
       }
