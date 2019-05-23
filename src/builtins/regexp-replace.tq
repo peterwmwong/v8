@@ -42,6 +42,11 @@ namespace regexp_replace {
       implicit context: Context)(JSReceiver, String, constexpr bool):
       RegExpMatchInfo labels IfDidNotMatch;
 
+  macro SubStringInline(implicit context: Context)(
+      string: String, start: Smi, end: Smi): String {
+    return start < end ? SubString(string, start, end) : kEmptyString;
+  }
+
   transitioning macro RegExpReplaceCallableNoExplicitCaptures(implicit context:
                                                                   Context)(
       matchesElements: FixedArray, matchesLength: intptr, string: String,
@@ -177,6 +182,128 @@ namespace regexp_replace {
     return result + replaceString;
   }
 
+  // TODO(pwong): Support FixedTypedArrays.
+  const kLengthIndex: constexpr int31 = 0;
+  const kFirstElementIndex: constexpr int31 = 1;
+
+  // TODO(pwong): Figure out how to use the growable-fixed-array instead of
+  // dupe-ing it here.
+  // TODO(pwong): Compare with a rope structure.
+  struct GrowableFixedArray {
+    Push(obj: Tagged) {
+      assert(this.length <= this.capacity);
+      if (++this.length >= this.capacity) {
+        const kStart: constexpr int31 = 0;
+        const prevCapacity: intptr = this.capacity;
+
+        // Growth rate is analog to JSObject::NewElementsCapacity:
+        // new_capacity = (current_capacity + (current_capacity >> 1)) + 16.
+        this.capacity = this.capacity + (this.capacity >> 1) + 16;
+        this.array = ExtractFixedArray(
+            this.array, kStart, prevCapacity, this.capacity, kFixedArrays);
+      }
+
+      this.array.objects[kLengthIndex] = Convert<Smi>(this.length);
+      this.array.objects[this.length] = obj;
+    }
+    array: FixedArray;
+    capacity: intptr;
+    length: intptr;
+  }
+
+  macro NewGrowableFixedArray(implicit context: Context)(array: FixedArray):
+      GrowableFixedArray {
+    if (array == kEmptyFixedArray) {
+      return GrowableFixedArray{array, capacity: 0, length: 0};
+    } else {
+      return GrowableFixedArray{
+        array,
+        capacity: array.length_intptr,
+        length: Convert<intptr>(UnsafeCast<Smi>(array.objects[kLengthIndex]))
+      };
+    }
+  }
+
+  struct GrowableFixedArrayIterator {
+    Next(): Object labels NoMore {
+      if (this.i > this.length) goto NoMore;
+      return this.array.objects[this.i++];
+    }
+    NextTagged(): Tagged labels NoMore {
+      return this.Next() otherwise NoMore;
+    }
+    i: intptr;
+    const array: FixedArray;
+    const length: intptr;
+  }
+  macro NewGrowableFixedArrayIterator(implicit context: Context)(
+      array: FixedArray): GrowableFixedArrayIterator {
+    const length: intptr = array == kEmptyFixedArray ?
+        0 :
+        Convert<intptr>(UnsafeCast<Smi>(array.objects[kLengthIndex]));
+    return GrowableFixedArrayIterator{i: kFirstElementIndex, array, length};
+  }
+
+  class NoCaptureMatchInfo {
+    unmatched: String;
+    matched: String;
+    matchStart: Smi;
+  }
+
+  builtin OnMatchCallableNoCaptures(
+      context: Context, acc: Object, subject: String, replace: Object,
+      match: RegExpMatchInfo, lastMatchEnd: Smi): Object {
+    // TODO(pwong): Add RegExpResultsCache::Lookup() (see SearchRegExpMultiple)
+    // TODO(pwong): Add RegExpResultsCache::Enter() (see SearchRegExpMultiple)
+    const matchStart: Smi = match.GetStartOfCapture(0);
+    const matchEnd: Smi = match.GetEndOfCapture(0);
+    const matched: String = SubStringInline(subject, matchStart, matchEnd);
+    const unmatched: String =
+        SubStringInline(subject, lastMatchEnd, matchStart);
+    const info: Tagged = new NoCaptureMatchInfo{unmatched, matched, matchStart};
+    let gfa: GrowableFixedArray =
+        NewGrowableFixedArray(UnsafeCast<FixedArray>(acc));
+    gfa.Push(info);
+    return gfa.array;
+  }
+
+  builtin OnMatchCallableWithCaptures(
+      context: Context, acc: Object, subject: String, replace: Object,
+      match: RegExpMatchInfo, lastMatchEnd: Smi): Object {
+    const nofCaptured: intptr = Convert<intptr>(match.NumberOfCaptures()) >> 1;
+
+    // Aguments for callable:
+    // [0..n] - Captured Strings
+    // [n+1]  - Matched Start Index
+    // [n+2]  - Last Matched End Index
+    const length: intptr = 2 + nofCaptured;
+    const callableArgs: FixedArray =
+        AllocateFixedArrayWithUndefined(length, kNone);
+
+    // [0..n] - Captured Strings
+    let i: intptr = 0;
+    while (i < nofCaptured) {
+      const captureStart: Smi = match.GetStartOfCapture(i);
+      const captureEnd: Smi = match.GetEndOfCapture(i);
+      // -1 indicates the capture group did not match anything.
+      if (captureStart != -1) {
+        callableArgs.objects[i] =
+            SubStringInline(subject, captureStart, captureEnd);
+      }
+      i++;
+    }
+    // [n+1] - Matched Start Index
+    callableArgs.objects[i++] = match.GetStartOfCapture(0);
+    // [n+2]  - Unmatched String
+    callableArgs.objects[i++] = lastMatchEnd;
+    assert(i == length);
+
+    let gfa: GrowableFixedArray =
+        NewGrowableFixedArray(UnsafeCast<FixedArray>(acc));
+    gfa.Push(callableArgs);
+    return gfa.array;
+  }
+
   type AdvanceLastIndexFn = builtin(Context, JSRegExp, String) => Undefined;
   builtin AdvanceLastIndex<T: type>(
       context: Context, regexp: JSRegExp, string: String): Undefined {
@@ -185,12 +312,67 @@ namespace regexp_replace {
     return Undefined;
   }
 
-  type OnFinalizeFn = builtin(Context, Object, String, Smi) => String;
+  type OnFinalizeFn = builtin(Context, Object, String, Object) => String;
   builtin OnFinalizeSimpleStringReplace(
       context: Context, acc: Object, subject: String,
-      lastMatchEnd: Smi): String {
-    return UnsafeCast<String>(acc) +
-        SubString(subject, lastMatchEnd, subject.length_smi);
+      replacer: Object): String {
+    return UnsafeCast<String>(acc);
+  }
+  transitioning builtin OnFinalizeCallableNoCaptures(
+      context: Context, acc: Object, subject: String,
+      replacer: Object): String {
+    const replaceFn: Callable = UnsafeCast<Callable>(replacer);
+    let iter = NewGrowableFixedArrayIterator(UnsafeCast<FixedArray>(acc));
+    let result: String = kEmptyString;
+    while (true) {
+      const info =
+          %RawDownCast<NoCaptureMatchInfo>(iter.NextTagged() otherwise break);
+
+      // Append unmatched string
+      const unmatched = info.unmatched;
+      if (unmatched != kEmptyString) result += unmatched;
+
+      const replacementObj: Object = Call(
+          context, replaceFn, Undefined, info.matched, info.matchStart,
+          subject);
+      const replacement: String = ToString_Inline(context, replacementObj);
+      if (replacement != kEmptyString) result += replacement;
+    }
+    return result;
+  }
+  transitioning builtin OnFinalizeCallableWithCaptures(
+      context: Context, acc: Object, subject: String,
+      replacer: Object): String {
+    const replaceFn: Callable = UnsafeCast<Callable>(replacer);
+    let iter = NewGrowableFixedArrayIterator(UnsafeCast<FixedArray>(acc));
+    let result: String = kEmptyString;
+    while (true) {
+      const elements = UnsafeCast<FixedArray>(iter.Next() otherwise break);
+      const length: intptr = elements.length_intptr;
+
+      // Append unmatched string
+      const lastMatchEnd = UnsafeCast<Smi>(elements.objects[length - 1]);
+      elements.objects[length - 1] =
+          subject;  // Replace the last entry with the subject
+      const matchStart = UnsafeCast<Smi>(elements.objects[length - 2]);
+      if (lastMatchEnd < matchStart) {
+        result += SubString(subject, lastMatchEnd, matchStart);
+      }
+
+      const args = new JSArray{
+        map: GetFastPackedElementsJSArrayMap(),
+        properties_or_hash: kEmptyFixedArray,
+        elements,
+        length: Convert<Smi>(length)
+      };
+      const replacement: String = ToString_Inline(
+          context,
+          Call(
+              context, GetReflectApply(), Undefined, replaceFn, Undefined,
+              args));
+      if (replacement != kEmptyString) result += replacement;
+    }
+    return result;
   }
 
   struct ReplaceStrategy {
@@ -206,8 +388,12 @@ namespace regexp_replace {
         subject: String, replacer: Object): String {
       let lastMatchEnd: Smi = 0;
       let acc: Object = this.initialAccumulatorValue;
+      let hasMatches: bool = false;
+
       while (true) {
         const match: RegExpMatchInfo = this.Exec(subject) otherwise break;
+        hasMatches = true;
+
         const onMatchFn: OnMatchFn = this.onMatchFn;
         acc = onMatchFn(context, acc, subject, replacer, match, lastMatchEnd);
 
@@ -225,9 +411,13 @@ namespace regexp_replace {
           advanceLastIndexFn(context, this.regexp, subject);
         }
       }
+      if (!hasMatches) return subject;
 
+      const subjectLength: Smi = subject.length_smi;
       const onFinalizeFn: OnFinalizeFn = this.onFinalizeFn;
-      return onFinalizeFn(context, acc, subject, lastMatchEnd);
+      const result: String = onFinalizeFn(context, acc, subject, replacer);
+      if (lastMatchEnd == subjectLength) return result;
+      return result + SubStringInline(subject, lastMatchEnd, subjectLength);
     }
     const regexp: JSRegExp;
     const global: bool;
@@ -259,22 +449,77 @@ namespace regexp_replace {
     };
   }
 
+  macro NewReplaceStrategyForCallable<T: type>(implicit context: Context)(
+      regexp: T): ReplaceStrategy {
+    // TODO(pwong): Consolidate with other constructor.
+    const global: bool = regexp.global;
+    if (global) regexp.lastIndex = 0;
+
+    const stableRegexp: JSRegExp = regexp;
+    const captureCount: Smi = stableRegexp.CaptureCount();
+    if (captureCount == 0) {
+      return ReplaceStrategy{
+        regexp,
+        global,
+        initialAccumulatorValue: kEmptyFixedArray,
+        execFn: Exec<T>,
+        onMatchFn: OnMatchCallableNoCaptures,
+        advanceLastIndexFn: AdvanceLastIndex<T>,
+        onFinalizeFn: OnFinalizeCallableNoCaptures
+      };
+    }
+    try {
+      // TODO(pwong): Unfortunately CaptureNameMap is NOT available until after
+      // Exec is called :(
+      const namedCaptures: FixedArray =
+          stableRegexp.CaptureNameMap() otherwise IfNoNamedCaptures;
+      return ReplaceStrategy{
+        regexp,
+        global,
+        initialAccumulatorValue: kEmptyFixedArray,
+        execFn: Exec<T>,
+        onMatchFn: OnMatchCallableWithCaptures,
+        advanceLastIndexFn: AdvanceLastIndex<T>,
+        onFinalizeFn: OnFinalizeCallableWithCaptures
+      };
+    }
+    label IfNoNamedCaptures {
+      return ReplaceStrategy{
+        regexp,
+        global,
+        initialAccumulatorValue: kEmptyFixedArray,
+        execFn: Exec<T>,
+        onMatchFn: OnMatchCallableWithCaptures,
+        advanceLastIndexFn: AdvanceLastIndex<T>,
+        onFinalizeFn: OnFinalizeCallableWithCaptures
+      };
+    }
+  }
+
   transitioning builtin RegExpReplace(implicit context: Context)(
       regexp: FastJSRegExp, string: String, replaceValue: Object): String {
     // TODO(pwong): Remove assert when all callers (StringPrototypeReplace) are
     // from Torque.
     assert(Is<FastJSRegExp>(regexp));
+    const stableRegexp: JSRegExp = regexp;
 
     // 2. Is {replace_value} callable?
+    let strategy: ReplaceStrategy;
+    let replacer: Object;
     typeswitch (replaceValue) {
       case (replaceFn: Callable): {
-        return regexp.global ?
-            RegExpReplaceFastGlobalCallable(regexp, string, replaceFn) :
-            StringReplaceNonGlobalRegExpWithFunction(string, regexp, replaceFn);
+        replacer = replaceFn;
+        try {
+          const fastRegexp = Cast<FastJSRegExp>(stableRegexp) otherwise IfSlow;
+          strategy = NewReplaceStrategyForCallable(fastRegexp);
+        }
+        label IfSlow {
+          strategy = NewReplaceStrategyForCallable(stableRegexp);
+        }
       }
       case (Object): {
-        const stableRegexp: JSRegExp = regexp;
         const replaceString: String = ToString_Inline(context, replaceValue);
+        replacer = replaceString;
 
         // ToString(replaceValue) could potentially change the shape of the
         // RegExp object. Recheck that we are still on the fast path and bail
@@ -286,17 +531,16 @@ namespace regexp_replace {
                 context, stableRegexp, string, replaceString);
           }
 
-        let strategy: ReplaceStrategy;
         try {
           const fastRegexp = Cast<FastJSRegExp>(stableRegexp) otherwise IfSlow;
-          strategy = NewReplaceStrategy<FastJSRegExp>(fastRegexp);
+          strategy = NewReplaceStrategy(fastRegexp);
         }
         label IfSlow {
-          strategy = NewReplaceStrategy<JSRegExp>(stableRegexp);
+          strategy = NewReplaceStrategy(stableRegexp);
         }
-        return strategy.Process(string, replaceString);
       }
     }
+    return strategy.Process(string, replacer);
   }
 
   transitioning javascript builtin RegExpPrototypeReplace(

@@ -1687,6 +1687,15 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
     return result;
   }
 
+  TNode<FixedArray> AllocateFixedArrayWithUndefined(TNode<IntPtrT> capacity,
+                                                    AllocationFlags flags) {
+    TNode<FixedArray> result = UncheckedCast<FixedArray>(
+        AllocateFixedArray(PACKED_ELEMENTS, capacity, flags));
+    FillFixedArrayWithValue(PACKED_ELEMENTS, result, IntPtrConstant(0),
+                            capacity, RootIndex::kUndefinedValue);
+    return result;
+  }
+
   TNode<FixedDoubleArray> AllocateFixedDoubleArrayWithHoles(
       TNode<IntPtrT> capacity, AllocationFlags flags) {
     TNode<FixedDoubleArray> result = UncheckedCast<FixedDoubleArray>(
@@ -3435,6 +3444,9 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
                                            int descriptor);
   TNode<MaybeObject> LoadFieldTypeByDescriptorEntry(
       TNode<DescriptorArray> descriptors, TNode<IntPtrT> descriptor);
+
+  void SwitchJSRegExpTagType(TNode<JSRegExp> regexp, Label* if_irregexp,
+                             Label* if_atom, Label* if_notcompiled);
 
   typedef std::function<void(TNode<Name> key, TNode<Object> value)>
       ForEachKeyValueFunction;

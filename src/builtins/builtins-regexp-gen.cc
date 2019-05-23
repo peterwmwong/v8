@@ -376,6 +376,7 @@ TNode<HeapObject> RegExpBuiltinsAssembler::RegExpExecInternal(
   GotoIf(UintPtrGreaterThan(int_last_index, int_string_length), &if_failure);
 
   // Since the RegExp has been compiled, data contains a fixed array.
+  // TODO(pwong): Shouldn't we be checking if the regexp data is undefined?
   TNode<FixedArray> data = CAST(LoadObjectField(regexp, JSRegExp::kDataOffset));
   {
     // Dispatch on the type of the RegExp.
@@ -1780,8 +1781,8 @@ TF_BUILTIN(RegExpPrototypeTest, RegExpBuiltinsAssembler) {
   BIND(&fast_path);
   {
     Label if_didnotmatch(this);
-    RegExpPrototypeExecBodyWithoutResult(context, receiver, string,
-                                         true, &if_didnotmatch);
+    RegExpPrototypeExecBodyWithoutResult(context, receiver, string, true,
+                                         &if_didnotmatch);
     Return(TrueConstant());
 
     BIND(&if_didnotmatch);
@@ -1806,7 +1807,8 @@ TF_BUILTIN(RegExpPrototypeTestFast, RegExpBuiltinsAssembler) {
 
   Label if_didnotmatch(this);
   CSA_ASSERT(this, IsFastRegExpWithOriginalExec(context, regexp));
-  RegExpPrototypeExecBodyWithoutResult(context, regexp, string, true, &if_didnotmatch);
+  RegExpPrototypeExecBodyWithoutResult(context, regexp, string, true,
+                                       &if_didnotmatch);
   Return(TrueConstant());
 
   BIND(&if_didnotmatch);
@@ -2761,7 +2763,8 @@ TF_BUILTIN(RegExpStringIteratorPrototypeNext, RegExpStringIteratorAssembler) {
     {
       TNode<RegExpMatchInfo> match_indices =
           RegExpPrototypeExecBodyWithoutResult(context, CAST(iterating_regexp),
-                                               iterating_string, true, &if_no_match);
+                                               iterating_string, true,
+                                               &if_no_match);
       var_match = ConstructNewResultFromMatchInfo(
           context, CAST(iterating_regexp), match_indices, iterating_string);
       var_is_fast_regexp = Int32TrueConstant();

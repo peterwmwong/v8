@@ -1016,7 +1016,44 @@ extern class PromiseResolveThenableJobTask extends Microtask {
   thenable: JSReceiver;
 }
 
+const kJSRegExpDatakIrregexpCaptureCountIndex:
+    constexpr int31 generates 'JSRegExp::kIrregexpCaptureCountIndex';
+const kJSRegExpDatakIrregexpCaptureNameMapIndex:
+    constexpr int31 generates 'JSRegExp::kIrregexpCaptureNameMapIndex';
+
+extern macro SwitchJSRegExpTagType(JSRegExp): never labels IfIrregexp, IfAtom,
+    IfNotCompiled;
+
 extern class JSRegExp extends JSObject {
+  CaptureCount(implicit context: Context)(): Smi {
+    try {
+      SwitchJSRegExpTagType(this) otherwise IfIrregexp, IfAtom, IfNotCompiled;
+    }
+    label IfIrregexp {
+      const data = %RawDownCast<FixedArray>(this.data);
+      return UnsafeCast<Smi>(
+          data.objects[kJSRegExpDatakIrregexpCaptureCountIndex]);
+    }
+    label IfAtom {
+      return 0;
+    }
+    label IfNotCompiled {
+      unreachable;
+    }
+  }
+  // TODO(pwong): Consider loading capture count and named map together (as they both need to check tag type).
+  // TODO(pwong): Need a "IfUnInitialized" label.
+  CaptureNameMap(implicit context: Context)(): FixedArray labels IfNoNamedCaptures {
+    try {
+      SwitchJSRegExpTagType(this) otherwise IfIrregexp, IfNoNamedCaptures, IfNoNamedCaptures;
+    }
+    label IfIrregexp {
+      const data = UnsafeCast<FixedArray>(this.data);
+      return Cast<FixedArray>(
+          data.objects[kJSRegExpDatakIrregexpCaptureNameMapIndex])
+          otherwise IfNoNamedCaptures;
+    }
+  }
   data: FixedArray | Undefined;
   source: String | Undefined;
   flags: Smi | Undefined;
@@ -1039,12 +1076,14 @@ macro NewJSIteratorResult(implicit context: Context)(
   };
 }
 
-extern operator '.unicode' macro RegExpBuiltinsAssembler::SlowFlagGetterUnicode(implicit context: Context)(JSRegExp): bool;
-extern operator '.global' macro RegExpBuiltinsAssembler::SlowFlagGetterGlobal(implicit context: Context)(JSRegExp): bool;
-extern operator '.lastIndex' macro RegExpBuiltinsAssembler::SlowLoadLastIndex(implicit context: Context)(
-    JSRegExp): Number;
-extern operator '.lastIndex=' macro RegExpBuiltinsAssembler::SlowStoreLastIndex(implicit context: Context)(
-    JSRegExp, Number): void;
+extern operator '.unicode' macro RegExpBuiltinsAssembler::SlowFlagGetterUnicode(
+    implicit context: Context)(JSRegExp): bool;
+extern operator '.global' macro RegExpBuiltinsAssembler::SlowFlagGetterGlobal(
+    implicit context: Context)(JSRegExp): bool;
+extern operator '.lastIndex' macro RegExpBuiltinsAssembler::SlowLoadLastIndex(
+    implicit context: Context)(JSRegExp): Number;
+extern operator '.lastIndex=' macro RegExpBuiltinsAssembler::SlowStoreLastIndex(
+    implicit context: Context)(JSRegExp, Number): void;
 
 // Note: Although a condition for a FastJSRegExp is having a positive smi
 // lastIndex (see RegExpBuiltinsAssembler::BranchIfFastRegExp), it is possible
@@ -1081,6 +1120,9 @@ const kRegExpMatchInfoNumberOfCapturesIndex:
 macro GetStartOfCaptureIndex(captureIndex: constexpr int31): constexpr int31 {
   return kRegExpMatchInfoFirstCaptureIndex + (captureIndex * 2);
 }
+macro GetStartOfCaptureIndex(captureIndex: intptr): intptr {
+  return kRegExpMatchInfoFirstCaptureIndex + (captureIndex << 1);
+}
 
 extern class RegExpMatchInfo extends FixedArray {
   GetStartOfCapture(implicit context: Context)(captureIndex: constexpr int31):
@@ -1091,6 +1133,16 @@ extern class RegExpMatchInfo extends FixedArray {
   GetEndOfCapture(implicit context: Context)(captureIndex: constexpr int31):
       Smi {
     const index: constexpr int31 = GetStartOfCaptureIndex(captureIndex) + 1;
+    return UnsafeCast<Smi>(this.objects[index]);
+  }
+  GetStartOfCapture(implicit context: Context)(captureIndex: intptr):
+      Smi {
+    const index: intptr = GetStartOfCaptureIndex(captureIndex);
+    return UnsafeCast<Smi>(this.objects[index]);
+  }
+  GetEndOfCapture(implicit context: Context)(captureIndex: intptr):
+      Smi {
+    const index: intptr = GetStartOfCaptureIndex(captureIndex) + 1;
     return UnsafeCast<Smi>(this.objects[index]);
   }
   NumberOfCaptures(implicit context: Context)(): Smi {
@@ -2131,7 +2183,7 @@ extern operator '.objects[]=' macro StoreFixedArrayElement(
 extern operator '.objects[]=' macro StoreFixedArrayElement(
     FixedArray, intptr, HeapObject): void;
 extern operator '.objects[]=' macro StoreFixedArrayElement(
-    FixedArray, intptr, Object): void;
+    FixedArray, intptr, Tagged): void;
 extern operator '.objects[]=' macro StoreFixedArrayElement(
     FixedArray, constexpr int31, Smi): void;
 extern operator '.objects[]=' macro StoreFixedArrayElement(
@@ -2213,6 +2265,8 @@ extern macro CalculateNewElementsCapacity(Smi): Smi;
 extern macro CalculateNewElementsCapacity(intptr): intptr;
 
 extern macro AllocateFixedArrayWithHoles(
+    intptr, constexpr AllocationFlags): FixedArray;
+extern macro AllocateFixedArrayWithUndefined(
     intptr, constexpr AllocationFlags): FixedArray;
 extern macro AllocateFixedDoubleArrayWithHoles(
     intptr, constexpr AllocationFlags): FixedDoubleArray;

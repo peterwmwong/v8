@@ -8325,6 +8325,28 @@ TNode<MaybeObject> CodeStubAssembler::LoadFieldTypeByDescriptorEntry(
       DescriptorArray::ToValueIndex(0) * kTaggedSize);
 }
 
+void CodeStubAssembler::SwitchJSRegExpTagType(TNode<JSRegExp> regexp,
+                                              Label* if_irregexp,
+                                              Label* if_atom,
+                                              Label* if_notcompiled) {
+  Label unreachable(this, Label::kDeferred);
+  TNode<FixedArray> data = CAST(LoadObjectField(regexp, JSRegExp::kDataOffset));
+  TNode<Int32T> tag = LoadAndUntagToWord32FixedArrayElement(
+      data, IntPtrConstant(JSRegExp::kTagIndex));
+  int32_t values[] = {
+      JSRegExp::IRREGEXP,
+      JSRegExp::ATOM,
+      JSRegExp::NOT_COMPILED,
+  };
+  Label* labels[] = {if_irregexp, if_atom, if_notcompiled};
+
+  STATIC_ASSERT(arraysize(values) == arraysize(labels));
+  Switch(tag, &unreachable, values, labels, arraysize(values));
+
+  BIND(&unreachable);
+  Unreachable();
+}
+
 template TNode<IntPtrT> CodeStubAssembler::EntryToIndex<NameDictionary>(
     TNode<IntPtrT>, int);
 template TNode<IntPtrT> CodeStubAssembler::EntryToIndex<GlobalDictionary>(
