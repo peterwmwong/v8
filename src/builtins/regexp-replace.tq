@@ -575,6 +575,8 @@ namespace regexp_replace {
       return RegExpReplace(regexp, s, replaceValue);
     }
     label Runtime deferred {
+      // TODO(pwong): Figure out why this needed.  RegExpReplace should be able
+      // to handle "slow" JSRegExp.
       return RegExpReplaceRT(context, rx, s, replaceValue);
     }
   }
