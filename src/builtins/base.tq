@@ -1043,15 +1043,18 @@ extern class JSRegExp extends JSObject {
   }
   // TODO(pwong): Consider loading capture count and named map together (as they both need to check tag type).
   // TODO(pwong): Need a "IfUnInitialized" label.
-  CaptureNameMap(implicit context: Context)(): FixedArray labels IfNoNamedCaptures {
+  CaptureNameMap(implicit context: Context)(): FixedArray {
     try {
       SwitchJSRegExpTagType(this) otherwise IfIrregexp, IfNoNamedCaptures, IfNoNamedCaptures;
+    }
+    label IfNoNamedCaptures {
+      return kEmptyFixedArray;
     }
     label IfIrregexp {
       const data = UnsafeCast<FixedArray>(this.data);
       return Cast<FixedArray>(
           data.objects[kJSRegExpDatakIrregexpCaptureNameMapIndex])
-          otherwise IfNoNamedCaptures;
+          otherwise return kEmptyFixedArray;
     }
   }
   data: FixedArray | Undefined;

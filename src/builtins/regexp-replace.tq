@@ -471,10 +471,6 @@ namespace regexp_replace {
       };
     }
     try {
-      // TODO(pwong): Unfortunately CaptureNameMap is NOT available until after
-      // Exec is called :(
-      const namedCaptures: FixedArray =
-          regexp.CaptureNameMap() otherwise IfNoNamedCaptures;
       return ReplaceStrategy{
         initialAccumulatorValue: kEmptyFixedArray,
         onMatchFn: OnMatchCallableWithCaptures,
