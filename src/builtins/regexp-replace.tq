@@ -11,15 +11,8 @@ namespace regexp_replace {
   extern builtin
   SubString(implicit context: Context)(String, Smi, Smi): String;
 
-  extern runtime RegExpExecMultiple(implicit context: Context)(
-      JSRegExp, String, RegExpMatchInfo, JSArray): Null | JSArray;
   extern transitioning runtime
   RegExpReplaceRT(Context, JSReceiver, String, Object): String;
-  extern transitioning runtime
-  StringBuilderConcat(implicit context: Context)(JSArray, Smi, String): String;
-  extern transitioning runtime
-  StringReplaceNonGlobalRegExpWithFunction(implicit context: Context)(
-      String, JSRegExp, Callable): String;
 
   // TODO(pwong): consider supporting special keyword replacement `$`.
   // extern macro StringBuiltinsAssembler::GetSubstitution(
@@ -31,9 +24,6 @@ namespace regexp_replace {
   // Slow
   extern macro
   RegExpBuiltinsAssembler::AdvanceStringIndex(String, Number, bool): Number;
-  extern macro
-  RegExpBuiltinsAssembler::CallJSRegExpRegExpReplaceToSequentialString(
-      String, FixedArray, intptr, String, String): String;
 
   // TODO(pwong): Consider optimizing to pass `collectCaptures: bool` to collect
   // capture start/end indices or not.
@@ -63,108 +53,6 @@ namespace regexp_replace {
   macro SubStringInline(implicit context: Context)(
       string: String, start: Smi, end: Smi): String {
     return start < end ? SubString(string, start, end) : kEmptyString;
-  }
-
-  transitioning macro RegExpReplaceCallableNoExplicitCaptures(implicit context:
-                                                                  Context)(
-      matchesElements: FixedArray, matchesLength: intptr, string: String,
-      replaceFn: Callable) {
-    let matchStart: Smi = 0;
-    for (let i: intptr = 0; i < matchesLength; i++) {
-      typeswitch (matchesElements.objects[i]) {
-        // Element represents a slice.
-        case (elSmi: Smi): {
-          // The slice's match start and end is either encoded as one or two
-          // smis. A positive smi indicates a single smi encoding (see
-          // ReplacementStringBuilder::AddSubjectSlice()).
-          if (elSmi > 0) {
-            // For single smi encoding, see
-            // StringBuilderSubstringLength::encode() and
-            // StringBuilderSubstringPosition::encode().
-            const elInt: intptr = Convert<intptr>(elSmi);
-            const newMatchStart: intptr = (elInt >> 11) + (elInt & 0x7FF);
-            matchStart = Convert<Smi>(newMatchStart);
-          } else {
-            // For two smi encoding, the length is negative followed by the
-            // match start.
-            const nextEl: Smi = UnsafeCast<Smi>(matchesElements.objects[++i]);
-            matchStart = nextEl - elSmi;
-          }
-        }
-        // Element represents the matched substring, which is then passed to the
-        // replace function.
-        case (elString: String): {
-          const replacementObj: Object =
-              Call(context, replaceFn, Undefined, elString, matchStart, string);
-          const replacement: String = ToString_Inline(context, replacementObj);
-          matchesElements.objects[i] = replacement;
-          matchStart += elString.length_smi;
-        }
-        case (Object): deferred {
-          unreachable;
-        }
-      }
-    }
-  }
-
-  transitioning macro
-  RegExpReplaceCallableWithExplicitCaptures(implicit context: Context)(
-      matchesElements: FixedArray, matchesLength: intptr, string: String,
-      replaceFn: Callable) {
-    for (let i: intptr = 0; i < matchesLength; i++) {
-      const elArray =
-          Cast<JSArray>(matchesElements.objects[i]) otherwise continue;
-
-      // The JSArray is expanded into the function args by Reflect.apply().
-      // TODO(jgruber): Remove indirection through Call->ReflectApply.
-      const replacementObj: Object = Call(
-          context, GetReflectApply(), Undefined, replaceFn, Undefined, elArray);
-
-      // Overwrite the i'th element in the results with the string
-      // we got back from the callback function.
-      matchesElements.objects[i] = ToString_Inline(context, replacementObj);
-    }
-  }
-
-  transitioning macro RegExpReplaceFastGlobalCallable(implicit context:
-                                                          Context)(
-      regexp: FastJSRegExp, string: String, replaceFn: Callable): String {
-    regexp.lastIndex = 0;
-
-    const kInitialCapacity: Smi = 16;
-    const kInitialLength: Smi = 0;
-    const result: Null | JSArray = RegExpExecMultiple(
-        regexp, string, GetRegExpLastMatchInfo(),
-        AllocateJSArray(
-            PACKED_ELEMENTS, GetFastPackedElementsJSArrayMap(),
-            kInitialCapacity, kInitialLength));
-
-    regexp.lastIndex = 0;
-
-    // If no matches, return the subject string.
-    if (result == Null) return string;
-
-    const matches: JSArray = UnsafeCast<JSArray>(result);
-    const matchesLength: Smi = Cast<Smi>(matches.length) otherwise unreachable;
-    const matchesLengthInt: intptr = Convert<intptr>(matchesLength);
-    const matchesElements: FixedArray =
-        UnsafeCast<FixedArray>(matches.elements);
-
-    // Reload last match info since it might have changed.
-    const nofCaptures: Smi = GetRegExpLastMatchInfo().NumberOfCaptures();
-
-    // If the number of captures is two then there are no explicit captures in
-    // the regexp, just the implicit capture that captures the whole match. In
-    // this case we can simplify quite a bit and end up with something faster.
-    if (nofCaptures == 2) {
-      RegExpReplaceCallableNoExplicitCaptures(
-          matchesElements, matchesLengthInt, string, replaceFn);
-    } else {
-      RegExpReplaceCallableWithExplicitCaptures(
-          matchesElements, matchesLengthInt, string, replaceFn);
-    }
-
-    return StringBuilderConcat(matches, matchesLength, string);
   }
 
   type OnMatchFn = builtin(
@@ -277,13 +165,24 @@ namespace regexp_replace {
       context: Context, acc: Object, subject: String, replace: Object,
       match: RegExpMatchInfo, matchStart: Smi, matchEnd: Smi,
       lastMatchEnd: Smi): Object {
+    // TODO(pwong): Can we use CaptureCount? This would avoid NumberOfCaptures
+    // lookup.
     const nofCaptured: intptr = Convert<intptr>(match.NumberOfCaptures()) >> 1;
+
+    // TODO(pwong): Surely there's a way to express this as an internal class...
+    //   class CaptureMatchInfo {
+    //     const nofCaptures: Smi;
+    //     const strings[length]: String;
+    //     const lastMatchEndIndex: Smi;
+    //     namedCapturGroup: Object;
+    //   }
 
     // Aguments for callable:
     // [0...n] - Captured Strings
     // [n]  - Matched Start Index
     // [n+1]  - Last Matched End Index
-    const length: intptr = 2 + nofCaptured;
+    // [n+2]  - Named Captures
+    const length: intptr = 3 + nofCaptured;
     const callableArgs: FixedArray =
         AllocateFixedArrayWithUndefined(length, kNone);
 
@@ -303,7 +202,6 @@ namespace regexp_replace {
     callableArgs.objects[i++] = matchStart;
     // [n+1]  - Unmatched String
     callableArgs.objects[i++] = lastMatchEnd;
-    assert(i == length);
 
     let gfa: GrowableFixedArray =
         NewGrowableFixedArray(UnsafeCast<FixedArray>(acc));
@@ -321,14 +219,15 @@ namespace regexp_replace {
     rx.lastIndex = AdvanceStringIndex(string, rx.lastIndex, rx.unicode);
   }
 
-  type OnFinalizeFn = builtin(Context, Object, String, Object) => String;
+  type OnFinalizeFn = builtin(Context, Object, JSRegExp, String, Object) =>
+      String;
   builtin OnFinalizeSimpleStringReplace(
-      context: Context, acc: Object, subject: String,
+      context: Context, acc: Object, regexp: JSRegExp, subject: String,
       replacer: Object): String {
     unreachable;
   }
   transitioning builtin OnFinalizeCallableNoCaptures(
-      context: Context, acc: Object, subject: String,
+      context: Context, acc: Object, regexp: JSRegExp, subject: String,
       replacer: Object): String {
     const replaceFn: Callable = UnsafeCast<Callable>(replacer);
     let iter = NewGrowableFixedArrayIterator(UnsafeCast<FixedArray>(acc));
@@ -338,47 +237,95 @@ namespace regexp_replace {
           %RawDownCast<NoCaptureMatchInfo>(iter.NextTagged() otherwise break);
 
       // Append unmatched string
+      // TODO(pwong): Compare performance of creating unmatched here (onMatch
+      // stores lastMatchEnd) vs in OnMatch. Benefits...
+      // - Skip write barrier
+      // - Just-in-time allocation of string allows previous ones to be
+      // collected
       const unmatched = info.unmatched;
       if (unmatched != kEmptyString) result += unmatched;
 
+      // TODO(pwong): Compare performance of creating matched here (onMatch
+      // stores matchEnd) vs in OnMatch.
+      // - Skip write barrier
+      // - Just-in-time allocation of string allows previous ones to be
+      // collected
       const replacementObj: Object = Call(
           context, replaceFn, Undefined, info.matched, info.matchStart,
           subject);
+      // TODO(pwong): Will making a version of ToString_Inline that goto IfEmpty
+      // help perf?
       const replacement: String = ToString_Inline(context, replacementObj);
       if (replacement != kEmptyString) result += replacement;
     }
     return result;
   }
+
+  macro CreateCaptureNameGroup(implicit context: Context)(
+      captureNames: FixedArray, els: FixedArray): JSObject {
+    assert(captureNames != kEmptyFixedArray);
+    const namesLength: intptr = captureNames.length_intptr;
+    const nofProperties: intptr = namesLength >> 1;
+    const properties: NameDictionary = AllocateNameDictionary(nofProperties);
+    for (let i: intptr = 0; i < namesLength;) {
+      const name: String = UnsafeCast<String>(captureNames.objects[i++]);
+      const index: Smi = UnsafeCast<Smi>(captureNames.objects[i++]);
+      const capture: Object = els.objects[index];
+      Add(properties, name, capture) otherwise unreachable;
+    }
+    return AllocateJSObjectFromMap(
+        GetSlowObjectWithNullPrototypeMap(), properties);
+  }
+
   transitioning builtin OnFinalizeCallableWithCaptures(
-      context: Context, acc: Object, subject: String,
+      context: Context, acc: Object, regexp: JSRegExp, subject: String,
       replacer: Object): String {
     const replaceFn: Callable = UnsafeCast<Callable>(replacer);
+    const captureCount: intptr = Convert<intptr>(regexp.CaptureCount());
+    const captureNames: FixedArray = regexp.CaptureNameMap();
+    // [0...n] - Captured Strings
+    // [n]     - Matched Start Index
+    // [n+1]   - Last Matched End Index
+    // [n+2]   - Named Captures
+    const elsLength: intptr = 1 + 3 + captureCount;
+    const argsLength = Convert<Smi>(
+        captureNames == kEmptyFixedArray ? elsLength - 1 : elsLength);
+    const argsMap: Map = GetFastPackedElementsJSArrayMap();
     let iter = NewGrowableFixedArrayIterator(UnsafeCast<FixedArray>(acc));
     let result: String = kEmptyString;
     while (true) {
-      const elements = UnsafeCast<FixedArray>(iter.Next() otherwise break);
-      const length: intptr = elements.length_intptr;
+      const els = UnsafeCast<FixedArray>(iter.Next() otherwise break);
+      assert(elsLength == els.length_intptr);
+      assert(argsLength <= els.length);
 
       // Append unmatched string
-      const lastMatchEnd = UnsafeCast<Smi>(elements.objects[length - 1]);
-      elements.objects[length - 1] =
-          subject;  // Replace the last entry with the subject
-      const matchStart = UnsafeCast<Smi>(elements.objects[length - 2]);
+      const lastMatchEnd = UnsafeCast<Smi>(els.objects[elsLength - 2]);
+      const matchStart = UnsafeCast<Smi>(els.objects[elsLength - 3]);
+      // TODO(pwong): Factor out ConcatSubString(acc, subStringSource, start,
+      // end);
       if (lastMatchEnd < matchStart) {
         result += SubString(subject, lastMatchEnd, matchStart);
       }
 
+      // Replace the last entry with the subject
+      els.objects[elsLength - 2] = subject;
+
+      // TODO(pwong): vvv Find the spec text's name for this object.
+      // Create Named Captures Group object
+      if (captureNames != kEmptyFixedArray) deferred {
+          els.objects[elsLength - 1] =
+              CreateCaptureNameGroup(captureNames, els);
+        }
+
       const args = new JSArray{
-        map: GetFastPackedElementsJSArrayMap(),
+        map: argsMap,
         properties_or_hash: kEmptyFixedArray,
-        elements,
-        length: Convert<Smi>(length)
+        elements: els,
+        length: argsLength
       };
-      const replacement: String = ToString_Inline(
-          context,
-          Call(
-              context, GetReflectApply(), Undefined, replaceFn, Undefined,
-              args));
+      const replacementObj: Object = Call(
+          context, GetReflectApply(), Undefined, replaceFn, Undefined, args);
+      const replacement: String = ToString_Inline(context, replacementObj);
       if (replacement != kEmptyString) result += replacement;
     }
     return result;
@@ -399,11 +346,12 @@ namespace regexp_replace {
       }
     }
     Finalize(implicit context: Context)(
-        acc: Object, subject: String, replacer: Object): String {
+        acc: Object, regexp: JSRegExp, subject: String,
+        replacer: Object): String {
       const onFinalizeFn: OnFinalizeFn = this.onFinalizeFn;
       return onFinalizeFn == OnFinalizeSimpleStringReplace ?
           UnsafeCast<String>(acc) :
-          onFinalizeFn(context, acc, subject, replacer);
+          onFinalizeFn(context, acc, regexp, subject, replacer);
     }
     const initialAccumulatorValue: Object;
     const onMatchFn: OnMatchFn;
@@ -442,7 +390,8 @@ namespace regexp_replace {
     }
     if (!hasMatches) return subject;
 
-    const result: String = strategy.Finalize(acc, subject, replacer);
+    const result: String =
+        strategy.Finalize(acc, stableRegexp, subject, replacer);
     const subjectLength: Smi = subject.length_smi;
     if (lastMatchEnd == subjectLength) return result;
     return result + SubStringInline(subject, lastMatchEnd, subjectLength);
@@ -470,20 +419,11 @@ namespace regexp_replace {
         onFinalizeFn: OnFinalizeCallableNoCaptures
       };
     }
-    try {
-      return ReplaceStrategy{
-        initialAccumulatorValue: kEmptyFixedArray,
-        onMatchFn: OnMatchCallableWithCaptures,
-        onFinalizeFn: OnFinalizeCallableWithCaptures
-      };
-    }
-    label IfNoNamedCaptures {
-      return ReplaceStrategy{
-        initialAccumulatorValue: kEmptyFixedArray,
-        onMatchFn: OnMatchCallableWithCaptures,
-        onFinalizeFn: OnFinalizeCallableWithCaptures
-      };
-    }
+    return ReplaceStrategy{
+      initialAccumulatorValue: kEmptyFixedArray,
+      onMatchFn: OnMatchCallableWithCaptures,
+      onFinalizeFn: OnFinalizeCallableWithCaptures
+    };
   }
 
   macro CanonicalizeEmptyString(s: String): String {
@@ -503,10 +443,6 @@ namespace regexp_replace {
       case (replaceFn: Callable): {
         replacer = replaceFn;
         strategy = NewReplaceStrategyForCallable(regexp);
-        // return regexp.global ?
-        //     RegExpReplaceFastGlobalCallable(regexp, string, replaceFn) :
-        //     StringReplaceNonGlobalRegExpWithFunction(string, regexp,
-        //     replaceFn);
       }
       case (Object): {
         const replaceString: String = replacer =
@@ -535,25 +471,6 @@ namespace regexp_replace {
   transitioning javascript builtin RegExpPrototypeReplace(
       context: Context, receiver: Object, ...arguments): Object {
     const methodName: constexpr string = 'RegExp.prototype.@@replace';
-
-    // RegExpPrototypeReplace is a bit of a beast - a summary of dispatch logic:
-    //
-    // if (!IsFastRegExp(receiver)) CallRuntime(RegExpReplace)
-    // if (IsCallable(replace)) {
-    //   if (IsGlobal(receiver)) {
-    //     // Called 'fast-path' but contains several runtime calls.
-    //     RegExpReplaceFastGlobalCallable()
-    //   } else {
-    //     CallRuntime(StringReplaceNonGlobalRegExpWithFunction)
-    //   }
-    // } else {
-    //   if (replace.contains("$")) {
-    //     CallRuntime(RegExpReplace)
-    //   } else {
-    //     RegExpReplaceFastString()
-    //   }
-    // }
-
     const string: Object = arguments[0];
     const replaceValue: Object = arguments[1];
 

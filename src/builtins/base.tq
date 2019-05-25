@@ -429,6 +429,7 @@ type FixedTypedArray extends FixedTypedArrayBase
 extern class SloppyArgumentsElements extends FixedArray {}
 type NumberDictionary extends HeapObject
     generates 'TNode<NumberDictionary>';
+type NameDictionary extends HeapObject generates 'TNode<NameDictionary>';
 
 extern class FreeSpace extends HeapObject {
   size: Smi;
@@ -466,6 +467,8 @@ const REGEXP_LAST_MATCH_INFO_INDEX: constexpr NativeContextSlot
     generates 'Context::REGEXP_LAST_MATCH_INFO_INDEX';
 const INITIAL_STRING_ITERATOR_MAP_INDEX: constexpr NativeContextSlot
     generates 'Context::INITIAL_STRING_ITERATOR_MAP_INDEX';
+const SLOW_OBJECT_WITH_NULL_PROTOTYPE_MAP: constexpr NativeContextSlot
+    generates 'Context::SLOW_OBJECT_WITH_NULL_PROTOTYPE_MAP';
 extern operator '[]' macro LoadContextElement(
     NativeContext, NativeContextSlot): Object;
 extern operator '[]=' macro StoreContextElement(
@@ -1041,11 +1044,13 @@ extern class JSRegExp extends JSObject {
       unreachable;
     }
   }
-  // TODO(pwong): Consider loading capture count and named map together (as they both need to check tag type).
+  // TODO(pwong): Consider loading capture count and named map together (as they
+  // both need to check tag type).
   // TODO(pwong): Need a "IfUnInitialized" label.
   CaptureNameMap(implicit context: Context)(): FixedArray {
     try {
-      SwitchJSRegExpTagType(this) otherwise IfIrregexp, IfNoNamedCaptures, IfNoNamedCaptures;
+      SwitchJSRegExpTagType(this) otherwise IfIrregexp, IfNoNamedCaptures,
+          IfNoNamedCaptures;
     }
     label IfNoNamedCaptures {
       return kEmptyFixedArray;
@@ -1138,13 +1143,11 @@ extern class RegExpMatchInfo extends FixedArray {
     const index: constexpr int31 = GetStartOfCaptureIndex(captureIndex) + 1;
     return UnsafeCast<Smi>(this.objects[index]);
   }
-  GetStartOfCapture(implicit context: Context)(captureIndex: intptr):
-      Smi {
+  GetStartOfCapture(implicit context: Context)(captureIndex: intptr): Smi {
     const index: intptr = GetStartOfCaptureIndex(captureIndex);
     return UnsafeCast<Smi>(this.objects[index]);
   }
-  GetEndOfCapture(implicit context: Context)(captureIndex: intptr):
-      Smi {
+  GetEndOfCapture(implicit context: Context)(captureIndex: intptr): Smi {
     const index: intptr = GetStartOfCaptureIndex(captureIndex) + 1;
     return UnsafeCast<Smi>(this.objects[index]);
   }
@@ -2284,6 +2287,8 @@ extern macro AllocateJSArray(constexpr ElementsKind, Map, intptr, Smi): JSArray;
 extern macro AllocateJSArray(constexpr ElementsKind, Map, Smi, Smi): JSArray;
 extern macro AllocateJSArray(Map, FixedArrayBase, Smi): JSArray;
 extern macro AllocateJSObjectFromMap(Map): JSObject;
+extern macro AllocateJSObjectFromMap(Map, PropertyArray | NameDictionary): JSObject;
+extern macro AllocateNameDictionary(intptr): NameDictionary;
 
 extern macro LoadDoubleWithHoleCheck(FixedDoubleArray, Smi): float64
     labels IfHole;
@@ -2321,6 +2326,10 @@ macro GetIteratorResultMap(implicit context: Context)(): Map {
 macro GetInitialStringIteratorMap(implicit context: Context)(): Map {
   return UnsafeCast<Map>(
       LoadNativeContext(context)[INITIAL_STRING_ITERATOR_MAP_INDEX]);
+}
+macro GetSlowObjectWithNullPrototypeMap(implicit context: Context)(): Map {
+  return UnsafeCast<Map>(
+      LoadNativeContext(context)[SLOW_OBJECT_WITH_NULL_PROTOTYPE_MAP]);
 }
 macro GetReflectApply(implicit context: Context)(): Callable {
   return UnsafeCast<Callable>(LoadNativeContext(context)[REFLECT_APPLY_INDEX]);
@@ -2732,6 +2741,8 @@ transitioning builtin FastCreateDataProperty(implicit context: Context)(
   }
   return Undefined;
 }
+
+extern macro Add(NameDictionary, Name, Object) labels Bailout;
 
 transitioning macro ToStringImpl(context: Context, o: Object): String {
   let result: Object = o;
