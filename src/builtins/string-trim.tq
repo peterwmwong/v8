@@ -139,10 +139,10 @@ transitioning macro StringTrim(implicit context: Context)(
   const receiverString: String = ToThisString(receiver, methodName);
 
   try {
-    StringToSlice(receiverString) otherwise OneByte, TwoByte;
-  } label OneByte(slice: ConstSlice<char8>) {
+    StringToStringSlice(receiverString) otherwise OneByte, TwoByte;
+  } label OneByte(_p: String, _o: intptr, slice: ConstSlice<char8>) {
     return StringTrimBody(receiverString, slice, variant);
-  } label TwoByte(slice: ConstSlice<char16>) {
+  } label TwoByte(_p: String, _o: intptr, slice: ConstSlice<char16>) {
     return StringTrimBody(receiverString, slice, variant);
   }
 }

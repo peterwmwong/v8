@@ -545,13 +545,6 @@ TF_BUILTIN(StringAdd_CheckNone, StringBuiltinsAssembler) {
   Return(StringAdd(context, left, right));
 }
 
-TF_BUILTIN(SubString, StringBuiltinsAssembler) {
-  auto string = Parameter<String>(Descriptor::kString);
-  auto from = Parameter<Smi>(Descriptor::kFrom);
-  auto to = Parameter<Smi>(Descriptor::kTo);
-  Return(SubString(string, SmiUntag(from), SmiUntag(to)));
-}
-
 void StringBuiltinsAssembler::GenerateStringRelationalComparison(
     TNode<String> left, TNode<String> right, Operation op) {
   TVARIABLE(String, var_left, left);
@@ -1441,15 +1434,6 @@ TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
     args.PopAndReturn(result);
   }
 }
-
-TF_BUILTIN(StringSubstring, StringBuiltinsAssembler) {
-  auto string = Parameter<String>(Descriptor::kString);
-  auto from = UncheckedParameter<IntPtrT>(Descriptor::kFrom);
-  auto to = UncheckedParameter<IntPtrT>(Descriptor::kTo);
-
-  Return(SubString(string, from, to));
-}
-
 
 // Return the |word32| codepoint at {index}. Supports SeqStrings and
 // ExternalStrings.

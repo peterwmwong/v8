@@ -4,6 +4,74 @@
 
 namespace string {
 
+extern macro AllocateSlicedOneByteString(uint32, String, Smi): String;
+extern macro AllocateSlicedTwoByteString(uint32, String, Smi): String;
+
+extern macro StringBuiltinsAssembler::LoadChar8(RawPtr, uintptr): char8;
+extern macro StringBuiltinsAssembler::StoreChar8(RawPtr, uintptr, char8): void;
+
+const kSlicedStringMinLength:
+    constexpr int31 generates 'SlicedString::kMinLength';
+
+macro WriteToString<T: type, U: type>(
+    src: ConstSlice<T>, srcFrom: intptr, dest: U, length: uintptr): U {
+  assert(
+      length > 0 && (src.length - srcFrom) >= Signed(length) &&
+      dest.length_uintptr >= length);
+  const srcPtr =
+      src.GCUnsafeStartPointer() + torque_internal::TimesSizeOf<T>(srcFrom);
+  const destSlice: ConstSlice<T> = &dest.chars;
+  const destPtr = destSlice.GCUnsafeStartPointer();
+  const byteLength = Unsigned(torque_internal::TimesSizeOf<T>(Signed(length)));
+  let i: uintptr = 0;
+  while (true) {
+    StoreChar8(destPtr, i, LoadChar8(srcPtr, i));
+    if (++i == byteLength) break;
+  }
+  return dest;
+}
+
+macro SubString(string: String, from: uintptr, to: uintptr): String {
+  const length = to - from;
+  assert(length <= string.length_uintptr);
+  if (length == string.length_uintptr) return string;
+  if (length == 0) return kEmptyString;
+  if (length == 1) {
+    return StringFromSingleCharCode(StringCharCodeAt(string, from));
+  }
+
+  try {
+    StringToStringSlice(string) otherwise OneByte, TwoByte;
+  } label OneByte(p: String, o: intptr, s: ConstSlice<char8>) {
+    if (length < kSlicedStringMinLength) {
+      return WriteToString(
+          s, Convert<intptr>(from),
+          AllocateNonEmptySeqOneByteString(Convert<uint32>(length)), length);
+    }
+    return AllocateSlicedOneByteString(
+        Convert<uint32>(length), p, SmiTag(o + Convert<intptr>(from)));
+  } label TwoByte(p: String, o: intptr, s: ConstSlice<char16>) {
+    if (length < kSlicedStringMinLength) {
+      return WriteToString(
+          s, Convert<intptr>(from),
+          AllocateNonEmptySeqTwoByteString(Convert<uint32>(length)), length);
+    }
+    return AllocateSlicedTwoByteString(
+        Convert<uint32>(length), p, SmiTag(o + Convert<intptr>(from)));
+  }
+}
+
+builtin SubString(implicit context: Context)(
+    s: String, from: Smi, to: Smi): String {
+  return SubString(
+      s, Unsigned(Convert<intptr>(from)), Unsigned(Convert<intptr>(to)));
+}
+
+builtin StringSubstring(implicit context: Context)(
+    s: String, from: intptr, to: intptr): String {
+  return SubString(s, Unsigned(from), Unsigned(to));
+}
+
 // ES6 #sec-string.prototype.substring
 transitioning javascript builtin StringPrototypeSubstring(
     js-implicit context: NativeContext, receiver: JSAny)(...arguments): String {

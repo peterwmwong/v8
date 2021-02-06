@@ -70,7 +70,7 @@ transitioning macro RegExpPrototypeMatchBody(implicit context: Context)(
               matchIndices, kRegExpMatchInfoFirstCaptureIndex);
           const matchTo = UnsafeLoadFixedArrayElement(
               matchIndices, kRegExpMatchInfoFirstCaptureIndex + 1);
-          match = SubString(
+          match = string::SubString(
               string, UnsafeCast<Smi>(matchFrom), UnsafeCast<Smi>(matchTo));
         }
       } else {
