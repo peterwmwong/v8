@@ -20,7 +20,7 @@ macro Subslice<T: type>(slice: MutableSlice<T>, start: intptr, length: intptr):
   if (Unsigned(length) > Unsigned(slice.length)) goto OutOfBounds;
   if (Unsigned(start) > Unsigned(slice.length - length)) goto OutOfBounds;
   const offset = slice.offset + torque_internal::TimesSizeOf<T>(start);
-  return torque_internal::unsafe::NewMutableSlice<T>(
+  return torque_internal::unsafe::NewConstSlice<T>(
       slice.object, offset, length);
 }
 
@@ -256,6 +256,19 @@ InitializeFieldsFromIterator<char8, UninitializedIterator>(
     _target: MutableSlice<char8>, _originIterator: UninitializedIterator) {}
 InitializeFieldsFromIterator<char16, UninitializedIterator>(
     _target: MutableSlice<char16>, _originIterator: UninitializedIterator) {}
+InitializeFieldsFromIterator<char8, StringSlice>(
+    target: MutableSlice<char8>, src: StringSlice) {
+  assert(target.length > 0 && target.length <= Signed(src.ByteLength()));
+  const length = target.length;
+  let i: intptr = 0;
+  while (true) {
+    const dest = unsafe::NewReference<char8>(target.object, target.offset + i);
+    const src = unsafe::NewReference<char8>(
+        src.rootCharsObject, src.rootCharsOffset + i);
+    *dest = *src;
+    if (++i == length) break;
+  }
+}
 
 extern macro IsDoubleHole(HeapObject, intptr): bool;
 extern macro StoreDoubleHole(HeapObject, intptr);

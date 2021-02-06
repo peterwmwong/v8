@@ -36,17 +36,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
 
   TNode<String> StringFromSingleUTF16EncodedCodePoint(TNode<Int32T> codepoint);
 
-  // Return a new string object which holds a substring containing the range
-  // [from,to[ of string.
-  // TODO(v8:9880): Fix implementation to use UintPtrT arguments and drop
-  // IntPtrT version once all callers use UintPtrT version.
-  TNode<String> SubString(TNode<String> string, TNode<IntPtrT> from,
-                          TNode<IntPtrT> to);
-  TNode<String> SubString(TNode<String> string, TNode<UintPtrT> from,
-                          TNode<UintPtrT> to) {
-    return SubString(string, Signed(from), Signed(to));
-  }
-
   // Copies |character_count| elements from |from_string| to |to_string|
   // starting at the |from_index|'th character. |from_string| and |to_string|
   // can either be one-byte strings or two-byte strings, although if
@@ -83,6 +72,12 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
   TNode<IntPtrT> SearchOneByteInOneByteString(
       const TNode<RawPtrT> subject_ptr, const TNode<IntPtrT> subject_length,
       const TNode<RawPtrT> search_ptr, const TNode<IntPtrT> start_position);
+
+  template <typename T>
+  TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
+                                             TNode<Int32T> from_instance_type,
+                                             TNode<IntPtrT> from_index,
+                                             TNode<IntPtrT> character_count);
 
  protected:
   void StringEqual_Loop(TNode<String> lhs, TNode<Word32T> lhs_instance_type,
@@ -172,13 +167,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
       const TNode<Object> maybe_string, Handle<Symbol> symbol,
       DescriptorIndexNameValue additional_property_to_check,
       const NodeFunction0& regexp_call, const NodeFunction1& generic_call);
-
- private:
-  template <typename T>
-  TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
-                                             TNode<Int32T> from_instance_type,
-                                             TNode<IntPtrT> from_index,
-                                             TNode<IntPtrT> character_count);
 };
 
 }  // namespace internal

@@ -29,6 +29,6 @@ transitioning javascript builtin StringPrototypeSlice(
     return kEmptyString;
   }
 
-  return SubString(string, start, end);
+  return SubstringInline(string, start, end);
 }
 }

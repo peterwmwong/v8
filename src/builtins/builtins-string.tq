@@ -43,9 +43,6 @@ transitioning builtin ToString(context: Context, o: JSAny): String {
   return ToStringImpl(context, o);
 }
 
-extern macro StringBuiltinsAssembler::SubString(
-    String, uintptr, uintptr): String;
-
 // ES6 #sec-string.prototype.tostring
 transitioning javascript builtin
 StringPrototypeToString(
