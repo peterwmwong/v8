@@ -4,6 +4,110 @@
 
 namespace string {
 
+// TODO(pwong): Audit usages of StringSubstring and verify whether it was
+// originally calling the inline or builtin version.
+
+macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
+  const length = Convert<intptr>(to - from);
+  assert(from <= to);
+  assert(length <= string.length_intptr);
+  if (length == string.length_intptr) return string;
+  if (length == 0) return kEmptyString;
+
+  const from = Convert<intptr>(from);
+  let isOneByte: bool;
+  let src: String;
+  let srcOffset: intptr;
+  let srcChars: RawPtr;
+  try {
+    StringToSliceRootOffset(string) otherwise OneByte, TwoByte;
+  } label OneByte(slice: ConstSlice<char8>, root: String, rootOffset: intptr) {
+    isOneByte = true;
+    src = root;
+    srcOffset = rootOffset;
+    srcChars =
+        (slice.GCUnsafeStartPointer() +
+         torque_internal::TimesSizeOf<char8>(from));
+  } label TwoByte(slice: ConstSlice<char16>, root: String, rootOffset: intptr) {
+    isOneByte = false;
+    src = root;
+    srcOffset = rootOffset;
+    srcChars =
+        (slice.GCUnsafeStartPointer() +
+         torque_internal::TimesSizeOf<char16>(from));
+  }
+
+  if (length >= kSlicedStringMinLength) {
+    return new SlicedString{
+      map: isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
+      raw_hash_field: kNameEmptyHashField,
+      length: Convert<int32>(length),
+      parent: src,
+      offset: Convert<Smi>(srcOffset + from)
+    };
+  }
+
+  // Optimization: Reduce generated code by consolidating the following cases
+  // needing to allocate a string into a single allocation point:
+  // 1. {length} is greater than 1.
+  // 2. {length} is 1, {singleChar} is one byte representable, but does not have
+  //    an associated cached string in kSingleCharacterStringCache.
+  // 3. {length} is 1, {singleChar} needs two bytes to be represented.
+
+  // If {length} is 1, {singleChar} is the first/only character code of the
+  // substring. Otherwise, {singleChar} is a marker value (character code not
+  // one byte representable) indicating {result} should not be cached in
+  // kSingleCharacterStringCache.
+  let singleChar: uintptr = kMaxOneByteCharCode + 1;
+  if (length == 1) {
+    // Even if {singleChar} is from a two byte string, it may be one byte
+    // representable. If so, attempt to use a cached string from
+    // kSingleCharacterStringCache.
+    singleChar = Convert<uintptr>(
+        isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0));
+    if (singleChar <= kMaxOneByteCharCode) {
+      const cached = kSingleCharacterStringCache.objects[singleChar];
+      if (cached != Undefined) return UnsafeCast<String>(cached);
+
+      // If no cached string exists, allocate a one byte string and cache it.
+      isOneByte = true;
+    }
+  }
+
+  // Optimization: Reduce generated code by generating a single allocation point
+  // for both one and two byte sequential strings.
+  // Allocates a two byte string as if it were a one byte string with
+  // twice as many characters and then update with the appropriate map and
+  // character length.
+  const byteLength = Unsigned(
+      isOneByte ? torque_internal::TimesSizeOf<char8>(length) :
+                  torque_internal::TimesSizeOf<char16>(length));
+  const result = AllocateNonEmptySeqOneByteString(
+    Convert<uint32>(byteLength), %RawDownCast<RawPtr<char8>>(srcChars));
+  if (!isOneByte) {
+    // Map for non-internalilzed SeqTwoByteString
+    *UnsafeConstCast(&result.map) = kStringMap;
+    *UnsafeConstCast(&result.length) = Convert<int32>(length);
+  }
+
+  // If {length} is 1, {singleChar} is one byte representable, and was not
+  // already cached, then cache {result} in kSingleCharacterStringCache.
+  if (singleChar <= kMaxOneByteCharCode) {
+    assert(result.length == 1);
+    assert(kSingleCharacterStringCache.objects[singleChar] == Undefined);
+    kSingleCharacterStringCache.objects[singleChar] = result;
+  }
+
+  return result;
+}
+
+// Return a new string object which holds a substring containing the range
+// [from,to[ of string.
+builtin StringSubstring(implicit context: Context)(
+    s: String, from: uintptr, to: uintptr): String {
+  return SubstringInline(s, from, to);
+}
+
 // ES6 #sec-string.prototype.substring
 transitioning javascript builtin StringPrototypeSubstring(
     js-implicit context: NativeContext, receiver: JSAny)(...arguments): String {
@@ -24,6 +128,6 @@ transitioning javascript builtin StringPrototypeSubstring(
     end = start;
     start = tmp;
   }
-  return SubString(string, start, end);
+  return SubstringInline(string, start, end);
 }
 }

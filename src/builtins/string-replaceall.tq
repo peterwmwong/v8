@@ -126,7 +126,7 @@ transitioning javascript builtin StringPrototypeReplaceAll(
     // c. Let stringSlice be the substring of string consisting of the code
     //    units from endOfLastMatch (inclusive) up through position
     //    (exclusive).
-    const stringSlice = string::SubString(
+    const stringSlice = string::StringSubstring(
         string, Unsigned(SmiUntag(endOfLastMatch)),
         Unsigned(SmiUntag(position)));
 
@@ -149,9 +149,9 @@ transitioning javascript builtin StringPrototypeReplaceAll(
     //    of string consisting of the code units from endOfLastMatch
     //    (inclusive) up through the final code unit of string (inclusive).
     result = result +
-        string::SubString(
+        string::StringSubstring(
                  string, Unsigned(SmiUntag(endOfLastMatch)),
-                 Unsigned(string.length_intptr));
+                 string.length_uintptr);
   }
 
   // 16. Return result.

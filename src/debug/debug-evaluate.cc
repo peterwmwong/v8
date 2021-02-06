@@ -314,7 +314,6 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(ThrowSymbolIteratorInvalid)               \
   /* Strings */                               \
   V(StringReplaceOneCharWithString)           \
-  V(StringSubstring)                          \
   V(StringToNumber)                           \
   /* BigInts */                               \
   V(BigIntEqualToBigInt)                      \

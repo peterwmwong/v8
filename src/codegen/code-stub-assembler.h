@@ -190,6 +190,9 @@ enum class PrimitiveType { kBoolean, kNumber, kString, kSymbol };
   V(resolve_string, resolve_string, ResolveString)                           \
   V(return_string, return_string, ReturnString)                              \
   V(search_symbol, search_symbol, SearchSymbol)                              \
+  V(SlicedOneByteStringMap, sliced_one_byte_string_map,                      \
+    SlicedOneByteStringMap)                                                  \
+  V(SlicedStringMap, sliced_string_map, SlicedStringMap)                     \
   V(species_symbol, species_symbol, SpeciesSymbol)                           \
   V(StaleRegister, stale_register, StaleRegister)                            \
   V(StoreHandler0Map, store_handler0_map, StoreHandler0Map)                  \
@@ -2535,6 +2538,23 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   TNode<Uint16T> StringCharCodeAt(TNode<String> string, TNode<UintPtrT> index);
   // Return the single character string with only {code}.
   TNode<String> StringFromSingleCharCode(TNode<Int32T> code);
+
+  TNode<Uint8T> LoadChar8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset) {
+    return UncheckedCast<Uint8T>(
+        Load(MachineType::Uint8(), data_pointer, offset));
+  }
+
+  TNode<Uint16T> LoadChar16(TNode<RawPtrT> data_pointer,
+                            TNode<IntPtrT> offset) {
+    return UncheckedCast<Uint16T>(
+        Load(MachineType::Uint16(), data_pointer, offset));
+  }
+
+  void StoreChar8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset,
+                  TNode<Uint8T> value) {
+    StoreNoWriteBarrier(MachineRepresentation::kWord8, data_pointer, offset,
+                        value);
+  }
 
   // Type conversion helpers.
   enum class BigIntHandling { kConvertToNumber, kThrow };
