@@ -4,6 +4,82 @@
 
 namespace string {
 
+extern macro AllocateSlicedOneByteString(uint32, String, Smi): String;
+extern macro AllocateSlicedTwoByteString(uint32, String, Smi): String;
+
+extern macro StringBuiltinsAssembler::LoadChar8(RawPtr, uintptr): char8;
+extern macro StringBuiltinsAssembler::LoadChar16(RawPtr, uintptr): char16;
+
+extern macro StringBuiltinsAssembler::StoreChar8(RawPtr, uintptr, char8): void;
+extern macro StringBuiltinsAssembler::StoreChar16(
+    RawPtr, uintptr, char16): void;
+
+macro SubString(string: String, from: uintptr, to: uintptr): String {
+  const subStrLen = to - from;
+  const stringLen = string.length_uintptr;
+  if (subStrLen >= stringLen) {
+    assert(subStrLen == stringLen && from == 0);
+    return string;
+  }
+  if (subStrLen == 0) return kEmptyString;
+  if (subStrLen == 1)
+    return StringFromSingleCharCode(StringCharCodeAt(string, from));
+
+  const fromInt = Convert<intptr>(from);
+  const subStrLenInt = Convert<intptr>(subStrLen);
+  try {
+    StringToStringSlice(string) otherwise OneByte, TwoByte;
+  } label OneByte(p: String, o: intptr, s: ConstSlice<char8>) {
+    if (subStrLen < 13) {
+      const result =
+          AllocateNonEmptySeqOneByteString(Convert<uint32>(subStrLen));
+      const src = Convert<RawPtr>(s.GCUnsafeStartPointer()) + Signed(from);
+      const dest = Convert<RawPtr>((&result.chars).GCUnsafeStartPointer());
+      assert(subStrLen > 0);
+      let i: uintptr = 0;
+      let offset: uintptr = 0;
+      while (true) {
+        StoreChar8(dest, offset, LoadChar8(src, offset));
+        offset += Unsigned(torque_internal::TimesSizeOf<char8>(1));
+        if (++i == subStrLen) break;
+      }
+      return result;
+    }
+    return AllocateSlicedOneByteString(
+        Unsigned(TruncateIntPtrToInt32(subStrLenInt)), p, SmiTag(o + fromInt));
+  } label TwoByte(p: String, o: intptr, s: ConstSlice<char16>) {
+    if (subStrLen < 13) {
+      const result =
+          AllocateNonEmptySeqTwoByteString(Convert<uint32>(subStrLen));
+      const src = Convert<RawPtr>(s.GCUnsafeStartPointer()) +
+          torque_internal::TimesSizeOf<char16>(Signed(from));
+      const dest = Convert<RawPtr>((&result.chars).GCUnsafeStartPointer());
+      assert(subStrLen > 0);
+      let i: uintptr = 0;
+      let offset: uintptr = 0;
+      while (true) {
+        StoreChar16(dest, offset, LoadChar16(src, offset));
+        offset += Unsigned(torque_internal::TimesSizeOf<char16>(1));
+        if (++i == subStrLen) break;
+      }
+      return result;
+    }
+    return AllocateSlicedTwoByteString(
+        Unsigned(TruncateIntPtrToInt32(subStrLenInt)), p, SmiTag(o + fromInt));
+  }
+}
+
+builtin SubString(implicit context: Context)(
+    s: String, from: Smi, to: Smi): String {
+  return SubString(
+      s, Unsigned(Convert<intptr>(from)), Unsigned(Convert<intptr>(to)));
+}
+
+builtin StringSubstring(implicit context: Context)(
+    s: String, from: intptr, to: intptr): String {
+  return SubString(s, Unsigned(from), Unsigned(to));
+}
+
 // ES6 #sec-string.prototype.substring
 transitioning javascript builtin StringPrototypeSubstring(
     js-implicit context: NativeContext, receiver: JSAny)(...arguments): String {

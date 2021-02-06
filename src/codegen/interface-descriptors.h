@@ -92,7 +92,6 @@ namespace internal {
   V(StoreWithVector)                     \
   V(StringAt)                            \
   V(StringAtAsString)                    \
-  V(StringSubstring)                     \
   V(TypeConversion)                      \
   V(TypeConversionNoContext)             \
   V(Typeof)                              \
@@ -1223,17 +1222,6 @@ class StringAtAsStringDescriptor final : public CallInterfaceDescriptor {
       MachineType::AnyTagged(),      // kReceiver
       MachineType::IntPtr())         // kPosition
   DECLARE_DESCRIPTOR(StringAtAsStringDescriptor, CallInterfaceDescriptor)
-};
-
-class StringSubstringDescriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS(kString, kFrom, kTo)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kString
-                         MachineType::IntPtr(),     // kFrom
-                         MachineType::IntPtr())     // kTo
-
-  // TODO(turbofan): Allow builtins to return untagged values.
-  DECLARE_DESCRIPTOR(StringSubstringDescriptor, CallInterfaceDescriptor)
 };
 
 class CppBuiltinAdaptorDescriptor : public CallInterfaceDescriptor {

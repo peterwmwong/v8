@@ -61,6 +61,29 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
                             String::Encoding from_encoding,
                             String::Encoding to_encoding);
 
+  TNode<Uint8T> LoadChar8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset) {
+    return UncheckedCast<Uint8T>(
+        Load(MachineType::Uint8(), data_pointer, offset));
+  }
+
+  TNode<Uint16T> LoadChar16(TNode<RawPtrT> data_pointer,
+                            TNode<UintPtrT> offset) {
+    return UncheckedCast<Uint16T>(
+        Load(MachineType::Uint16(), data_pointer, offset));
+  }
+
+  void StoreChar8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset,
+                  TNode<Uint8T> value) {
+    StoreNoWriteBarrier(MachineRepresentation::kWord8, data_pointer, offset,
+                        value);
+  }
+
+  void StoreChar16(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset,
+                   TNode<Uint16T> value) {
+    StoreNoWriteBarrier(MachineRepresentation::kWord16, data_pointer, offset,
+                        value);
+  }
+
   // Torque wrapper methods for CallSearchStringRaw for each combination of
   // search and subject character widths (char8/char16). This is a workaround
   // for Torque's current lack of support for extern macros with generics.
@@ -83,6 +106,12 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
   TNode<IntPtrT> SearchOneByteInOneByteString(
       const TNode<RawPtrT> subject_ptr, const TNode<IntPtrT> subject_length,
       const TNode<RawPtrT> search_ptr, const TNode<IntPtrT> start_position);
+
+  template <typename T>
+  TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
+                                             TNode<Int32T> from_instance_type,
+                                             TNode<IntPtrT> from_index,
+                                             TNode<IntPtrT> character_count);
 
  protected:
   void StringEqual_Loop(TNode<String> lhs, TNode<Word32T> lhs_instance_type,
@@ -173,12 +202,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
       DescriptorIndexNameValue additional_property_to_check,
       const NodeFunction0& regexp_call, const NodeFunction1& generic_call);
 
- private:
-  template <typename T>
-  TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
-                                             TNode<Int32T> from_instance_type,
-                                             TNode<IntPtrT> from_index,
-                                             TNode<IntPtrT> character_count);
 };
 
 }  // namespace internal

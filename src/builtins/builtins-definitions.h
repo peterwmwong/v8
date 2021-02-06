@@ -112,7 +112,6 @@ namespace internal {
   TFC(StringGreaterThanOrEqual, Compare)                                       \
   TFC(StringLessThan, Compare)                                                 \
   TFC(StringLessThanOrEqual, Compare)                                          \
-  TFC(StringSubstring, StringSubstring)                                        \
                                                                                \
   /* OrderedHashTable helpers */                                               \
   TFS(OrderedHashTableHealIndex, kTable, kIndex)                               \
@@ -886,7 +885,6 @@ namespace internal {
                                                                                \
   /* String helpers */                                                         \
   TFS(StringAdd_CheckNone, kLeft, kRight)                                      \
-  TFS(SubString, kString, kFrom, kTo)                                          \
                                                                                \
   /* Miscellaneous */                                                          \
   ASM(StackCheck, Dummy)                                                       \

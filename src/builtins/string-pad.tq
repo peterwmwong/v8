@@ -6,9 +6,6 @@
 
 namespace string {
 
-extern transitioning builtin
-StringSubstring(implicit context: Context)(String, intptr, intptr): String;
-
 const kStringPadStart: constexpr int31 = 0;
 const kStringPadEnd: constexpr int31 = 1;
 

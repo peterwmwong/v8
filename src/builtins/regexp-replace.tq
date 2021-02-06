@@ -6,9 +6,6 @@
 
 namespace regexp {
 
-extern builtin
-SubString(implicit context: Context)(String, Smi, Smi): String;
-
 extern runtime RegExpExecMultiple(implicit context: Context)(
     JSRegExp, String, RegExpMatchInfo, JSArray): Null|JSArray;
 extern transitioning runtime
@@ -144,7 +141,7 @@ transitioning macro RegExpReplaceFastString(implicit context: Context)(
 
     // TODO(jgruber): We could skip many of the checks that using SubString
     // here entails.
-    result = result + SubString(string, lastMatchEnd, matchStart);
+    result = result + string::SubString(string, lastMatchEnd, matchStart);
     lastMatchEnd = matchEnd;
 
     if (replaceLength != 0) result = result + replaceString;
@@ -170,7 +167,7 @@ transitioning macro RegExpReplaceFastString(implicit context: Context)(
     }
   }
 
-  return result + SubString(string, lastMatchEnd, string.length_smi);
+  return result + string::SubString(string, lastMatchEnd, string.length_smi);
 }
 
 transitioning builtin RegExpReplace(implicit context: Context)(
