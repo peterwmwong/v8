@@ -37,6 +37,6 @@ transitioning javascript builtin StringPrototypeSubstr(
 
   // 9. Return the String value containing resultLength consecutive code units
   // from S beginning with the code unit at index intStart.
-  return SubString(string, initStart, initStart + resultLength);
+  tail string::StringSubstring(string, initStart, initStart + resultLength);
 }
 }

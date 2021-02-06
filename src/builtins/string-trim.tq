@@ -130,7 +130,7 @@ transitioning macro StringTrimBody<T: type>(implicit context: Context)(
     }
   }
 
-  return SubString(string, Unsigned(startIndex), Unsigned(endIndex + 1));
+  return SubstringInline(string, Unsigned(startIndex), Unsigned(endIndex + 1));
 }
 
 transitioning macro StringTrim(implicit context: Context)(
@@ -139,7 +139,7 @@ transitioning macro StringTrim(implicit context: Context)(
   const receiverString: String = ToThisString(receiver, methodName);
 
   try {
-    StringToSlice(receiverString) otherwise OneByte, TwoByte;
+    StringToStringSlice(receiverString) otherwise OneByte, TwoByte;
   } label OneByte(slice: ConstSlice<char8>) {
     return StringTrimBody(receiverString, slice, variant);
   } label TwoByte(slice: ConstSlice<char16>) {

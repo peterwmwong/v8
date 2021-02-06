@@ -227,8 +227,11 @@ TNode<JSRegExpResult> RegExpBuiltinsAssembler::ConstructNewResultFromMatchInfo(
   // Calculate the substring of the first match before creating the result array
   // to avoid an unnecessary write barrier storing the first result.
 
+  CSA_ASSERT(this, TaggedIsPositiveSmi(start));
+  CSA_ASSERT(this, TaggedIsPositiveSmi(end));
   TNode<String> first =
-      CAST(CallBuiltin(Builtins::kSubString, context, string, start, end));
+      CAST(CallBuiltin(Builtins::kStringSubstring, context, string,
+                       Unsigned(SmiUntag(start)), Unsigned(SmiUntag(end))));
 
   // Load flags and check if the result object needs to have indices.
   const TNode<Smi> flags =
@@ -270,8 +273,11 @@ TNode<JSRegExpResult> RegExpBuiltinsAssembler::ConstructNewResultFromMatchInfo(
     TNode<Smi> end =
         CAST(UnsafeLoadFixedArrayElement(match_info, from_cursor_plus1));
 
+    CSA_ASSERT(this, TaggedIsPositiveSmi(start));
+    CSA_ASSERT(this, TaggedIsPositiveSmi(end));
     TNode<String> capture =
-        CAST(CallBuiltin(Builtins::kSubString, context, string, start, end));
+        CAST(CallBuiltin(Builtins::kStringSubstring, context, string,
+                         Unsigned(SmiUntag(start)), Unsigned(SmiUntag(end))));
     UnsafeStoreFixedArrayElement(result_elements, to_cursor, capture);
     Goto(&next_iter);
 
@@ -1671,7 +1677,10 @@ TNode<JSArray> RegExpBuiltinsAssembler::RegExpPrototypeSplitBody(
     {
       const TNode<Smi> from = last_matched_until;
       const TNode<Smi> to = match_from;
-      array.Push(CallBuiltin(Builtins::kSubString, context, string, from, to));
+      CSA_ASSERT(this, TaggedIsPositiveSmi(from));
+      CSA_ASSERT(this, TaggedIsPositiveSmi(to));
+      array.Push(CallBuiltin(Builtins::kStringSubstring, context, string,
+                             Unsigned(SmiUntag(from)), Unsigned(SmiUntag(to))));
       GotoIf(WordEqual(array.length(), int_limit), &out);
     }
 
@@ -1692,9 +1701,9 @@ TNode<JSArray> RegExpBuiltinsAssembler::RegExpPrototypeSplitBody(
       BIND(&nested_loop);
       {
         const TNode<IntPtrT> reg = var_reg.value();
-        const TNode<Object> from = LoadFixedArrayElement(
+        const TNode<Smi> from = CAST(LoadFixedArrayElement(
             match_indices, reg,
-            RegExpMatchInfo::kFirstCaptureIndex * kTaggedSize);
+            RegExpMatchInfo::kFirstCaptureIndex * kTaggedSize));
         const TNode<Smi> to = CAST(LoadFixedArrayElement(
             match_indices, reg,
             (RegExpMatchInfo::kFirstCaptureIndex + 1) * kTaggedSize));
@@ -1706,8 +1715,11 @@ TNode<JSArray> RegExpBuiltinsAssembler::RegExpPrototypeSplitBody(
 
         BIND(&select_capture);
         {
+          CSA_ASSERT(this, TaggedIsPositiveSmi(from));
+          CSA_ASSERT(this, TaggedIsPositiveSmi(to));
           var_value =
-              CallBuiltin(Builtins::kSubString, context, string, from, to);
+              CallBuiltin(Builtins::kStringSubstring, context, string,
+                          Unsigned(SmiUntag(from)), Unsigned(SmiUntag(to)));
           Goto(&store_value);
         }
 
@@ -1742,7 +1754,10 @@ TNode<JSArray> RegExpBuiltinsAssembler::RegExpPrototypeSplitBody(
   {
     const TNode<Smi> from = var_last_matched_until.value();
     const TNode<Smi> to = string_length;
-    array.Push(CallBuiltin(Builtins::kSubString, context, string, from, to));
+    CSA_ASSERT(this, TaggedIsPositiveSmi(from));
+    CSA_ASSERT(this, TaggedIsPositiveSmi(to));
+    array.Push(CallBuiltin(Builtins::kStringSubstring, context, string,
+                           Unsigned(SmiUntag(from)), Unsigned(SmiUntag(to))));
     Goto(&out);
   }
 
