@@ -4,68 +4,84 @@
 
 namespace string {
 
+extern macro SingleCharacterStringCacheConstant(): FixedArray;
+extern macro UnsafeLoadFixedArrayElement(FixedArray, intptr): Object;
+
+const kSingleCharacterStringCache: FixedArray =
+    SingleCharacterStringCacheConstant();
+const kMaxOneByteCharCode:
+    constexpr int32 generates 'String::kMaxOneByteCharCode';
+
+macro StringFromSingleCharCode2(char: char8|char16): String {
+  const charInt = Convert<intptr>(Convert<int32>(char));
+  if (Convert<int32>(char) <= kMaxOneByteCharCode) {
+    const maybeString =
+        UnsafeLoadFixedArrayElement(kSingleCharacterStringCache, charInt);
+    if (maybeString != Undefined) {
+      return UnsafeCast<String>(maybeString);
+    } else
+      deferred {
+        const result = AllocateNonEmptySeqOneByteString(
+            1, ConstantIterator(%RawDownCast<char8>(char)));
+        kSingleCharacterStringCache.objects[charInt] = result;
+        return result;
+      }
+  } else
+    deferred {
+      return AllocateNonEmptySeqTwoByteString(
+          1, ConstantIterator(%RawDownCast<char16>(char)));
+    }
+}
+
 extern macro AllocateSlicedOneByteString(uint32, String, Smi): String;
 extern macro AllocateSlicedTwoByteString(uint32, String, Smi): String;
 
 extern macro StringBuiltinsAssembler::LoadChar8(RawPtr, uintptr): char8;
-extern macro StringBuiltinsAssembler::LoadChar16(RawPtr, uintptr): char16;
-
 extern macro StringBuiltinsAssembler::StoreChar8(RawPtr, uintptr, char8): void;
-extern macro StringBuiltinsAssembler::StoreChar16(
-    RawPtr, uintptr, char16): void;
+
+macro FastCopyStringBytes<T: type>(
+    src: ConstSlice<T>, srcFrom: intptr, dest: ConstSlice<T>,
+    length: uintptr): void {
+  const srcPtr: RawPtr =
+      src.GCUnsafeStartPointer() + torque_internal::TimesSizeOf<T>(srcFrom);
+  const destPtr: RawPtr = dest.GCUnsafeStartPointer();
+  const byteLength = Unsigned(torque_internal::TimesSizeOf<T>(Signed(length)));
+  let i: uintptr = 0;
+  while (true) {
+    StoreChar8(destPtr, i, LoadChar8(srcPtr, i));
+    if (++i == byteLength) break;
+  }
+}
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
-  const subStrLen = to - from;
-  const stringLen = string.length_uintptr;
-  if (subStrLen >= stringLen) {
-    assert(subStrLen == stringLen && from == 0);
-    return string;
-  }
-  if (subStrLen == 0) return kEmptyString;
-  if (subStrLen == 1)
-    return StringFromSingleCharCode(StringCharCodeAt(string, from));
+  const length = to - from;
+  assert(length <= string.length_uintptr);
+  if (length == string.length_uintptr) return string;
+  if (length == 0) return kEmptyString;
 
   const fromInt = Convert<intptr>(from);
-  const subStrLenInt = Convert<intptr>(subStrLen);
   try {
     StringToStringSlice(string) otherwise OneByte, TwoByte;
   } label OneByte(p: String, o: intptr, s: ConstSlice<char8>) {
-    if (subStrLen < 13) {
-      const result =
-          AllocateNonEmptySeqOneByteString(Convert<uint32>(subStrLen));
-      const src = Convert<RawPtr>(s.GCUnsafeStartPointer()) + Signed(from);
-      const dest = Convert<RawPtr>((&result.chars).GCUnsafeStartPointer());
-      assert(subStrLen > 0);
-      let i: uintptr = 0;
-      let offset: uintptr = 0;
-      while (true) {
-        StoreChar8(dest, offset, LoadChar8(src, offset));
-        offset += Unsigned(torque_internal::TimesSizeOf<char8>(1));
-        if (++i == subStrLen) break;
-      }
+    if (length == 1) return StringFromSingleCharCode2(*s.AtIndex(fromInt));
+    if (length < 13) {
+      const result = AllocateNonEmptySeqOneByteString(Convert<uint32>(length));
+      FastCopyStringBytes(s, fromInt, &result.chars, length);
       return result;
     }
     return AllocateSlicedOneByteString(
-        Unsigned(TruncateIntPtrToInt32(subStrLenInt)), p, SmiTag(o + fromInt));
+        Convert<uint32>(length), p, SmiTag(o + fromInt));
   } label TwoByte(p: String, o: intptr, s: ConstSlice<char16>) {
-    if (subStrLen < 13) {
-      const result =
-          AllocateNonEmptySeqTwoByteString(Convert<uint32>(subStrLen));
-      const src = Convert<RawPtr>(s.GCUnsafeStartPointer()) +
-          torque_internal::TimesSizeOf<char16>(Signed(from));
-      const dest = Convert<RawPtr>((&result.chars).GCUnsafeStartPointer());
-      assert(subStrLen > 0);
-      let i: uintptr = 0;
-      let offset: uintptr = 0;
-      while (true) {
-        StoreChar16(dest, offset, LoadChar16(src, offset));
-        offset += Unsigned(torque_internal::TimesSizeOf<char16>(1));
-        if (++i == subStrLen) break;
-      }
+    if (length < 13) {
+      // TODO(pwong): Add this!
+      // if (length == 1) return StringFromSingleCharCode2(*s.AtIndex(fromInt));
+
+      const result = AllocateNonEmptySeqTwoByteString(Convert<uint32>(length));
+      FastCopyStringBytes(s, fromInt, &result.chars, length);
       return result;
     }
     return AllocateSlicedTwoByteString(
-        Unsigned(TruncateIntPtrToInt32(subStrLenInt)), p, SmiTag(o + fromInt));
+        Convert<uint32>(length), p, SmiTag(o + fromInt));
   }
 }
 
