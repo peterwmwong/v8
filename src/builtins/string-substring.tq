@@ -4,53 +4,52 @@
 
 namespace string {
 
-extern macro SingleCharacterStringCacheConstant(): FixedArray;
-extern macro UnsafeLoadFixedArrayElement(FixedArray, intptr): Object;
-
-const kSingleCharacterStringCache: FixedArray =
-    SingleCharacterStringCacheConstant();
-const kMaxOneByteCharCode:
-    constexpr int32 generates 'String::kMaxOneByteCharCode';
-
-macro StringFromSingleCharCode2(char: char8|char16): String {
-  const charInt = Convert<intptr>(Convert<int32>(char));
-  if (Convert<int32>(char) <= kMaxOneByteCharCode) {
-    const maybeString =
-        UnsafeLoadFixedArrayElement(kSingleCharacterStringCache, charInt);
-    if (maybeString != Undefined) {
-      return UnsafeCast<String>(maybeString);
-    } else
-      deferred {
-        const result = AllocateNonEmptySeqOneByteString(
-            1, ConstantIterator(%RawDownCast<char8>(char)));
-        kSingleCharacterStringCache.objects[charInt] = result;
-        return result;
-      }
-  } else
-    deferred {
-      return AllocateNonEmptySeqTwoByteString(
-          1, ConstantIterator(%RawDownCast<char16>(char)));
-    }
-}
-
 extern macro AllocateSlicedOneByteString(uint32, String, Smi): String;
 extern macro AllocateSlicedTwoByteString(uint32, String, Smi): String;
+extern macro SingleCharacterStringCacheConstant(): FixedArray;
+extern macro UnsafeLoadFixedArrayElement(FixedArray, intptr): Object;
 
 extern macro StringBuiltinsAssembler::LoadChar8(RawPtr, uintptr): char8;
 extern macro StringBuiltinsAssembler::StoreChar8(RawPtr, uintptr, char8): void;
 
-macro FastCopyStringBytes<T: type>(
-    src: ConstSlice<T>, srcFrom: intptr, dest: ConstSlice<T>,
-    length: uintptr): void {
-  const srcPtr: RawPtr =
+const kSingleCharacterStringCache: FixedArray =
+    SingleCharacterStringCacheConstant();
+const kMaxOneByteCharCode:
+    constexpr int31 generates 'String::kMaxOneByteCharCode';
+const kSlicedStringMinLength:
+    constexpr int31 generates 'SlicedString::kMinLength';
+
+// macro StringFromSingleCharCode2(char: char8): String {
+//   const charInt = Convert<intptr>(Convert<uint32>(char));
+//   const maybeString =
+//       UnsafeLoadFixedArrayElement(kSingleCharacterStringCache, charInt);
+//   if (maybeString != Undefined) {
+//     return UnsafeCast<String>(maybeString);
+//   } else
+//     deferred {
+//       const result = AllocateNonEmptySeqOneByteString(
+//           1, ConstantIterator(char));
+//       kSingleCharacterStringCache.objects[charInt] = result;
+//       return result;
+//     }
+// }
+
+macro WriteToString<T: type, U: type>(
+    src: ConstSlice<T>, srcFrom: intptr, dest: U, length: uintptr): U {
+  assert(
+      length > 0 && (src.length - srcFrom) >= Signed(length) &&
+      dest.length_uintptr >= length);
+  const srcPtr =
       src.GCUnsafeStartPointer() + torque_internal::TimesSizeOf<T>(srcFrom);
-  const destPtr: RawPtr = dest.GCUnsafeStartPointer();
+  const destSlice: ConstSlice<T> = &dest.chars;
+  const destPtr = destSlice.GCUnsafeStartPointer();
   const byteLength = Unsigned(torque_internal::TimesSizeOf<T>(Signed(length)));
   let i: uintptr = 0;
   while (true) {
     StoreChar8(destPtr, i, LoadChar8(srcPtr, i));
     if (++i == byteLength) break;
   }
+  return dest;
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
@@ -58,27 +57,44 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   assert(length <= string.length_uintptr);
   if (length == string.length_uintptr) return string;
   if (length == 0) return kEmptyString;
-
-  const fromInt = Convert<intptr>(from);
   try {
     StringToStringSlice(string) otherwise OneByte, TwoByte;
   } label OneByte(p: String, o: intptr, s: ConstSlice<char8>) {
-    if (length == 1) return StringFromSingleCharCode2(*s.AtIndex(fromInt));
-    if (length < 13) {
-      const result = AllocateNonEmptySeqOneByteString(Convert<uint32>(length));
-      FastCopyStringBytes(s, fromInt, &result.chars, length);
-      return result;
+    if (length == 1) deferred {
+        Comment('StringFromSingleCharCode2 START');
+        // const result =
+        // StringFromSingleCharCode2(LoadChar8(Convert<RawPtr>(s.GCUnsafeStartPointer()),
+        // from));
+        const char = LoadChar8(Convert<RawPtr>(s.GCUnsafeStartPointer()), from);
+        const charInt = Convert<intptr>(Convert<uint32>(char));
+        const maybeString =
+            UnsafeLoadFixedArrayElement(kSingleCharacterStringCache, charInt);
+        if (IsUndefined(maybeString)) deferred {
+            const result =
+                AllocateNonEmptySeqOneByteString(1, ConstantIterator(char));
+            kSingleCharacterStringCache.objects[charInt] = result;
+            return result;
+          }
+        else {
+          Comment('StringFromSingleCharCode2 END');
+          return %RawDownCast<String>(maybeString);
+        }
+      }
+    const fromInt = Convert<intptr>(from);
+    if (length < kSlicedStringMinLength) {
+      return WriteToString(
+          s, fromInt, AllocateNonEmptySeqOneByteString(Convert<uint32>(length)),
+          length);
     }
     return AllocateSlicedOneByteString(
         Convert<uint32>(length), p, SmiTag(o + fromInt));
-  } label TwoByte(p: String, o: intptr, s: ConstSlice<char16>) {
-    if (length < 13) {
-      // TODO(pwong): Add this!
-      // if (length == 1) return StringFromSingleCharCode2(*s.AtIndex(fromInt));
-
-      const result = AllocateNonEmptySeqTwoByteString(Convert<uint32>(length));
-      FastCopyStringBytes(s, fromInt, &result.chars, length);
-      return result;
+  } label TwoByte(p: String, o: intptr, s: ConstSlice<char16>) deferred {
+    Comment('TwoByte START');
+    const fromInt = Convert<intptr>(from);
+    if (length < kSlicedStringMinLength) {
+      return WriteToString(
+          s, fromInt, AllocateNonEmptySeqTwoByteString(Convert<uint32>(length)),
+          length);
     }
     return AllocateSlicedTwoByteString(
         Convert<uint32>(length), p, SmiTag(o + fromInt));
