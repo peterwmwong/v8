@@ -13,51 +13,109 @@ extern macro StringBuiltinsAssembler::StoreChar8(RawPtr, uintptr, char8): void;
 const kSlicedStringMinLength:
     constexpr int31 generates 'SlicedString::kMinLength';
 
-macro WriteToString<T: type, U: type>(
-    src: ConstSlice<T>, srcFrom: intptr, dest: U, length: uintptr): U {
-  assert(
-      length > 0 && (src.length - srcFrom) >= Signed(length) &&
-      dest.length_uintptr >= length);
-  const srcPtr =
-      src.GCUnsafeStartPointer() + torque_internal::TimesSizeOf<T>(srcFrom);
-  const destSlice: ConstSlice<T> = &dest.chars;
-  const destPtr = destSlice.GCUnsafeStartPointer();
-  const byteLength = Unsigned(torque_internal::TimesSizeOf<T>(Signed(length)));
-  let i: uintptr = 0;
-  while (true) {
-    StoreChar8(destPtr, i, LoadChar8(srcPtr, i));
-    if (++i == byteLength) break;
+// extern macro SingleCharacterStringCacheConstant(): FixedArray;
+// extern macro UnsafeLoadFixedArrayElement(FixedArray, intptr): Object;
+// const kSingleCharacterStringCache: FixedArray =
+//     SingleCharacterStringCacheConstant();
+// const kMaxOneByteCharCode:
+//     constexpr int32 generates 'String::kMaxOneByteCharCode';
+// macro StringFromSingleCharCode2(char: char8|char16): String {
+//   const charInt = Convert<intptr>(Convert<int32>(char));
+//   if (Convert<int32>(char) <= kMaxOneByteCharCode) {
+//     const maybeString =
+//         UnsafeLoadFixedArrayElement(kSingleCharacterStringCache, charInt);
+//     if (maybeString != Undefined) {
+//       return UnsafeCast<String>(maybeString);
+//     } else
+//       deferred {
+//         const result = AllocateNonEmptySeqOneByteString(
+//             1, ConstantIterator(%RawDownCast<char8>(char)));
+//         kSingleCharacterStringCache.objects[charInt] = result;
+//         return result;
+//       }
+//   } else
+//     deferred {
+//       return AllocateNonEmptySeqTwoByteString(
+//           1, ConstantIterator(%RawDownCast<char16>(char)));
+//     }
+// }
+
+macro AllocateSeqString<T: type>(length: uint32): never labels Result(
+    String, ConstSlice<T>);
+AllocateSeqString<char8>(length: uint32): never labels Result(
+    String, ConstSlice<char8>) {
+  const str = AllocateNonEmptySeqOneByteString(length);
+  goto Result(str, &str.chars);
+}
+AllocateSeqString<char16>(length: uint32): never labels Result(
+    String, ConstSlice<char16>) {
+  const str = AllocateNonEmptySeqTwoByteString(length);
+  goto Result(str, &str.chars);
+}
+
+macro AllocateSlicedString<T: type>(
+    length: uint32, parent: String, offset: intptr): String;
+AllocateSlicedString<char8>(
+    length: uint32, parent: String, offset: intptr): String {
+  return AllocateSlicedOneByteString(length, parent, SmiTag(offset));
+}
+AllocateSlicedString<char16>(
+    length: uint32, parent: String, offset: intptr): String {
+  return AllocateSlicedTwoByteString(length, parent, SmiTag(offset));
+}
+
+macro WriteToString<T: type>(
+    src: ConstSlice<T>, srcFrom: intptr, length: uint32): String {
+  assert(length > 0 && (src.length - srcFrom) >= Convert<intptr>(length));
+  try {
+    AllocateSeqString<T>(length) otherwise AllocatedString;
+  } label AllocatedString(dest: String, destChars: ConstSlice<T>) {
+    const srcPtr =
+        src.GCUnsafeStartPointer() + torque_internal::TimesSizeOf<T>(srcFrom);
+    const destPtr = destChars.GCUnsafeStartPointer();
+    const byteLength =
+        Unsigned(torque_internal::TimesSizeOf<T>(Convert<intptr>(length)));
+    let i: uintptr = 0;
+    while (true) {
+      StoreChar8(destPtr, i, LoadChar8(srcPtr, i));
+      if (++i == byteLength) break;
+    }
+    return dest;
   }
-  return dest;
+}
+
+macro SubStringImpl<T: type>(
+    srcParent: String, srcParentOffset: intptr, src: ConstSlice<T>,
+    from: uintptr, length: uint32): String {
+  const fromInt = Convert<intptr>(from);
+  if (length == 1) {
+    return StringFromSingleCharCode(*src.AtIndex(fromInt));
+  }
+  if (length < kSlicedStringMinLength) {
+    return WriteToString(src, fromInt, length);
+  }
+  return AllocateSlicedString<T>(length, srcParent, srcParentOffset + fromInt);
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
-  const length = to - from;
-  assert(length <= string.length_uintptr);
-  if (length == string.length_uintptr) return string;
+  const length = Convert<uint32>(to - from);
+  assert(length <= string.length_uint32);
+  if (length == string.length_uint32) return string;
   if (length == 0) return kEmptyString;
-  if (length == 1) {
-    return StringFromSingleCharCode(StringCharCodeAt(string, from));
-  }
 
   try {
-    StringToStringSlice(string) otherwise OneByte, TwoByte;
-  } label OneByte(p: String, o: intptr, s: ConstSlice<char8>) {
-    if (length < kSlicedStringMinLength) {
-      return WriteToString(
-          s, Convert<intptr>(from),
-          AllocateNonEmptySeqOneByteString(Convert<uint32>(length)), length);
-    }
-    return AllocateSlicedOneByteString(
-        Convert<uint32>(length), p, SmiTag(o + Convert<intptr>(from)));
-  } label TwoByte(p: String, o: intptr, s: ConstSlice<char16>) {
-    if (length < kSlicedStringMinLength) {
-      return WriteToString(
-          s, Convert<intptr>(from),
-          AllocateNonEmptySeqTwoByteString(Convert<uint32>(length)), length);
-    }
-    return AllocateSlicedTwoByteString(
-        Convert<uint32>(length), p, SmiTag(o + Convert<intptr>(from)));
+    StringToStringSlice2(string) otherwise OneByte, TwoByte, OneByteExternal,
+        TwoByteExternal;
+  } label OneByte(parent: String, offset: intptr, chars: ConstSlice<char8>) {
+    return SubStringImpl(parent, offset, chars, from, length);
+  } label TwoByte(parent: String, offset: intptr, chars: ConstSlice<char16>) {
+    return SubStringImpl(parent, offset, chars, from, length);
+  } label OneByteExternal(
+      parent: String, offset: intptr, chars: ConstSlice<char8>) deferred {
+    return SubStringImpl(parent, offset, chars, from, length);
+  } label TwoByteExternal(
+      parent: String, offset: intptr, chars: ConstSlice<char16>) deferred {
+    return SubStringImpl(parent, offset, chars, from, length);
   }
 }
 

@@ -261,12 +261,19 @@ macro StringToStringSlice(string: String):
       case (s: SeqOneByteString): {
         goto OneByte(
             s, offset,
-            Subslice(&s.chars, offset, length) otherwise unreachable);
+            torque_internal::unsafe::NewConstSlice<char8>(
+                s, (&s.chars).offset + offset, length));
       }
       case (s: SeqTwoByteString): {
         goto TwoByte(
             s, offset,
-            Subslice(&s.chars, offset, length) otherwise unreachable);
+            torque_internal::unsafe::NewConstSlice<char16>(
+                // TODO(pwong): How come I need to do this, but not for
+                // one-byte?
+                (&s.chars).object,
+                (&s.chars).offset +
+                    torque_internal::TimesSizeOf<char16>(offset),
+                length));
       }
       case (s: ThinString): {
         string = s.actual;
@@ -279,37 +286,54 @@ macro StringToStringSlice(string: String):
         string = s.parent;
       }
       case (s: ExternalOneByteString): {
-        const data = torque_internal::unsafe::NewOffHeapConstSlice(
-            s.GetChars(), Convert<intptr>(s.length));
         goto OneByte(
-            s, offset, Subslice(data, offset, length) otherwise unreachable);
+            s, offset,
+            torque_internal::unsafe::NewOffHeapConstSlice(
+                %RawDownCast<RawPtr<char8>>(s.GetChars() + offset), length));
       }
       case (s: ExternalTwoByteString): {
-        const data = torque_internal::unsafe::NewOffHeapConstSlice(
-            s.GetChars(), Convert<intptr>(s.length));
         goto TwoByte(
-            s, offset, Subslice(data, offset, length) otherwise unreachable);
+            s, offset,
+            torque_internal::unsafe::NewOffHeapConstSlice(
+                %RawDownCast<RawPtr<char16>>(
+                    s.GetChars() +
+                    torque_internal::TimesSizeOf<char16>(offset)),
+                length));
       }
       case (String): {
         unreachable;
       }
     }
   }
-  VerifiedUnreachable();
+  unreachable;
 }
 
-@export
-macro StringToParentAndOffset(string: String):
-    never labels OneByte(String, intptr), TwoByte(String, intptr) {
+macro StringToStringSlice2(string: String):
+    never labels OneByte(SeqOneByteString, intptr, ConstSlice<char8>),
+    TwoByte(SeqTwoByteString, intptr, ConstSlice<char16>),
+    OneByteExternal(ExternalOneByteString, intptr, ConstSlice<char8>),
+    TwoByteExternal(ExternalTwoByteString, intptr, ConstSlice<char16>) {
   let string = string;
   let offset: intptr = 0;
+  const length = Convert<intptr>(string.length);
   while (true) {
     typeswitch (string) {
       case (s: SeqOneByteString): {
-        goto OneByte(s, offset);
+        goto OneByte(
+            s, offset,
+            torque_internal::unsafe::NewConstSlice<char8>(
+                s, (&s.chars).offset + offset, length));
       }
       case (s: SeqTwoByteString): {
-        goto TwoByte(s, offset);
+        goto TwoByte(
+            s, offset,
+            torque_internal::unsafe::NewConstSlice<char16>(
+                // TODO(pwong): How come I need to do this, but not for
+                // one-byte?
+                (&s.chars).object,
+                (&s.chars).offset +
+                    torque_internal::TimesSizeOf<char16>(offset),
+                length));
       }
       case (s: ThinString): {
         string = s.actual;
@@ -322,10 +346,19 @@ macro StringToParentAndOffset(string: String):
         string = s.parent;
       }
       case (s: ExternalOneByteString): {
-        goto OneByte(s, offset);
+        goto OneByteExternal(
+            s, offset,
+            torque_internal::unsafe::NewOffHeapConstSlice(
+                %RawDownCast<RawPtr<char8>>(s.GetChars() + offset), length));
       }
       case (s: ExternalTwoByteString): {
-        goto TwoByte(s, offset);
+        goto TwoByteExternal(
+            s, offset,
+            torque_internal::unsafe::NewOffHeapConstSlice(
+                %RawDownCast<RawPtr<char16>>(
+                    s.GetChars() +
+                    torque_internal::TimesSizeOf<char16>(offset)),
+                length));
       }
       case (String): {
         unreachable;
