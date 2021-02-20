@@ -190,6 +190,9 @@ enum class PrimitiveType { kBoolean, kNumber, kString, kSymbol };
   V(resolve_string, resolve_string, ResolveString)                           \
   V(return_string, return_string, ReturnString)                              \
   V(search_symbol, search_symbol, SearchSymbol)                              \
+  V(SlicedOneByteStringMap, sliced_one_byte_string_map,                      \
+    SlicedOneByteStringMap)                                                  \
+  V(SlicedStringMap, sliced_string_map, SlicedStringMap)                     \
   V(species_symbol, species_symbol, SpeciesSymbol)                           \
   V(StaleRegister, stale_register, StaleRegister)                            \
   V(StoreHandler0Map, store_handler0_map, StoreHandler0Map)                  \

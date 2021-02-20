@@ -66,6 +66,12 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
         Load(MachineType::Uint8(), data_pointer, offset));
   }
 
+  TNode<Uint16T> LoadChar16(TNode<RawPtrT> data_pointer,
+                            TNode<UintPtrT> offset) {
+    return UncheckedCast<Uint16T>(
+        Load(MachineType::Uint16(), data_pointer, offset));
+  }
+
   void StoreChar8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset,
                   TNode<Uint8T> value) {
     StoreNoWriteBarrier(MachineRepresentation::kWord8, data_pointer, offset,

@@ -693,8 +693,7 @@ extern macro LoadBufferIntptr(RawPtr, constexpr int32): intptr;
 extern runtime StringEqual(Context, String, String): Oddball;
 extern builtin StringLessThan(Context, String, String): Boolean;
 extern macro StringCharCodeAt(String, uintptr): char16;
-extern macro StringFromSingleCharCode(char8): String;
-extern macro StringFromSingleCharCode(char16): String;
+extern macro StringFromSingleCharCode(char8|char16): String;
 
 extern macro NumberToString(Number): String;
 extern macro StringToNumber(String): Number;
@@ -1082,6 +1081,8 @@ extern macro EmptyFixedArrayConstant(): EmptyFixedArray;
 extern macro PromiseCapabilityMapConstant(): Map;
 extern macro OneByteStringMapConstant(): Map;
 extern macro StringMapConstant(): Map;
+extern macro SlicedOneByteStringMapConstant(): Map;
+extern macro SlicedStringMapConstant(): Map;
 
 const kFixedArrayMap: Map = FixedArrayMapConstant();
 const kFixedDoubleArrayMap: Map = FixedDoubleArrayMapConstant();
@@ -1093,6 +1094,8 @@ const kPromiseCapabilityMap: Map = PromiseCapabilityMapConstant();
 const kOneByteStringMap: Map = OneByteStringMapConstant();
 // The map of a non-internalized internal SeqTwoByteString.
 const kStringMap: Map = StringMapConstant();
+const kSlicedOneByteStringMap: Map = SlicedOneByteStringMapConstant();
+const kSlicedStringMap: Map = SlicedStringMapConstant();
 
 macro OutOfBounds<T: type, X: type>(index: T, length: X): bool {
   return UintPtrGreaterThanOrEqual(

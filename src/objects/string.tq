@@ -108,12 +108,18 @@ extern class SeqString extends String {
 @generateBodyDescriptor
 @doNotGenerateCast
 extern class SeqOneByteString extends SeqString {
+  macro GetChars(): RawPtr<char8> {
+    return (&this.chars).GCUnsafeStartPointer();
+  }
   const chars[length]: char8;
 }
 @generateCppClass
 @generateBodyDescriptor
 @doNotGenerateCast
 extern class SeqTwoByteString extends SeqString {
+  macro GetChars(): RawPtr<char16> {
+    return (&this.chars).GCUnsafeStartPointer();
+  }
   const chars[length]: char16;
 }
 
@@ -185,6 +191,17 @@ macro AllocateSeqOneByteString(length: uint32): SeqOneByteString|EmptyString {
 @export
 macro AllocateSeqTwoByteString(length: uint32): SeqTwoByteString|EmptyString {
   return AllocateSeqTwoByteString(length, UninitializedIterator{});
+}
+
+macro AllocateSlicedString(map: Map, length: uint32, parent: String, offset: Smi): SlicedString {
+  assert(map == kSlicedOneByteStringMap || map == kSlicedStringMap);
+  return new SlicedString{
+    map: map,
+    raw_hash_field: kNameEmptyHashField,
+    length: Signed(length),
+    parent: parent,
+    offset: offset
+  };
 }
 
 extern macro StringWriteToFlatOneByte(String, RawPtr<char8>, int32, int32);
@@ -308,32 +325,20 @@ macro StringToStringSlice(string: String):
   unreachable;
 }
 
-macro StringToStringSlice2(string: String):
-    never labels OneByte(SeqOneByteString, intptr, ConstSlice<char8>),
-    TwoByte(SeqTwoByteString, intptr, ConstSlice<char16>),
-    OneByteExternal(ExternalOneByteString, intptr, ConstSlice<char8>),
-    TwoByteExternal(ExternalTwoByteString, intptr, ConstSlice<char16>) {
+macro StringToRootStringAndOffset(string: String):
+    never labels OneByte(SeqOneByteString, intptr),
+    TwoByte(SeqTwoByteString, intptr),
+    OneByteExternal(ExternalOneByteString, intptr),
+    TwoByteExternal(ExternalTwoByteString, intptr) {
   let string = string;
   let offset: intptr = 0;
-  const length = Convert<intptr>(string.length);
   while (true) {
     typeswitch (string) {
       case (s: SeqOneByteString): {
-        goto OneByte(
-            s, offset,
-            torque_internal::unsafe::NewConstSlice<char8>(
-                s, (&s.chars).offset + offset, length));
+        goto OneByte(s, offset);
       }
       case (s: SeqTwoByteString): {
-        goto TwoByte(
-            s, offset,
-            torque_internal::unsafe::NewConstSlice<char16>(
-                // TODO(pwong): How come I need to do this, but not for
-                // one-byte?
-                (&s.chars).object,
-                (&s.chars).offset +
-                    torque_internal::TimesSizeOf<char16>(offset),
-                length));
+        goto TwoByte(s, offset);
       }
       case (s: ThinString): {
         string = s.actual;
@@ -346,19 +351,10 @@ macro StringToStringSlice2(string: String):
         string = s.parent;
       }
       case (s: ExternalOneByteString): {
-        goto OneByteExternal(
-            s, offset,
-            torque_internal::unsafe::NewOffHeapConstSlice(
-                %RawDownCast<RawPtr<char8>>(s.GetChars() + offset), length));
+        goto OneByteExternal(s, offset);
       }
       case (s: ExternalTwoByteString): {
-        goto TwoByteExternal(
-            s, offset,
-            torque_internal::unsafe::NewOffHeapConstSlice(
-                %RawDownCast<RawPtr<char16>>(
-                    s.GetChars() +
-                    torque_internal::TimesSizeOf<char16>(offset)),
-                length));
+        goto TwoByteExternal(s, offset);
       }
       case (String): {
         unreachable;
