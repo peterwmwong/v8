@@ -193,10 +193,11 @@ macro AllocateSeqTwoByteString(length: uint32): SeqTwoByteString|EmptyString {
   return AllocateSeqTwoByteString(length, UninitializedIterator{});
 }
 
-macro AllocateSlicedString(map: Map, length: uint32, parent: String, offset: Smi): SlicedString {
-  assert(map == kSlicedOneByteStringMap || map == kSlicedStringMap);
+macro AllocateSlicedString(
+    isOneByte: bool, length: uint32, parent: String,
+    offset: Smi): SlicedString {
   return new SlicedString{
-    map: map,
+    map: (isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap),
     raw_hash_field: kNameEmptyHashField,
     length: Signed(length),
     parent: parent,

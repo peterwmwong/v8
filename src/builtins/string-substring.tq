@@ -3,17 +3,10 @@
 // found in the LICENSE file.
 
 // TODO(pwong): ...
-// - Convert SubStringImpl to not be generic (only code generate once)
-//    - Single Char
-//    - WriteToString
-//    - Sliced String
 // - Add an specialization of InitializeFieldsFromIterator using RawPtr
 // (basically WriteToString)
 
 namespace string {
-
-// extern macro AllocateSlicedOneByteString(uint32, String, Smi): String;
-// extern macro AllocateSlicedTwoByteString(uint32, String, Smi): String;
 
 extern macro StringBuiltinsAssembler::LoadChar8(RawPtr, uintptr): char8;
 extern macro StringBuiltinsAssembler::LoadChar16(RawPtr, uintptr): char16;
@@ -49,46 +42,30 @@ const kSlicedStringMinLength:
 //     }
 // }
 
-// macro AllocateSlicedString<T: type>(
-//     length: uint32, parent: String, offset: intptr): String;
-// AllocateSlicedString<char8>(
-//     length: uint32, parent: String, offset: intptr): String {
-//   return AllocateSlicedOneByteString(length, parent, SmiTag(offset));
-// }
-// AllocateSlicedString<char16>(
-//     length: uint32, parent: String, offset: intptr): String {
-//   return AllocateSlicedTwoByteString(length, parent, SmiTag(offset));
-// }
-
-// macro WriteToString(srcPtr: RawPtr, byteLength: uint32): String {
-//   try {
-//     AllocateSeqString<T>(length) otherwise AllocatedString;
-//   } label AllocatedString(dest: String, destChars: ConstSlice<T>) {
-//     const destPtr = destChars.GCUnsafeStartPointer();
-//     const byteLength =
-//         Unsigned(torque_internal::TimesSizeOf<T>(Convert<intptr>(length)));
-//     let i: uintptr = 0;
-//     while (true) {
-//       StoreChar8(destPtr, i, LoadChar8(srcPtr, i));
-//       if (++i == byteLength) break;
-//     }
-//     return dest;
-//   }
-// }
-
-// macro SubStringImpl<T: type>(
-//     srcParent: String, srcParentOffset: intptr, src: ConstSlice<T>,
-//     from: uintptr, length: uint32): String {
-//   const fromInt = Convert<intptr>(from);
-//   if (length == 1) {
-//     return StringFromSingleCharCode(*src.AtIndex(fromInt));
-//   }
-//   if (length < kSlicedStringMinLength) {
-//     return WriteToString(src, fromInt, length);
-//   }
-//   return AllocateSlicedString<T>(length, srcParent, srcParentOffset +
-//   fromInt);
-// }
+macro SubStringSmallImpl(
+    isOneByte: bool, srcChars: RawPtr, length: uint32): String {
+  let result: String;
+  let destChars: RawPtr;
+  if (isOneByte) {
+    const str = AllocateNonEmptySeqOneByteString(length);
+    result = str;
+    destChars = (&str.chars).GCUnsafeStartPointer();
+  } else {
+    const str = AllocateNonEmptySeqTwoByteString(length);
+    result = str;
+    destChars = (&str.chars).GCUnsafeStartPointer();
+  }
+  const byteLength = Unsigned(
+      isOneByte ?
+          Convert<intptr>(length) :
+          torque_internal::TimesSizeOf<char16>(Convert<intptr>(length)));
+  let i: uintptr = 0;
+  while (true) {
+    StoreChar8(destChars, i, LoadChar8(srcChars, i));
+    if (++i == byteLength) break;
+  }
+  return result;
+}
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
   const length = Convert<uint32>(to - from);
@@ -97,67 +74,37 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   if (length == 0) return kEmptyString;
 
   const fromInt = Convert<intptr>(from);
-  let root: String;
-  let rootCharOffset: intptr;
-  let rootChars: RawPtr;
-  let isOneByte: bool;
   try {
     StringToRootStringAndOffset(string) otherwise OneByte, TwoByte,
         OneByteExternal, TwoByteExternal;
   } label OneByte(r: SeqOneByteString, o: intptr) {
-    root = r;
-    rootCharOffset = o;
-    rootChars = r.GetChars() + torque_internal::TimesSizeOf<char8>(o + fromInt);
-    isOneByte = true;
+    const chars =
+        r.GetChars() + torque_internal::TimesSizeOf<char8>(o + fromInt);
+    goto DoSubString(r, o, chars, true);
   } label TwoByte(r: SeqTwoByteString, o: intptr) {
-    root = r;
-    rootCharOffset = o;
-    rootChars =
+    const chars =
         r.GetChars() + torque_internal::TimesSizeOf<char16>(o + fromInt);
-    isOneByte = false;
+    goto DoSubString(r, o, chars, false);
   } label OneByteExternal(r: ExternalOneByteString, o: intptr) {
-    root = r;
-    rootCharOffset = o;
-    rootChars = r.GetChars() + torque_internal::TimesSizeOf<char8>(o + fromInt);
-    isOneByte = true;
+    const chars =
+        r.GetChars() + torque_internal::TimesSizeOf<char8>(o + fromInt);
+    goto DoSubString(r, o, chars, true);
   } label TwoByteExternal(r: ExternalTwoByteString, o: intptr) {
-    root = r;
-    rootCharOffset = o;
-    rootChars =
+    const chars =
         r.GetChars() + torque_internal::TimesSizeOf<char16>(o + fromInt);
-    isOneByte = false;
-  }
-
-  if (length == 1) {
-    return StringFromSingleCharCode(
-        isOneByte ? LoadChar8(rootChars, 0) : LoadChar16(rootChars, 0));
-  }
-  if (length < kSlicedStringMinLength) {
-    let result: String;
-    let destChars: RawPtr;
-    if (isOneByte) {
-      const str = AllocateNonEmptySeqOneByteString(length);
-      result = str;
-      destChars = (&str.chars).GCUnsafeStartPointer();
-    } else {
-      const str = AllocateNonEmptySeqTwoByteString(length);
-      result = str;
-      destChars = (&str.chars).GCUnsafeStartPointer();
+    goto DoSubString(r, o, chars, false);
+  } label DoSubString(
+      src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
+    if (length == 1) {
+      return StringFromSingleCharCode(
+          isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0));
     }
-    const byteLength = isOneByte ?
-        Unsigned(Convert<intptr>(length)) :
-        Unsigned(torque_internal::TimesSizeOf<char16>(Convert<intptr>(length)));
-    let i: uintptr = 0;
-    while (true) {
-      StoreChar8(destChars, i, LoadChar8(rootChars, i));
-      if (++i == byteLength) break;
+    if (length < kSlicedStringMinLength) {
+      return SubStringSmallImpl(isOneByte, srcChars, length);
     }
-    return result;
+    return AllocateSlicedString(
+        isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
   }
-
-  const map = isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap;
-  return AllocateSlicedString(
-      map, length, root, Convert<Smi>(rootCharOffset + fromInt));
 }
 
 builtin SubString(implicit context: Context)(
