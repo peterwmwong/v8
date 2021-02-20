@@ -74,27 +74,27 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
     goto DoSubString(r, o, chars, false);
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
-    if (length >= kSlicedStringMinLength)
-      return AllocateSlicedString(
-          isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
-
-    let isOneByte: bool = isOneByte;
-    let singleCharInt: intptr = kMaxOneByteCharCode + 1;
+    let isOneByte = isOneByte;
+    let singleCharCode: intptr = kMaxOneByteCharCode + 1;
     if (length == 1) {
-      singleCharInt = Convert<intptr>(Convert<int32>(
+      singleCharCode = Convert<intptr>(Convert<int32>(
           isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0)));
-      if (singleCharInt <= kMaxOneByteCharCode) {
-        assert(kSingleCharacterStringCache.length > kMaxOneByteCharCode);
-        const cached = kSingleCharacterStringCache.objects[singleCharInt];
-        if (cached != Undefined) return %RawDownCast<String>(cached);
+      if (singleCharCode <= kMaxOneByteCharCode) {
         isOneByte = true;
+        const cached = kSingleCharacterStringCache.objects[singleCharCode];
+        if (cached != Undefined) return %RawDownCast<String>(cached);
       }
     }
 
-    const result = SubStringSmallImpl(isOneByte, srcChars, length);
-    if (singleCharInt <= kMaxOneByteCharCode)
-      kSingleCharacterStringCache.objects[singleCharInt] = result;
-    return result;
+    if (length < kSlicedStringMinLength) {
+      const result = SubStringSmallImpl(isOneByte, srcChars, length);
+      if (singleCharCode <= kMaxOneByteCharCode)
+        kSingleCharacterStringCache.objects[singleCharCode] = result;
+      return result;
+    }
+
+    return AllocateSlicedString(
+        isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
   }
 }
 
