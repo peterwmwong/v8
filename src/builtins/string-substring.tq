@@ -21,24 +21,6 @@ const kSingleCharacterStringCache: FixedArray =
 const kMaxOneByteCharCode:
     constexpr int31 generates 'String::kMaxOneByteCharCode';
 
-// TODO(pwong): Why is this ~100 Bytes larger than the CSA version?
-macro StringFromSingleCharCode2(char: char8|char16): String {
-  const charInt = Convert<intptr>(Convert<int32>(char));
-  assert(kSingleCharacterStringCache.length > kMaxOneByteCharCode);
-  if (charInt > kMaxOneByteCharCode) deferred {
-      return AllocateNonEmptySeqTwoByteString(
-          1, ConstantIterator(%RawDownCast<char16>(char)));
-    }
-
-  let result = kSingleCharacterStringCache.objects[charInt];
-  if (result == Undefined) deferred {
-      result = AllocateNonEmptySeqOneByteString(
-          1, ConstantIterator(%RawDownCast<char8>(char)));
-      kSingleCharacterStringCache.objects[charInt] = result;
-    }
-  return %RawDownCast<String>(result);
-}
-
 macro SubStringSmallImpl(
     isOneByte: bool, srcChars: RawPtr, length: uint32): String {
   let result: String;
@@ -92,15 +74,27 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
     goto DoSubString(r, o, chars, false);
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
+    if (length >= kSlicedStringMinLength)
+      return AllocateSlicedString(
+          isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
+
+    let isOneByte: bool = isOneByte;
+    let singleCharInt: intptr = kMaxOneByteCharCode + 1;
     if (length == 1) {
-      return StringFromSingleCharCode2(
-          isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0));
+      singleCharInt = Convert<intptr>(Convert<int32>(
+          isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0)));
+      if (singleCharInt <= kMaxOneByteCharCode) {
+        assert(kSingleCharacterStringCache.length > kMaxOneByteCharCode);
+        const cached = kSingleCharacterStringCache.objects[singleCharInt];
+        if (cached != Undefined) return %RawDownCast<String>(cached);
+        isOneByte = true;
+      }
     }
-    if (length < kSlicedStringMinLength) {
-      return SubStringSmallImpl(isOneByte, srcChars, length);
-    }
-    return AllocateSlicedString(
-        isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
+
+    const result = SubStringSmallImpl(isOneByte, srcChars, length);
+    if (singleCharInt <= kMaxOneByteCharCode)
+      kSingleCharacterStringCache.objects[singleCharInt] = result;
+    return result;
   }
 }
 
