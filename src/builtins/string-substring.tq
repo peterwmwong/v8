@@ -8,10 +8,6 @@
 
 namespace string {
 
-extern macro StringBuiltinsAssembler::LoadChar8(RawPtr, uintptr): char8;
-extern macro StringBuiltinsAssembler::LoadChar16(RawPtr, uintptr): char16;
-extern macro StringBuiltinsAssembler::StoreChar8(RawPtr, uintptr, char8): void;
-
 const kSlicedStringMinLength:
     constexpr int31 generates 'SlicedString::kMinLength';
 
@@ -21,29 +17,40 @@ const kSingleCharacterStringCache: FixedArray =
 const kMaxOneByteCharCode:
     constexpr int31 generates 'String::kMaxOneByteCharCode';
 
+struct AllocatedSeqString {
+  string: SeqString;
+  chars: RawPtr;
+  byteLength: intptr;
+}
+
+macro AllocateNonEmptySeqString(
+    isOneByte: bool, length: uint32): AllocatedSeqString {
+  if (isOneByte) {
+    const string = AllocateNonEmptySeqOneByteString(length);
+    return AllocatedSeqString{
+      string: string,
+      chars: string.GetChars(),
+      byteLength: torque_internal::TimesSizeOf<char8>(Convert<intptr>(length))
+    };
+  } else {
+    const string = AllocateNonEmptySeqTwoByteString(length);
+    return AllocatedSeqString{
+      string: string,
+      chars: string.GetChars(),
+      byteLength: torque_internal::TimesSizeOf<char16>(Convert<intptr>(length))
+    };
+  }
+}
+
 macro SubStringSmallImpl(
     isOneByte: bool, srcChars: RawPtr, length: uint32): String {
-  let result: String;
-  let destChars: RawPtr;
-  if (isOneByte) {
-    const str = AllocateNonEmptySeqOneByteString(length);
-    result = str;
-    destChars = (&str.chars).GCUnsafeStartPointer();
-  } else {
-    const str = AllocateNonEmptySeqTwoByteString(length);
-    result = str;
-    destChars = (&str.chars).GCUnsafeStartPointer();
-  }
-  const byteLength = Unsigned(
-      isOneByte ?
-          Convert<intptr>(length) :
-          torque_internal::TimesSizeOf<char16>(Convert<intptr>(length)));
-  let i: uintptr = 0;
+  const allocString = AllocateNonEmptySeqString(isOneByte, length);
+  let i: intptr = 0;
   while (true) {
-    StoreChar8(destChars, i, LoadChar8(srcChars, i));
-    if (++i == byteLength) break;
+    StoreChar8(allocString.chars, i, LoadChar8(srcChars, i));
+    if (++i == allocString.byteLength) break;
   }
-  return result;
+  return allocString.string;
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {

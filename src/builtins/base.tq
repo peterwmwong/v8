@@ -694,6 +694,10 @@ extern runtime StringEqual(Context, String, String): Oddball;
 extern builtin StringLessThan(Context, String, String): Boolean;
 extern macro StringCharCodeAt(String, uintptr): char16;
 extern macro StringFromSingleCharCode(char8|char16): String;
+extern macro LoadChar8(RawPtr, intptr): char8;
+extern macro LoadChar16(RawPtr, intptr): char16;
+extern macro StoreChar8(RawPtr, intptr, char8): void;
+
 
 extern macro NumberToString(Number): String;
 extern macro StringToNumber(String): Number;

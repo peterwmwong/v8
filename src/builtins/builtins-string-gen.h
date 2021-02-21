@@ -61,23 +61,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
                             String::Encoding from_encoding,
                             String::Encoding to_encoding);
 
-  TNode<Uint8T> LoadChar8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset) {
-    return UncheckedCast<Uint8T>(
-        Load(MachineType::Uint8(), data_pointer, offset));
-  }
-
-  TNode<Uint16T> LoadChar16(TNode<RawPtrT> data_pointer,
-                            TNode<UintPtrT> offset) {
-    return UncheckedCast<Uint16T>(
-        Load(MachineType::Uint16(), data_pointer, offset));
-  }
-
-  void StoreChar8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset,
-                  TNode<Uint8T> value) {
-    StoreNoWriteBarrier(MachineRepresentation::kWord8, data_pointer, offset,
-                        value);
-  }
-
   // Torque wrapper methods for CallSearchStringRaw for each combination of
   // search and subject character widths (char8/char16). This is a workaround
   // for Torque's current lack of support for extern macros with generics.

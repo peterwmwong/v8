@@ -2546,6 +2546,23 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   // Return the single character string with only {code}.
   TNode<String> StringFromSingleCharCode(TNode<Int32T> code);
 
+  TNode<Uint8T> LoadChar8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset) {
+    return UncheckedCast<Uint8T>(
+        Load(MachineType::Uint8(), data_pointer, offset));
+  }
+
+  TNode<Uint16T> LoadChar16(TNode<RawPtrT> data_pointer,
+                            TNode<IntPtrT> offset) {
+    return UncheckedCast<Uint16T>(
+        Load(MachineType::Uint16(), data_pointer, offset));
+  }
+
+  void StoreChar8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset,
+                  TNode<Uint8T> value) {
+    StoreNoWriteBarrier(MachineRepresentation::kWord8, data_pointer, offset,
+                        value);
+  }
+
   // Type conversion helpers.
   enum class BigIntHandling { kConvertToNumber, kThrow };
   // Convert a String to a Number.
