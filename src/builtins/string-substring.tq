@@ -39,8 +39,8 @@ macro AllocateNonEmptySeqString(
 }
 
 macro SubStringSmallImpl(
-    isOneByte: bool, srcChars: RawPtr, length: uint32): String {
-  const allocString = AllocateNonEmptySeqString(isOneByte, length);
+    isOneByte: bool, srcChars: RawPtr, length: uintptr): String {
+  const allocString = AllocateNonEmptySeqString(isOneByte, Convert<uint32>(length));
   let i: intptr = 0;
   while (true) {
     StoreChar8(allocString.chars, i, LoadChar8(srcChars, i));
@@ -50,53 +50,53 @@ macro SubStringSmallImpl(
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
-  const length = Convert<uint32>(to - from);
-  assert(length <= string.length_uint32);
-  if (length == string.length_uint32) return string;
+  const length = to - from;
+  assert(length <= string.length_uintptr);
+  if (length == string.length_uintptr) return string;
   if (length == 0) return kEmptyString;
 
-  const fromInt = Convert<intptr>(from);
+  const from = Convert<intptr>(from);
   try {
     StringToRootStringAndOffset(string) otherwise OneByte, TwoByte,
         OneByteExternal, TwoByteExternal;
-  } label OneByte(r: SeqOneByteString, o: intptr) {
+  } label OneByte(src: SeqOneByteString, srcOffset: intptr) {
     const chars =
-        r.GetChars() + torque_internal::TimesSizeOf<char8>(o + fromInt);
-    goto DoSubString(r, o, chars, true);
-  } label TwoByte(r: SeqTwoByteString, o: intptr) {
+        src.GetChars() + torque_internal::TimesSizeOf<char8>(srcOffset + from);
+    goto DoSubString(src, srcOffset, chars, true);
+  } label TwoByte(src: SeqTwoByteString, srcOffset: intptr) {
     const chars =
-        r.GetChars() + torque_internal::TimesSizeOf<char16>(o + fromInt);
-    goto DoSubString(r, o, chars, false);
-  } label OneByteExternal(r: ExternalOneByteString, o: intptr) {
+        src.GetChars() + torque_internal::TimesSizeOf<char16>(srcOffset + from);
+    goto DoSubString(src, srcOffset, chars, false);
+  } label OneByteExternal(src: ExternalOneByteString, srcOffset: intptr) {
     const chars =
-        r.GetChars() + torque_internal::TimesSizeOf<char8>(o + fromInt);
-    goto DoSubString(r, o, chars, true);
-  } label TwoByteExternal(r: ExternalTwoByteString, o: intptr) {
+        src.GetChars() + torque_internal::TimesSizeOf<char8>(srcOffset + from);
+    goto DoSubString(src, srcOffset, chars, true);
+  } label TwoByteExternal(src: ExternalTwoByteString, srcOffset: intptr) {
     const chars =
-        r.GetChars() + torque_internal::TimesSizeOf<char16>(o + fromInt);
-    goto DoSubString(r, o, chars, false);
+        src.GetChars() + torque_internal::TimesSizeOf<char16>(srcOffset + from);
+    goto DoSubString(src, srcOffset, chars, false);
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
     if (length >= kSlicedStringMinLength) {
       return AllocateSlicedString(
-          isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
+          isOneByte, Convert<uint32>(length), src, Convert<Smi>(srcOffset + from));
     }
 
     let isOneByte = isOneByte;
-    let singleCharCode: intptr = kMaxOneByteCharCode + 1;
+    let singleChar: intptr = kMaxOneByteCharCode + 1;
     if (length == 1) {
-      singleCharCode = Convert<intptr>(Convert<int32>(
+      singleChar = Convert<intptr>(Convert<int32>(
           isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0)));
-      if (singleCharCode <= kMaxOneByteCharCode) {
+      if (singleChar <= kMaxOneByteCharCode) {
         isOneByte = true;
-        const cached = kSingleCharacterStringCache.objects[singleCharCode];
+        const cached = kSingleCharacterStringCache.objects[singleChar];
         if (cached != Undefined) return %RawDownCast<String>(cached);
       }
     }
 
     const result = SubStringSmallImpl(isOneByte, srcChars, length);
-    if (singleCharCode <= kMaxOneByteCharCode)
-      kSingleCharacterStringCache.objects[singleCharCode] = result;
+    if (singleChar <= kMaxOneByteCharCode)
+      kSingleCharacterStringCache.objects[singleChar] = result;
     return result;
   }
 }
