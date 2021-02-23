@@ -77,6 +77,11 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
     goto DoSubString(r, o, chars, false);
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
+    if (length >= kSlicedStringMinLength) {
+      return AllocateSlicedString(
+          isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
+    }
+
     let isOneByte = isOneByte;
     let singleCharCode: intptr = kMaxOneByteCharCode + 1;
     if (length == 1) {
@@ -89,15 +94,10 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
       }
     }
 
-    if (length < kSlicedStringMinLength) {
-      const result = SubStringSmallImpl(isOneByte, srcChars, length);
-      if (singleCharCode <= kMaxOneByteCharCode)
-        kSingleCharacterStringCache.objects[singleCharCode] = result;
-      return result;
-    }
-
-    return AllocateSlicedString(
-        isOneByte, length, src, Convert<Smi>(srcOffset + fromInt));
+    const result = SubStringSmallImpl(isOneByte, srcChars, length);
+    if (singleCharCode <= kMaxOneByteCharCode)
+      kSingleCharacterStringCache.objects[singleCharCode] = result;
+    return result;
   }
 }
 
