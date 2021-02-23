@@ -140,9 +140,9 @@ transitioning macro StringTrim(implicit context: Context)(
 
   try {
     StringToStringSlice(receiverString) otherwise OneByte, TwoByte;
-  } label OneByte(_p: String, _o: intptr, slice: ConstSlice<char8>) {
+  } label OneByte(slice: ConstSlice<char8>) {
     return StringTrimBody(receiverString, slice, variant);
-  } label TwoByte(_p: String, _o: intptr, slice: ConstSlice<char16>) {
+  } label TwoByte(slice: ConstSlice<char16>) {
     return StringTrimBody(receiverString, slice, variant);
   }
 }
