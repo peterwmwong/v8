@@ -698,6 +698,20 @@ extern macro LoadChar8(RawPtr, intptr): char8;
 extern macro LoadChar16(RawPtr, intptr): char16;
 extern macro StoreChar8(RawPtr, intptr, char8): void;
 extern macro StoreChar16(RawPtr, intptr, char16): void;
+macro LoadChar<T: type>(dest: RawPtr, charOffset: intptr): T;
+LoadChar<char8>(dest: RawPtr, charOffset: intptr): char8 {
+  return LoadChar8(dest, charOffset);
+}
+LoadChar<char16>(dest: RawPtr, charOffset: intptr): char16 {
+  return LoadChar16(dest, torque_internal::TimesSizeOf<char16>(charOffset));
+}
+macro StoreChar<T: type>(dest: RawPtr, charOffset: intptr, char: T);
+StoreChar<char8>(dest: RawPtr, charOffset: intptr, char: char8) {
+  StoreChar8(dest, charOffset, char);
+}
+StoreChar<char16>(dest: RawPtr, charOffset: intptr, char: char16) {
+  StoreChar16(dest, torque_internal::TimesSizeOf<char16>(charOffset), char);
+}
 
 extern macro NumberToString(Number): String;
 extern macro StringToNumber(String): Number;
