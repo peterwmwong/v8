@@ -2563,6 +2563,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
                         value);
   }
 
+  void StoreChar16(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset,
+                   TNode<Uint16T> value) {
+    StoreNoWriteBarrier(MachineRepresentation::kWord16, data_pointer, offset,
+                        value);
+  }
+
   // Type conversion helpers.
   enum class BigIntHandling { kConvertToNumber, kThrow };
   // Convert a String to a Number.

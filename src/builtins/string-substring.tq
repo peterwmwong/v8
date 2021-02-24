@@ -13,40 +13,19 @@ const kSingleCharacterStringCache: FixedArray =
 const kMaxOneByteCharCode:
     constexpr int31 generates 'String::kMaxOneByteCharCode';
 
-struct AllocatedSeqString {
-  string: SeqString;
-  chars: RawPtr;
-  byteLength: intptr;
-}
-
-macro AllocateNonEmptySeqString(
-    isOneByte: bool, length: uint32): AllocatedSeqString {
-  if (isOneByte) {
-    const string = AllocateNonEmptySeqOneByteString(length);
-    return AllocatedSeqString{
-      string: string,
-      chars: string.GetChars(),
-      byteLength: torque_internal::TimesSizeOf<char8>(Convert<intptr>(length))
-    };
-  } else {
-    const string = AllocateNonEmptySeqTwoByteString(length);
-    return AllocatedSeqString{
-      string: string,
-      chars: string.GetChars(),
-      byteLength: torque_internal::TimesSizeOf<char16>(Convert<intptr>(length))
-    };
-  }
-}
-
 macro SubStringSmallImpl(
     isOneByte: bool, srcChars: RawPtr, length: uintptr): String {
-  const allocString = AllocateNonEmptySeqString(isOneByte, Convert<uint32>(length));
-  let i: intptr = 0;
-  while (true) {
-    StoreChar8(allocString.chars, i, LoadChar8(srcChars, i));
-    if (++i == allocString.byteLength) break;
+  if (isOneByte) {
+    return AllocateNonEmptySeqOneByteString(
+        Convert<uint32>(length),
+        torque_internal::unsafe::NewOffHeapConstSlice(
+            %RawDownCast<RawPtr<char8>>(srcChars), Signed(length)));
+  } else {
+    return AllocateNonEmptySeqTwoByteString(
+        Convert<uint32>(length),
+        torque_internal::unsafe::NewOffHeapConstSlice(
+            %RawDownCast<RawPtr<char16>>(srcChars), Signed(length)));
   }
-  return allocString.string;
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
@@ -79,7 +58,8 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
     if (length >= kSlicedStringMinLength) {
       return AllocateSlicedString(
-          isOneByte, Convert<uint32>(length), src, Convert<Smi>(srcOffset + from));
+          isOneByte, Convert<uint32>(length), src,
+          Convert<Smi>(srcOffset + from));
     }
 
     let isOneByte = isOneByte;
