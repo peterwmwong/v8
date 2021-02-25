@@ -14,8 +14,7 @@ const kMaxOneByteCharCode:
     constexpr int31 generates 'String::kMaxOneByteCharCode';
 
 macro SubStringSmallImpl(
-    isOneByte: bool, srcChars: RawPtr, length: uintptr): String {
-  const length = Signed(length);
+    isOneByte: bool, srcChars: RawPtr, length: intptr): String {
   const byteLength = Unsigned(
       isOneByte ? torque_internal::TimesSizeOf<char8>(length) :
                   torque_internal::TimesSizeOf<char16>(length));
@@ -29,9 +28,10 @@ macro SubStringSmallImpl(
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
-  const length = to - from;
-  assert(length <= string.length_uintptr);
-  if (length == string.length_uintptr) return string;
+  assert(from > to);
+  const length = Convert<intptr>(to - from);
+  assert(length <= string.length_intptr);
+  if (length == string.length_intptr) return string;
   if (length == 0) return kEmptyString;
 
   const from = Convert<intptr>(from);
@@ -40,6 +40,7 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   } label OneByte(src: String, srcOffset: intptr, slice: ConstSlice<char8>) {
     goto DoSubString(
         src, srcOffset,
+        // TODO(pwong): use ConstSlice and Subslice
         (slice.GCUnsafeStartPointer() +
          torque_internal::TimesSizeOf<char8>(from)),
         true);
@@ -52,19 +53,27 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
     if (length >= kSlicedStringMinLength) {
-      return AllocateSlicedString(
-          isOneByte, Convert<uint32>(length), src,
-          Convert<Smi>(srcOffset + from));
+      return new SlicedString{
+        map: isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
+        raw_hash_field: kNameEmptyHashField,
+        length: Convert<int32>(length),
+        parent: src,
+        offset: Convert<Smi>(srcOffset + from)
+      };
     }
 
     let isOneByte = isOneByte;
     let singleChar: intptr = kMaxOneByteCharCode + 1;
     if (length == 1) {
+      // TODO(pwong): Factor out GetSingleCharacterCodeString() labels
+      // NotCached;
       singleChar = Convert<intptr>(Convert<int32>(
           isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0)));
       if (singleChar <= kMaxOneByteCharCode) {
         isOneByte = true;
         const cached = kSingleCharacterStringCache.objects[singleChar];
+        // TODO(pwong): UnsafeCast?
+        // TODO(pwong): Is<String>? or atleast assert(Is<String>)
         if (cached != Undefined) return %RawDownCast<String>(cached);
       }
     }

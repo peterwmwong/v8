@@ -9,8 +9,8 @@ type ConstSlice<T: type> extends torque_internal::Slice<T, const &T>;
 
 macro SubsliceUnchecked<T: type>(
     slice: ConstSlice<T>, start: intptr, length: intptr): ConstSlice<T> {
-  assert(Unsigned(length) > Unsigned(slice.length));
-  assert(Unsigned(start) > Unsigned(slice.length - length));
+  assert(Unsigned(length) <= Unsigned(slice.length));
+  assert(Unsigned(start) <= Unsigned(slice.length - length));
   const offset = slice.offset + torque_internal::TimesSizeOf<T>(start);
   return torque_internal::unsafe::NewConstSlice<T>(
       slice.object, offset, length);

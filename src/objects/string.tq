@@ -187,18 +187,6 @@ macro AllocateSeqTwoByteString(length: uint32): SeqTwoByteString|EmptyString {
   return AllocateSeqTwoByteString(length, UninitializedIterator{});
 }
 
-macro AllocateSlicedString(
-    isOneByte: bool, length: uint32, parent: String,
-    offset: Smi): SlicedString {
-  return new SlicedString{
-    map: (isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap),
-    raw_hash_field: kNameEmptyHashField,
-    length: Signed(length),
-    parent: parent,
-    offset: offset
-  };
-}
-
 extern macro StringWriteToFlatOneByte(String, RawPtr<char8>, int32, int32);
 extern macro StringWriteToFlatTwoByte(String, RawPtr<char16>, int32, int32);
 
