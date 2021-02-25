@@ -36,24 +36,19 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
 
   const from = Convert<intptr>(from);
   try {
-    StringToRootStringAndOffset(string) otherwise OneByte, TwoByte,
-        OneByteExternal, TwoByteExternal;
-  } label OneByte(src: SeqOneByteString, srcOffset: intptr) {
-    const chars =
-        src.GetChars() + torque_internal::TimesSizeOf<char8>(srcOffset + from);
-    goto DoSubString(src, srcOffset, chars, true);
-  } label TwoByte(src: SeqTwoByteString, srcOffset: intptr) {
-    const chars =
-        src.GetChars() + torque_internal::TimesSizeOf<char16>(srcOffset + from);
-    goto DoSubString(src, srcOffset, chars, false);
-  } label OneByteExternal(src: ExternalOneByteString, srcOffset: intptr) {
-    const chars =
-        src.GetChars() + torque_internal::TimesSizeOf<char8>(srcOffset + from);
-    goto DoSubString(src, srcOffset, chars, true);
-  } label TwoByteExternal(src: ExternalTwoByteString, srcOffset: intptr) {
-    const chars =
-        src.GetChars() + torque_internal::TimesSizeOf<char16>(srcOffset + from);
-    goto DoSubString(src, srcOffset, chars, false);
+    StringToRootOffsetSlice(string) otherwise OneByte, TwoByte;
+  } label OneByte(src: String, srcOffset: intptr, slice: ConstSlice<char8>) {
+    goto DoSubString(
+        src, srcOffset,
+        (slice.GCUnsafeStartPointer() +
+         torque_internal::TimesSizeOf<char8>(from)),
+        true);
+  } label TwoByte(src: String, srcOffset: intptr, slice: ConstSlice<char16>) {
+    goto DoSubString(
+        src, srcOffset,
+        (slice.GCUnsafeStartPointer() +
+         torque_internal::TimesSizeOf<char16>(from)),
+        false);
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
     if (length >= kSlicedStringMinLength) {

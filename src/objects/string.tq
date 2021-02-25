@@ -108,18 +108,12 @@ extern class SeqString extends String {
 @generateBodyDescriptor
 @doNotGenerateCast
 extern class SeqOneByteString extends SeqString {
-  macro GetChars(): RawPtr<char8> {
-    return (&this.chars).GCUnsafeStartPointer();
-  }
   const chars[length]: char8;
 }
 @generateCppClass
 @generateBodyDescriptor
 @doNotGenerateCast
 extern class SeqTwoByteString extends SeqString {
-  macro GetChars(): RawPtr<char16> {
-    return (&this.chars).GCUnsafeStartPointer();
-  }
   const chars[length]: char16;
 }
 
@@ -267,6 +261,7 @@ macro Flatten(cons: ConsString): String {
     }
 }
 
+// Get the root string and offset, flatten only if unavoidable for this.
 macro StringToRootStringAndOffset(string: String):
     never labels OneByte(SeqOneByteString, intptr),
     TwoByte(SeqTwoByteString, intptr),
@@ -306,25 +301,36 @@ macro StringToRootStringAndOffset(string: String):
   unreachable;
 }
 
-// Get a slice to the string data, flatten only if unavoidable for this.
-macro StringToStringSlice(string: String):
-    never labels OneByte(ConstSlice<char8>), TwoByte(ConstSlice<char16>) {
-  const length = Convert<intptr>(string.length);
+macro StringToRootOffsetSlice(string: String):
+    never labels OneByte(String, intptr, ConstSlice<char8>),
+    TwoByte(String, intptr, ConstSlice<char16>) {
+  const length = string.length_intptr;
   try {
     StringToRootStringAndOffset(string) otherwise IsOneByte, IsTwoByte,
         IsExternalOneByte, IsExternalTwoByte;
   } label IsOneByte(s: SeqOneByteString, offset: intptr) {
-    goto OneByte(Subslice(&s.chars, offset, length) otherwise unreachable);
+    goto OneByte(s, offset, SubsliceUnchecked(&s.chars, offset, length));
   } label IsTwoByte(s: SeqTwoByteString, offset: intptr) {
-    goto TwoByte(Subslice(&s.chars, offset, length) otherwise unreachable);
+    goto TwoByte(s, offset, SubsliceUnchecked(&s.chars, offset, length));
   } label IsExternalOneByte(s: ExternalOneByteString, offset: intptr) {
     const data = torque_internal::unsafe::NewOffHeapConstSlice(
         s.GetChars(), Convert<intptr>(s.length));
-    goto OneByte(Subslice(data, offset, length) otherwise unreachable);
+    goto OneByte(s, offset, SubsliceUnchecked(data, offset, length));
   } label IsExternalTwoByte(s: ExternalTwoByteString, offset: intptr) {
     const data = torque_internal::unsafe::NewOffHeapConstSlice(
         s.GetChars(), Convert<intptr>(s.length));
-    goto TwoByte(Subslice(data, offset, length) otherwise unreachable);
+    goto TwoByte(s, offset, SubsliceUnchecked(data, offset, length));
+  }
+}
+
+macro StringToStringSlice(string: String):
+    never labels OneByte(ConstSlice<char8>), TwoByte(ConstSlice<char16>) {
+  try {
+    StringToRootOffsetSlice(string) otherwise IsOneByte, IsTwoByte;
+  } label IsOneByte(_s: String, _o: intptr, slice: ConstSlice<char8>) {
+    goto OneByte(slice);
+  } label IsTwoByte(_s: String, _o: intptr, slice: ConstSlice<char16>) {
+    goto TwoByte(slice);
   }
 }
 
