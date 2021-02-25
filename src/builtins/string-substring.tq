@@ -28,7 +28,7 @@ macro SubStringSmallImpl(
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
-  assert(from > to);
+  assert(from <= to);
   const length = Convert<intptr>(to - from);
   assert(length <= string.length_intptr);
   if (length == string.length_intptr) return string;
