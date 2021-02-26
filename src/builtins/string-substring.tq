@@ -28,8 +28,8 @@ macro SubStringSmallImpl(
 }
 
 macro SubString(string: String, from: uintptr, to: uintptr): String {
-  assert(from <= to);
   const length = Convert<intptr>(to - from);
+  assert(from <= to);
   assert(length <= string.length_intptr);
   if (length == string.length_intptr) return string;
   if (length == 0) return kEmptyString;
@@ -40,7 +40,6 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   } label OneByte(src: String, srcOffset: intptr, slice: ConstSlice<char8>) {
     goto DoSubString(
         src, srcOffset,
-        // TODO(pwong): use ConstSlice and Subslice
         (slice.GCUnsafeStartPointer() +
          torque_internal::TimesSizeOf<char8>(from)),
         true);
@@ -52,6 +51,7 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
         false);
   } label DoSubString(
       src: String, srcOffset: intptr, srcChars: RawPtr, isOneByte: bool) {
+    let isOneByte = isOneByte;
     if (length >= kSlicedStringMinLength) {
       return new SlicedString{
         map: isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
@@ -62,26 +62,21 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
       };
     }
 
-    let isOneByte = isOneByte;
     let singleChar: intptr = kMaxOneByteCharCode + 1;
     if (length == 1) {
-      // TODO(pwong): Factor out GetSingleCharacterCodeString() labels
-      // NotCached;
-      singleChar = Convert<intptr>(Convert<int32>(
-          isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0)));
+      singleChar = Convert<intptr>(
+          isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0));
       if (singleChar <= kMaxOneByteCharCode) {
-        isOneByte = true;
         const cached = kSingleCharacterStringCache.objects[singleChar];
-        // TODO(pwong): UnsafeCast?
-        // TODO(pwong): Is<String>? or atleast assert(Is<String>)
-        if (cached != Undefined) return %RawDownCast<String>(cached);
+        if (cached != Undefined) return UnsafeCast<String>(cached);
+        isOneByte = true;
       }
     }
 
-    const result = SubStringSmallImpl(isOneByte, srcChars, length);
+    const string = SubStringSmallImpl(isOneByte, srcChars, length);
     if (singleChar <= kMaxOneByteCharCode)
-      kSingleCharacterStringCache.objects[singleChar] = result;
-    return result;
+      kSingleCharacterStringCache.objects[singleChar] = string;
+    return string;
   }
 }
 
