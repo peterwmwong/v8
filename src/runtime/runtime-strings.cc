@@ -145,20 +145,6 @@ RUNTIME_FUNCTION(Runtime_StringLastIndexOf) {
                              isolate->factory()->undefined_value());
 }
 
-// TODO(pwong): remove? who else is using this?
-RUNTIME_FUNCTION(Runtime_StringSubstring) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(3, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(String, string, 0);
-  CONVERT_INT32_ARG_CHECKED(start, 1);
-  CONVERT_INT32_ARG_CHECKED(end, 2);
-  DCHECK_LE(0, start);
-  DCHECK_LE(start, end);
-  DCHECK_LE(end, string->length());
-  isolate->counters()->sub_string_runtime()->Increment();
-  return *isolate->factory()->NewSubString(string, start, end);
-}
-
 RUNTIME_FUNCTION(Runtime_StringAdd) {
   HandleScope scope(isolate);
   DCHECK_EQ(2, args.length());

@@ -59,7 +59,7 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   // 1. {length} is greater than 1.
   // 2. {length} is 1, {singleChar} is one byte representable, but does not have
   //    an associated cached string in kSingleCharacterStringCache.
-  // 3. {length} is 1, {singleChar} has to two bytes to be represented.
+  // 3. {length} is 1, {singleChar} needs two bytes to be represented.
 
   // If {length} is 1, {singleChar} is the first/only character code of the
   // substring. Otherwise, {singleChar} is a marker value (character code not
@@ -67,17 +67,16 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   // kSingleCharacterStringCache.
   let singleChar: intptr = kMaxOneByteCharCode + 1;
   if (length == 1) {
-    // Even {singleChar} is from a two byte string, it may be one byte
+    // Even if {singleChar} is from a two byte string, it may be one byte
     // representable. If so, attempt to use a cached string from
     // kSingleCharacterStringCache.
     singleChar = Convert<intptr>(
         isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0));
     if (singleChar <= kMaxOneByteCharCode) {
       const cached = kSingleCharacterStringCache.objects[singleChar];
-      // TODO: Try `Cast<String>(cached) otherwise ...`
       if (cached != Undefined) return UnsafeCast<String>(cached);
-      // If no cached string exists, resume allocating a one byte string and
-      // cache it.
+      
+      // If no cached string exists, allocate a one byte string and cache it.
       isOneByte = true;
     }
   }
