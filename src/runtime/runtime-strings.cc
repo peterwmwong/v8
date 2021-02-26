@@ -145,6 +145,7 @@ RUNTIME_FUNCTION(Runtime_StringLastIndexOf) {
                              isolate->factory()->undefined_value());
 }
 
+// TODO(pwong): remove? who else is using this?
 RUNTIME_FUNCTION(Runtime_StringSubstring) {
   HandleScope scope(isolate);
   DCHECK_EQ(3, args.length());

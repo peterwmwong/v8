@@ -13,6 +13,7 @@ const kSingleCharacterStringCache: FixedArray =
 const kMaxOneByteCharCode:
     constexpr int31 generates 'String::kMaxOneByteCharCode';
 
+// TODO(pwong): Rename to SubstringInline.
 macro SubString(string: String, from: uintptr, to: uintptr): String {
   const length = Convert<intptr>(to - from);
   assert(from <= to);
@@ -107,12 +108,15 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   return result;
 }
 
+// TODO: Remove this? Why do we have inptr and Smi versions?
 builtin SubString(implicit context: Context)(
     s: String, from: Smi, to: Smi): String {
   return SubString(
       s, Unsigned(Convert<intptr>(from)), Unsigned(Convert<intptr>(to)));
 }
 
+// Return a new string object which holds a substring containing the range
+// [from,to[ of string.
 builtin StringSubstring(implicit context: Context)(
     s: String, from: intptr, to: intptr): String {
   return SubString(s, Unsigned(from), Unsigned(to));
