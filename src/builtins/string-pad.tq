@@ -75,8 +75,9 @@ transitioning macro StringPad(implicit context: Context)(
         StringRepeat(context, fillString, Convert<Smi>(repetitionsWord32));
 
     if (remainingWord32 != 0) {
-      const remainderString =
-          StringSubstring(fillString, 0, Convert<intptr>(remainingWord32));
+      assert(remainingWord32 > 0);
+      const remainderString = StringSubstring(
+          fillString, 0, Convert<uintptr>(Unsigned(remainingWord32)));
       padding = padding + remainderString;
     }
   }

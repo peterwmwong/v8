@@ -75,7 +75,7 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
     if (singleChar <= kMaxOneByteCharCode) {
       const cached = kSingleCharacterStringCache.objects[singleChar];
       if (cached != Undefined) return UnsafeCast<String>(cached);
-      
+
       // If no cached string exists, allocate a one byte string and cache it.
       isOneByte = true;
     }
@@ -116,18 +116,11 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   return result;
 }
 
-// TODO: Remove this? Why do we have inptr and Smi versions?
-builtin SubString(implicit context: Context)(
-    s: String, from: Smi, to: Smi): String {
-  return SubString(
-      s, Unsigned(Convert<intptr>(from)), Unsigned(Convert<intptr>(to)));
-}
-
 // Return a new string object which holds a substring containing the range
 // [from,to[ of string.
 builtin StringSubstring(implicit context: Context)(
-    s: String, from: intptr, to: intptr): String {
-  return SubString(s, Unsigned(from), Unsigned(to));
+    s: String, from: uintptr, to: uintptr): String {
+  return SubString(s, from, to);
 }
 
 // ES6 #sec-string.prototype.substring

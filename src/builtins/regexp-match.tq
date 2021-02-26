@@ -66,12 +66,13 @@ transitioning macro RegExpPrototypeMatchBody(implicit context: Context)(
         if (atom) {
           match = searchString;
         } else {
-          const matchFrom = UnsafeLoadFixedArrayElement(
-              matchIndices, kRegExpMatchInfoFirstCaptureIndex);
-          const matchTo = UnsafeLoadFixedArrayElement(
-              matchIndices, kRegExpMatchInfoFirstCaptureIndex + 1);
-          match = string::SubString(
-              string, UnsafeCast<Smi>(matchFrom), UnsafeCast<Smi>(matchTo));
+          const matchFrom = Convert<uintptr>(
+              UnsafeCast<PositiveSmi>(UnsafeLoadFixedArrayElement(
+                  matchIndices, kRegExpMatchInfoFirstCaptureIndex)));
+          const matchTo = Convert<uintptr>(
+              UnsafeCast<PositiveSmi>(UnsafeLoadFixedArrayElement(
+                  matchIndices, kRegExpMatchInfoFirstCaptureIndex + 1)));
+          match = string::StringSubstring(string, matchFrom, matchTo);
         }
       } else {
         assert(!isFastPath);
