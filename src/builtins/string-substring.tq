@@ -4,17 +4,7 @@
 
 namespace string {
 
-const kSlicedStringMinLength:
-    constexpr int31 generates 'SlicedString::kMinLength';
-
-extern macro SingleCharacterStringCacheConstant(): FixedArray;
-const kSingleCharacterStringCache: FixedArray =
-    SingleCharacterStringCacheConstant();
-const kMaxOneByteCharCode:
-    constexpr int31 generates 'String::kMaxOneByteCharCode';
-
-// TODO(pwong): Rename to SubstringInline.
-macro SubString(string: String, from: uintptr, to: uintptr): String {
+macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   const length = Convert<intptr>(to - from);
   assert(from <= to);
   assert(length <= string.length_intptr);
@@ -27,15 +17,15 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
   let srcOffset: intptr;
   let srcChars: RawPtr;
   try {
-    StringToRootOffsetSlice(string) otherwise OneByte, TwoByte;
-  } label OneByte(root: String, rootOffset: intptr, slice: ConstSlice<char8>) {
+    StringToSliceRootOffset(string) otherwise OneByte, TwoByte;
+  } label OneByte(slice: ConstSlice<char8>, root: String, rootOffset: intptr) {
     isOneByte = true;
     src = root;
     srcOffset = rootOffset;
     srcChars =
         (slice.GCUnsafeStartPointer() +
          torque_internal::TimesSizeOf<char8>(from));
-  } label TwoByte(root: String, rootOffset: intptr, slice: ConstSlice<char16>) {
+  } label TwoByte(slice: ConstSlice<char16>, root: String, rootOffset: intptr) {
     isOneByte = false;
     src = root;
     srcOffset = rootOffset;
@@ -120,7 +110,7 @@ macro SubString(string: String, from: uintptr, to: uintptr): String {
 // [from,to[ of string.
 builtin StringSubstring(implicit context: Context)(
     s: String, from: uintptr, to: uintptr): String {
-  return SubString(s, from, to);
+  return SubstringInline(s, from, to);
 }
 
 // ES6 #sec-string.prototype.substring
@@ -143,6 +133,6 @@ transitioning javascript builtin StringPrototypeSubstring(
     end = start;
     start = tmp;
   }
-  return SubString(string, start, end);
+  return SubstringInline(string, start, end);
 }
 }

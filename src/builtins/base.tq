@@ -406,6 +406,8 @@ const kSmiMax: uintptr = kSmiMaxValue;
 const kStringMaxLength: constexpr int31 generates 'String::kMaxLength';
 const kStringMaxLengthUintptr:
     constexpr uintptr generates 'String::kMaxLength';
+const kSlicedStringMinLength:
+    constexpr int31 generates 'SlicedString::kMinLength';
 const kFixedArrayMaxLength:
     constexpr int31 generates 'FixedArray::kMaxLength';
 const kFixedDoubleArrayMaxLength:

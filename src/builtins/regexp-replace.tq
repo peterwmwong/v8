@@ -141,7 +141,7 @@ transitioning macro RegExpReplaceFastString(implicit context: Context)(
     const matchEnd =
         Convert<uintptr>(UnsafeCast<PositiveSmi>(match.GetEndOfCapture(0)));
 
-    // TODO(jgruber): We could skip many of the checks that using SubString
+    // TODO(jgruber): We could skip many of the checks that using StringSubstring
     // here entails.
     result = result + string::StringSubstring(string, lastMatchEnd, matchStart);
     lastMatchEnd = matchEnd;

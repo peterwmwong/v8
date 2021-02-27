@@ -136,6 +136,13 @@ extern class ThinString extends String {
 // C++ runtime. See also: ToDirectStringAssembler.
 type DirectString extends String;
 
+extern macro SingleCharacterStringCacheConstant(): FixedArray;
+
+const kSingleCharacterStringCache: FixedArray =
+    SingleCharacterStringCacheConstant();
+const kMaxOneByteCharCode:
+    constexpr int31 generates 'String::kMaxOneByteCharCode';
+
 macro AllocateNonEmptySeqOneByteString<Iterator: type>(
     length: uint32, content: Iterator): SeqOneByteString {
   assert(length != 0 && length <= kStringMaxLength);
@@ -250,20 +257,19 @@ macro Flatten(cons: ConsString): String {
 }
 
 // Get the root string and offset, flatten only if unavoidable for this.
-macro StringToRootStringAndOffset(string: String):
-    never labels OneByte(SeqOneByteString, intptr),
-    TwoByte(SeqTwoByteString, intptr),
-    OneByteExternal(ExternalOneByteString, intptr),
-    TwoByteExternal(ExternalTwoByteString, intptr) {
+macro StringToSliceRootOffset(string: String): never
+    labels OneByte(ConstSlice<char8>, String, intptr),
+    TwoByte(ConstSlice<char16>, String, intptr) {
   let string = string;
   let offset: intptr = 0;
+  const length = string.length_intptr;
   while (true) {
     typeswitch (string) {
       case (s: SeqOneByteString): {
-        goto OneByte(s, offset);
+        goto OneByte(SubsliceUnchecked(&s.chars, offset, length), s, offset);
       }
       case (s: SeqTwoByteString): {
-        goto TwoByte(s, offset);
+        goto TwoByte(SubsliceUnchecked(&s.chars, offset, length), s, offset);
       }
       case (s: ThinString): {
         string = s.actual;
@@ -276,10 +282,14 @@ macro StringToRootStringAndOffset(string: String):
         string = s.parent;
       }
       case (s: ExternalOneByteString): {
-        goto OneByteExternal(s, offset);
+        const data = torque_internal::unsafe::NewOffHeapConstSlice(
+            s.GetChars(), s.length_intptr);
+        goto OneByte(SubsliceUnchecked(data, offset, length), s, offset);
       }
       case (s: ExternalTwoByteString): {
-        goto TwoByteExternal(s, offset);
+        const data = torque_internal::unsafe::NewOffHeapConstSlice(
+            s.GetChars(), s.length_intptr);
+        goto TwoByte(SubsliceUnchecked(data, offset, length), s, offset);
       }
       case (String): {
         unreachable;
@@ -289,35 +299,13 @@ macro StringToRootStringAndOffset(string: String):
   unreachable;
 }
 
-macro StringToRootOffsetSlice(string: String):
-    never labels OneByte(String, intptr, ConstSlice<char8>),
-    TwoByte(String, intptr, ConstSlice<char16>) {
-  const length = string.length_intptr;
-  try {
-    StringToRootStringAndOffset(string) otherwise IsOneByte, IsTwoByte,
-        IsExternalOneByte, IsExternalTwoByte;
-  } label IsOneByte(s: SeqOneByteString, offset: intptr) {
-    goto OneByte(s, offset, SubsliceUnchecked(&s.chars, offset, length));
-  } label IsTwoByte(s: SeqTwoByteString, offset: intptr) {
-    goto TwoByte(s, offset, SubsliceUnchecked(&s.chars, offset, length));
-  } label IsExternalOneByte(s: ExternalOneByteString, offset: intptr) {
-    const data = torque_internal::unsafe::NewOffHeapConstSlice(
-        s.GetChars(), Convert<intptr>(s.length));
-    goto OneByte(s, offset, SubsliceUnchecked(data, offset, length));
-  } label IsExternalTwoByte(s: ExternalTwoByteString, offset: intptr) {
-    const data = torque_internal::unsafe::NewOffHeapConstSlice(
-        s.GetChars(), Convert<intptr>(s.length));
-    goto TwoByte(s, offset, SubsliceUnchecked(data, offset, length));
-  }
-}
-
 macro StringToStringSlice(string: String):
     never labels OneByte(ConstSlice<char8>), TwoByte(ConstSlice<char16>) {
   try {
-    StringToRootOffsetSlice(string) otherwise IsOneByte, IsTwoByte;
-  } label IsOneByte(_s: String, _o: intptr, slice: ConstSlice<char8>) {
+    StringToSliceRootOffset(string) otherwise IsOneByte, IsTwoByte;
+  } label IsOneByte(slice: ConstSlice<char8>, _s: String, _o: intptr) {
     goto OneByte(slice);
-  } label IsTwoByte(_s: String, _o: intptr, slice: ConstSlice<char16>) {
+  } label IsTwoByte(slice: ConstSlice<char16>, _s: String, _o: intptr) {
     goto TwoByte(slice);
   }
 }

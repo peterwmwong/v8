@@ -130,7 +130,7 @@ transitioning macro StringTrimBody<T: type>(implicit context: Context)(
     }
   }
 
-  return SubString(string, Unsigned(startIndex), Unsigned(endIndex + 1));
+  return SubstringInline(string, Unsigned(startIndex), Unsigned(endIndex + 1));
 }
 
 transitioning macro StringTrim(implicit context: Context)(
