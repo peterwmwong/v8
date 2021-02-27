@@ -130,6 +130,9 @@ transitioning macro StringTrimBody<T: type>(implicit context: Context)(
     }
   }
 
+  // TODO(pwong): SubstringInline does more than what is needed here (redoing
+  // StringToSlice). Consider factoring out the part for creating a substring
+  // from a ConstSlice.
   return SubstringInline(string, Unsigned(startIndex), Unsigned(endIndex + 1));
 }
 
