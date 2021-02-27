@@ -4,6 +4,9 @@
 
 namespace string {
 
+// TODO(pwong): Audit usages of StringSubstring and verify whether it was
+// originally calling the inline or builtin version.
+
 macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   const length = Convert<intptr>(to - from);
   assert(from <= to);
@@ -55,12 +58,12 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   // substring. Otherwise, {singleChar} is a marker value (character code not
   // one byte representable) indicating {result} should not be cached in
   // kSingleCharacterStringCache.
-  let singleChar: intptr = kMaxOneByteCharCode + 1;
+  let singleChar: uintptr = kMaxOneByteCharCode + 1;
   if (length == 1) {
     // Even if {singleChar} is from a two byte string, it may be one byte
     // representable. If so, attempt to use a cached string from
     // kSingleCharacterStringCache.
-    singleChar = Convert<intptr>(
+    singleChar = Convert<uintptr>(
         isOneByte ? LoadChar8(srcChars, 0) : LoadChar16(srcChars, 0));
     if (singleChar <= kMaxOneByteCharCode) {
       const cached = kSingleCharacterStringCache.objects[singleChar];

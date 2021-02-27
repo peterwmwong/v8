@@ -296,11 +296,11 @@ macro StringToSliceRootOffset(string: String): never
       }
     }
   }
-  unreachable;
+  VerifiedUnreachable();
 }
 
-macro StringToStringSlice(string: String):
-    never labels OneByte(ConstSlice<char8>), TwoByte(ConstSlice<char16>) {
+macro StringToSlice(string: String): never labels OneByte(ConstSlice<char8>),
+    TwoByte(ConstSlice<char16>) {
   try {
     StringToSliceRootOffset(string) otherwise IsOneByte, IsTwoByte;
   } label IsOneByte(slice: ConstSlice<char8>, _s: String, _o: intptr) {
@@ -314,10 +314,10 @@ macro StringToStringSlice(string: String):
 macro TwoStringsToSlices<Result: type, Functor: type>(
     s1: String, s2: String, f: Functor): Result {
   try {
-    StringToStringSlice(s1) otherwise FirstOneByte, FirstTwoByte;
+    StringToSlice(s1) otherwise FirstOneByte, FirstTwoByte;
   } label FirstOneByte(s1Slice: ConstSlice<char8>) {
     try {
-      StringToStringSlice(s2) otherwise SecondOneByte, SecondTwoByte;
+      StringToSlice(s2) otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {
@@ -325,7 +325,7 @@ macro TwoStringsToSlices<Result: type, Functor: type>(
     }
   } label FirstTwoByte(s1Slice: ConstSlice<char16>) {
     try {
-      StringToStringSlice(s2) otherwise SecondOneByte, SecondTwoByte;
+      StringToSlice(s2) otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {

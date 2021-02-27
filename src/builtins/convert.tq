@@ -177,8 +177,8 @@ Convert<int32, uint16>(i: uint16): int32 {
 Convert<int32, char16|char8>(i: char16|char8): int32 {
   return Signed(Convert<uint32>(i));
 }
-Convert<intptr, char16|char8>(i: char16|char8): intptr {
-  return Signed(ChangeUint32ToWord(i));
+Convert<uintptr, char16|char8>(i: char16|char8): uintptr {
+  return ChangeUint32ToWord(i);
 }
 Convert<int32, uint31>(i: uint31): int32 {
   return Signed(Convert<uint32>(i));
