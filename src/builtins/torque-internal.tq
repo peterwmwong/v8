@@ -265,6 +265,16 @@ InitializeFieldsFromIterator<char8, UninitializedIterator>(
     _target: MutableSlice<char8>, _originIterator: UninitializedIterator) {}
 InitializeFieldsFromIterator<char16, UninitializedIterator>(
     _target: MutableSlice<char16>, _originIterator: UninitializedIterator) {}
+InitializeFieldsFromIterator<char8, RawPtr<char8>>(
+    target: MutableSlice<char8>, src: RawPtr<char8>) {
+  const dest = target.GCUnsafeStartPointer();
+  const length = target.length;
+  let i: intptr = 0;
+  while (true) {
+    StoreChar8(dest, i, LoadChar8(src, i));
+    if (++i == length) break;
+  }
+}
 
 extern macro IsDoubleHole(HeapObject, intptr): bool;
 extern macro StoreDoubleHole(HeapObject, intptr);

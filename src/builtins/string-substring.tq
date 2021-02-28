@@ -82,20 +82,12 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   const byteLength = Unsigned(
       isOneByte ? torque_internal::TimesSizeOf<char8>(length) :
                   torque_internal::TimesSizeOf<char16>(length));
-  const result = AllocateNonEmptySeqOneByteString(Convert<uint32>(byteLength));
-  const resultChars = (&result.chars).GCUnsafeStartPointer();
-
+  const result = AllocateNonEmptySeqOneByteString(
+    Convert<uint32>(byteLength), %RawDownCast<RawPtr<char8>>(srcChars));
   if (!isOneByte) {
     // Map for non-internalilzed SeqTwoByteString
     *UnsafeConstCast(&result.map) = kStringMap;
     *UnsafeConstCast(&result.length) = Convert<int32>(length);
-  }
-
-  // Copy character bytes
-  let i: intptr = 0;
-  while (true) {
-    StoreChar8(resultChars, i, LoadChar8(srcChars, i));
-    if (++i == Signed(byteLength)) break;
   }
 
   // If {length} is 1, {singleChar} is one byte representable, and was not
