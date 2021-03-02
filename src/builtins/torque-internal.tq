@@ -265,10 +265,12 @@ InitializeFieldsFromIterator<char8, UninitializedIterator>(
     _target: MutableSlice<char8>, _originIterator: UninitializedIterator) {}
 InitializeFieldsFromIterator<char16, UninitializedIterator>(
     _target: MutableSlice<char16>, _originIterator: UninitializedIterator) {}
-InitializeFieldsFromIterator<char8, RawPtr<char8>>(
-    target: MutableSlice<char8>, src: RawPtr<char8>) {
+InitializeFieldsFromIterator<char8, StringSlice>(
+    target: MutableSlice<char8>, srcSlice: StringSlice) {
+  assert(target.length <= Signed(srcSlice.ByteLength()));
   const dest = target.GCUnsafeStartPointer();
   const length = target.length;
+  const src = srcSlice.rootChars;
   let i: intptr = 0;
   while (true) {
     StoreChar8(dest, i, LoadChar8(src, i));

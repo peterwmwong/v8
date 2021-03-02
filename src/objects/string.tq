@@ -4,33 +4,18 @@
 
 #include 'src/builtins/builtins-string-gen.h'
 
-// struct StringIterator {
-//   macro Next(): char8|char16 labels NoMore {
-//     if (this.index >= slice.length) goto NoMore;
-//     return slice.AtIndex(this.index);
-//   }
-
-//   index: intptr;
-//   slice: StringSlice;
-// }
-
 struct StringSlice {
   macro AtIndex(index: intptr): char8|char16 {
     assert(index >= 0 && index < this.length);
-    return this.isOneByte ? LoadChar8(this.rootChars, index) :
-                            LoadChar16(this.rootChars, torque_internal::TimesSizeOf<char16>(index));
+    return this.isOneByte ?
+        LoadChar8(this.rootChars, torque_internal::TimesSizeOf<char8>(index)) :
+        LoadChar16(this.rootChars, torque_internal::TimesSizeOf<char16>(index));
   }
-  // macro ByteLength(): uintptr {
-  //   return Unsigned(
-  //       this.isOneByte ? torque_internal::TimesSizeOf<char8>(this.length) :
-  //                        torque_internal::TimesSizeOf<char16>(this.length));
-  // }
-  // macro Iterator(): StringIterator {
-  //   return StringIterator{
-  //     index: 0,
-  //     slice: this
-  //   };
-  // }
+  macro ByteLength(): uintptr {
+    return Unsigned(
+        this.isOneByte ? torque_internal::TimesSizeOf<char8>(this.length) :
+                         torque_internal::TimesSizeOf<char16>(this.length));
+  }
 
   isOneByte: bool;
   root: String;
@@ -60,7 +45,8 @@ extern class String extends Name {
             isOneByte: true,
             root,
             rootOffset,
-            rootChars: (&root.chars).GCUnsafeStartPointer() + torque_internal::TimesSizeOf<char8>(rootOffset),
+            rootChars: (&root.chars).GCUnsafeStartPointer() +
+                torque_internal::TimesSizeOf<char8>(rootOffset),
             length
           };
         }
@@ -69,7 +55,8 @@ extern class String extends Name {
             isOneByte: false,
             root,
             rootOffset,
-            rootChars: (&root.chars).GCUnsafeStartPointer() + torque_internal::TimesSizeOf<char16>(rootOffset),
+            rootChars: (&root.chars).GCUnsafeStartPointer() +
+                torque_internal::TimesSizeOf<char16>(rootOffset),
             length
           };
         }
@@ -88,7 +75,8 @@ extern class String extends Name {
             isOneByte: true,
             root,
             rootOffset,
-            rootChars: root.GetChars() + torque_internal::TimesSizeOf<char8>(rootOffset),
+            rootChars: root.GetChars() +
+                torque_internal::TimesSizeOf<char8>(rootOffset),
             length
           };
         }
@@ -97,7 +85,8 @@ extern class String extends Name {
             isOneByte: false,
             root,
             rootOffset,
-            rootChars: root.GetChars() + torque_internal::TimesSizeOf<char16>(rootOffset),
+            rootChars: root.GetChars() +
+                torque_internal::TimesSizeOf<char16>(rootOffset),
             length
           };
         }
@@ -352,7 +341,9 @@ macro Flatten(cons: ConsString): String {
     }
 }
 
-// Get the root string and offset, flatten only if unavoidable for this.
+// TODO(pwong): Revert this and see if we can replace cases using StringToSlice
+// with the new StringSlice. Get the root string and offset, flatten only if
+// unavoidable for this.
 macro StringToSliceRootOffset(string: String): never
     labels OneByte(ConstSlice<char8>, String, intptr),
     TwoByte(ConstSlice<char16>, String, intptr) {

@@ -15,12 +15,11 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   if (length == 0) return kEmptyString;
 
   const slice = string.Slice(from, to);
-  let isOneByte = slice.isOneByte;
   // TODO: Check if original conditionally used sliced strings if a flag was
   // set.
   if (slice.length >= kSlicedStringMinLength) {
     return new SlicedString{
-      map: isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
+      map: slice.isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
       raw_hash_field: kNameEmptyHashField,
       length: Convert<int32>(slice.length),
       parent: slice.root,
@@ -40,6 +39,8 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   // one byte representable) indicating {result} should not be cached in
   // kSingleCharacterStringCache.
   let singleChar: uintptr = kMaxOneByteCharCode + 1;
+  let isOneByte = slice.isOneByte;
+  let charByteLength = slice.ByteLength();
   if (slice.length == 1) {
     // Even if {singleChar} is from a two byte string, it may be one byte
     // representable. If so, attempt to use a cached string from
@@ -51,6 +52,7 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
 
       // If no cached string exists, allocate a one byte string and cache it.
       isOneByte = true;
+      charByteLength = 1;
     }
   }
 
@@ -59,12 +61,8 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   // Allocates a two byte string as if it were a one byte string with
   // twice as many characters and then update with the appropriate map and
   // character length.
-  const byteLength = Unsigned(
-      isOneByte ? torque_internal::TimesSizeOf<char8>(slice.length) :
-                        torque_internal::TimesSizeOf<char16>(slice.length));
-  const result = AllocateNonEmptySeqOneByteString(
-      Convert<uint32>(byteLength),
-      %RawDownCast<RawPtr<char8>>(slice.rootChars));
+  const result =
+      AllocateNonEmptySeqOneByteString(Convert<uint32>(charByteLength), slice);
   if (!isOneByte) {
     // Map for non-internalilzed SeqTwoByteString
     *UnsafeConstCast(&result.map) = kStringMap;
