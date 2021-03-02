@@ -32,7 +32,7 @@ extern class String extends Name {
     return %RawDownCast<StringInstanceType>(
         Convert<uint16>(this.map.instance_type));
   }
-  // Flatten only if unavoidable for this.
+  // Create a StringSlice and flatten string only if unavoidable.
   macro Slice(from: uintptr, to: uintptr): StringSlice {
     assert(from < to && to <= this.length_uintptr);
     let string = this;
@@ -96,6 +96,19 @@ extern class String extends Name {
       }
     }
     unreachable;
+  }
+  macro Slice(): StringSlice {
+    return this.Slice(0, this.length_uintptr);
+  }
+  macro CharSlice(): never labels OneByte(ConstSlice<char8>),
+      TwoByte(ConstSlice<char16>) {
+    const slice = this.Slice();
+    if (slice.isOneByte) {
+      goto OneByte(torque_internal::unsafe::NewOffHeapConstSlice(
+          %RawDownCast<RawPtr<char8>>(slice.rootChars), slice.length));
+    }
+    goto TwoByte(torque_internal::unsafe::NewOffHeapConstSlice(
+        %RawDownCast<RawPtr<char16>>(slice.rootChars), slice.length));
   }
 
   const length: int32;
@@ -341,70 +354,14 @@ macro Flatten(cons: ConsString): String {
     }
 }
 
-// TODO(pwong): Revert this and see if we can replace cases using StringToSlice
-// with the new StringSlice. Get the root string and offset, flatten only if
-// unavoidable for this.
-macro StringToSliceRootOffset(string: String): never
-    labels OneByte(ConstSlice<char8>, String, intptr),
-    TwoByte(ConstSlice<char16>, String, intptr) {
-  let string = string;
-  let offset: intptr = 0;
-  const length = string.length_intptr;
-  while (true) {
-    typeswitch (string) {
-      case (s: SeqOneByteString): {
-        goto OneByte(SubsliceUnchecked(&s.chars, offset, length), s, offset);
-      }
-      case (s: SeqTwoByteString): {
-        goto TwoByte(SubsliceUnchecked(&s.chars, offset, length), s, offset);
-      }
-      case (s: ThinString): {
-        string = s.actual;
-      }
-      case (s: ConsString): {
-        string = Flatten(s);
-      }
-      case (s: SlicedString): {
-        offset += Convert<intptr>(s.offset);
-        string = s.parent;
-      }
-      case (s: ExternalOneByteString): {
-        const data = torque_internal::unsafe::NewOffHeapConstSlice(
-            s.GetChars(), s.length_intptr);
-        goto OneByte(SubsliceUnchecked(data, offset, length), s, offset);
-      }
-      case (s: ExternalTwoByteString): {
-        const data = torque_internal::unsafe::NewOffHeapConstSlice(
-            s.GetChars(), s.length_intptr);
-        goto TwoByte(SubsliceUnchecked(data, offset, length), s, offset);
-      }
-      case (String): {
-        unreachable;
-      }
-    }
-  }
-  VerifiedUnreachable();
-}
-
-macro StringToSlice(string: String): never labels OneByte(ConstSlice<char8>),
-    TwoByte(ConstSlice<char16>) {
-  try {
-    StringToSliceRootOffset(string) otherwise IsOneByte, IsTwoByte;
-  } label IsOneByte(slice: ConstSlice<char8>, _s: String, _o: intptr) {
-    goto OneByte(slice);
-  } label IsTwoByte(slice: ConstSlice<char16>, _s: String, _o: intptr) {
-    goto TwoByte(slice);
-  }
-}
-
 // Dispatch on the slice type of two different strings.
 macro TwoStringsToSlices<Result: type, Functor: type>(
     s1: String, s2: String, f: Functor): Result {
   try {
-    StringToSlice(s1) otherwise FirstOneByte, FirstTwoByte;
+    s1.CharSlice() otherwise FirstOneByte, FirstTwoByte;
   } label FirstOneByte(s1Slice: ConstSlice<char8>) {
     try {
-      StringToSlice(s2) otherwise SecondOneByte, SecondTwoByte;
+      s2.CharSlice() otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {
@@ -412,7 +369,7 @@ macro TwoStringsToSlices<Result: type, Functor: type>(
     }
   } label FirstTwoByte(s1Slice: ConstSlice<char16>) {
     try {
-      StringToSlice(s2) otherwise SecondOneByte, SecondTwoByte;
+      s2.CharSlice() otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {

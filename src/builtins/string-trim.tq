@@ -142,7 +142,7 @@ transitioning macro StringTrim(implicit context: Context)(
   const receiverString: String = ToThisString(receiver, methodName);
 
   try {
-    StringToSlice(receiverString) otherwise OneByte, TwoByte;
+    receiverString.CharSlice() otherwise OneByte, TwoByte;
   } label OneByte(slice: ConstSlice<char8>) {
     return StringTrimBody(receiverString, slice, variant);
   } label TwoByte(slice: ConstSlice<char16>) {
