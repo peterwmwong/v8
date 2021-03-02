@@ -34,7 +34,7 @@ extern class String extends Name {
   }
   // Flatten only if unavoidable for this.
   macro Slice(from: uintptr, to: uintptr): StringSlice {
-    assert(from < to && to < this.length_uintptr);
+    assert(from < to && to <= this.length_uintptr);
     let string = this;
     let rootOffset: intptr = Signed(from);
     const length = Signed(to - from);
