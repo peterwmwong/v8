@@ -4,6 +4,8 @@
 
 #include 'src/builtins/builtins-string-gen.h'
 
+// TODO(pwong): Document why this exist (why can't we just use Slice<T>)
+// - Why can't this just be Slice<char8|char16>?
 struct StringSlice {
   macro AtIndex(index: intptr): char8|char16 {
     assert(index >= 0 && index < this.length);
@@ -34,7 +36,7 @@ extern class String extends Name {
   }
   // Create a StringSlice and flatten string only if unavoidable.
   macro Slice(from: uintptr, to: uintptr): StringSlice {
-    assert(from < to && to <= this.length_uintptr);
+    assert(from <= to && to <= this.length_uintptr);
     let string = this;
     let rootOffset: intptr = Signed(from);
     const length = Signed(to - from);
@@ -100,6 +102,7 @@ extern class String extends Name {
   macro Slice(): StringSlice {
     return this.Slice(0, this.length_uintptr);
   }
+  // TODO(pwong): Figure out where this should live. In String? In StringSlice?
   macro CharSlice(): never labels OneByte(ConstSlice<char8>),
       TwoByte(ConstSlice<char16>) {
     const slice = this.Slice();
