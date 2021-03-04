@@ -9,9 +9,13 @@
 struct StringSlice {
   macro AtIndex(index: intptr): char8|char16 {
     assert(index >= 0 && index < this.length);
+    const ptr = torque_internal::unsafe::GCUnsafeReferenceToRawPtr(
+        this.rootCharsObject, this.rootCharsOffset);
+    // TODO(pwong): Can we replace this we a *NewReference(...)?
+    // TODO(pwong): Should we return reference like Slice<T> does?
     return this.isOneByte ?
-        LoadChar8(this.rootChars, torque_internal::TimesSizeOf<char8>(index)) :
-        LoadChar16(this.rootChars, torque_internal::TimesSizeOf<char16>(index));
+        LoadChar8(ptr, torque_internal::TimesSizeOf<char8>(index)) :
+        LoadChar16(ptr, torque_internal::TimesSizeOf<char16>(index));
   }
   macro ByteLength(): uintptr {
     return Unsigned(
@@ -22,7 +26,8 @@ struct StringSlice {
   isOneByte: bool;
   root: String;
   rootOffset: intptr;
-  rootChars: RawPtr;
+  rootCharsObject: HeapObject|TaggedZeroPattern;
+  rootCharsOffset: intptr;
   length: intptr;
 }
 
@@ -47,7 +52,8 @@ extern class String extends Name {
             isOneByte: true,
             root,
             rootOffset,
-            rootChars: (&root.chars).GCUnsafeStartPointer() +
+            rootCharsObject: root,
+            rootCharsOffset: (&root.chars).offset +
                 torque_internal::TimesSizeOf<char8>(rootOffset),
             length
           };
@@ -57,7 +63,8 @@ extern class String extends Name {
             isOneByte: false,
             root,
             rootOffset,
-            rootChars: (&root.chars).GCUnsafeStartPointer() +
+            rootCharsObject: root,
+            rootCharsOffset: (&root.chars).offset +
                 torque_internal::TimesSizeOf<char16>(rootOffset),
             length
           };
@@ -77,8 +84,11 @@ extern class String extends Name {
             isOneByte: true,
             root,
             rootOffset,
-            rootChars: root.GetChars() +
-                torque_internal::TimesSizeOf<char8>(rootOffset),
+            rootCharsObject: kZeroBitPattern,
+            rootCharsOffset: Convert<intptr>(
+                root.GetChars() +
+                torque_internal::TimesSizeOf<char8>(rootOffset) +
+                kHeapObjectTag),
             length
           };
         }
@@ -87,8 +97,11 @@ extern class String extends Name {
             isOneByte: false,
             root,
             rootOffset,
-            rootChars: root.GetChars() +
-                torque_internal::TimesSizeOf<char16>(rootOffset),
+            rootCharsObject: kZeroBitPattern,
+            rootCharsOffset: Convert<intptr>(
+                root.GetChars() +
+                torque_internal::TimesSizeOf<char16>(rootOffset) +
+                kHeapObjectTag),
             length
           };
         }
@@ -107,11 +120,11 @@ extern class String extends Name {
       TwoByte(ConstSlice<char16>) {
     const slice = this.Slice();
     if (slice.isOneByte) {
-      goto OneByte(torque_internal::unsafe::NewOffHeapConstSlice(
-          %RawDownCast<RawPtr<char8>>(slice.rootChars), slice.length));
+      goto OneByte(torque_internal::unsafe::NewConstSlice<char8>(
+          slice.rootCharsObject, slice.rootCharsOffset, slice.length));
     }
-    goto TwoByte(torque_internal::unsafe::NewOffHeapConstSlice(
-        %RawDownCast<RawPtr<char16>>(slice.rootChars), slice.length));
+    goto TwoByte(torque_internal::unsafe::NewConstSlice<char16>(
+        slice.rootCharsObject, slice.rootCharsOffset, slice.length));
   }
 
   const length: int32;
