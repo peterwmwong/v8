@@ -9,13 +9,12 @@
 struct StringSlice {
   macro AtIndex(index: intptr): char8|char16 {
     assert(index >= 0 && index < this.length);
-    const ptr = torque_internal::unsafe::GCUnsafeReferenceToRawPtr(
+    if (this.isOneByte) {
+      return *torque_internal::unsafe::NewReference<char8>(
+          this.rootCharsObject, this.rootCharsOffset);
+    }
+    return *torque_internal::unsafe::NewReference<char16>(
         this.rootCharsObject, this.rootCharsOffset);
-    // TODO(pwong): Can we replace this we a *NewReference(...)?
-    // TODO(pwong): Should we return reference like Slice<T> does?
-    return this.isOneByte ?
-        LoadChar8(ptr, torque_internal::TimesSizeOf<char8>(index)) :
-        LoadChar16(ptr, torque_internal::TimesSizeOf<char16>(index));
   }
   macro ByteLength(): uintptr {
     return Unsigned(

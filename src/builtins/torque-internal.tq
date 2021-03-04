@@ -257,15 +257,15 @@ InitializeFieldsFromIterator<char8, UninitializedIterator>(
 InitializeFieldsFromIterator<char16, UninitializedIterator>(
     _target: MutableSlice<char16>, _originIterator: UninitializedIterator) {}
 InitializeFieldsFromIterator<char8, StringSlice>(
-    target: MutableSlice<char8>, srcSlice: StringSlice) {
-  assert(target.length > 0 && target.length <= Signed(srcSlice.ByteLength()));
-  const src = torque_internal::unsafe::GCUnsafeReferenceToRawPtr(
-      srcSlice.rootCharsObject, srcSlice.rootCharsOffset);
-  const dest = target.GCUnsafeStartPointer();
+    target: MutableSlice<char8>, src: StringSlice) {
+  assert(target.length > 0 && target.length <= Signed(src.ByteLength()));
   const length = target.length;
   let i: intptr = 0;
   while (true) {
-    StoreChar8(dest, i, LoadChar8(src, i));
+    const dest = unsafe::NewReference<char8>(target.object, target.offset + i);
+    const src = unsafe::NewReference<char8>(
+        src.rootCharsObject, src.rootCharsOffset + i);
+    *dest = *src;
     if (++i == length) break;
   }
 }
