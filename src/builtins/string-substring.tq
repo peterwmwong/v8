@@ -4,6 +4,10 @@
 
 namespace string {
 
+const kFlagStringSlices: constexpr bool generates 'FLAG_string_slices';
+
+extern macro StringBuiltinsAssembler::IncrementCounterSubStringNative(): void;
+
 // TODO(pwong): Audit usages of StringSubstring and verify whether it was
 // originally calling the inline or builtin version.
 
@@ -15,18 +19,18 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   if (length == 0) return kEmptyString;
 
   const slice = string.Slice(from, to);
-  // TODO: Check if original conditionally used sliced strings if a flag was
-  // set.
-  if (slice.length >= kSlicedStringMinLength) {
-    return new SlicedString{
-      map: slice.isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
-      raw_hash_field: kNameEmptyHashField,
-      length: Convert<int32>(slice.length),
-      parent: slice.root,
-      offset: Convert<Smi>(slice.rootOffset)
-    };
+  if constexpr (kFlagStringSlices) {
+    if (slice.length >= kSlicedStringMinLength) {
+      IncrementCounterSubStringNative();
+      return new SlicedString{
+        map: slice.isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
+        raw_hash_field: kNameEmptyHashField,
+        length: Convert<int32>(slice.length),
+        parent: slice.root,
+        offset: Convert<Smi>(slice.rootOffset)
+      };
+    }
   }
-
   // Optimization: Reduce generated code by consolidating the following cases
   // needing to allocate a string into a single allocation point:
   // 1. {length} is greater than 1.
