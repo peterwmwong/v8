@@ -341,7 +341,6 @@ namespace internal {
   SC(fast_new_closure_total, V8.FastNewClosureTotal)               \
   SC(regexp_entry_native, V8.RegExpEntryNative)                    \
   SC(string_add_native, V8.StringAddNative)                        \
-  SC(sub_string_native, V8.SubStringNative)                        \
   SC(ic_keyed_load_generic_smi, V8.ICKeyedLoadGenericSmi)          \
   SC(ic_keyed_load_generic_symbol, V8.ICKeyedLoadGenericSymbol)    \
   SC(ic_keyed_load_generic_slow, V8.ICKeyedLoadGenericSlow)        \

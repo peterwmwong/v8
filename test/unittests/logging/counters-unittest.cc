@@ -839,18 +839,6 @@ TEST_F(SnapshotNativeCounterTest, StringAddNative) {
   PrintAll();
 }
 
-TEST_F(SnapshotNativeCounterTest, SubStringNative) {
-  RunJS("'hello, world!'.substring(6);");
-
-  if (SupportsNativeCounters()) {
-    EXPECT_NE(0, sub_string_native());
-  } else {
-    EXPECT_EQ(0, sub_string_native());
-  }
-
-  PrintAll();
-}
-
 TEST_F(SnapshotNativeCounterTest, WriteBarrier) {
   RunJS("let o = {a: 42};");
 

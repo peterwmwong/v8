@@ -1626,10 +1626,5 @@ TNode<String> StringBuiltinsAssembler::AllocAndCopyStringCharacters(
   return var_result.value();
 }
 
-void StringBuiltinsAssembler::IncrementCounterSubStringNative() {
-  Counters* counters = isolate()->counters();
-  IncrementCounter(counters->sub_string_native(), 1);
-}
-
 }  // namespace internal
 }  // namespace v8

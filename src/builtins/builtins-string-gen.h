@@ -79,8 +79,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
                                              TNode<IntPtrT> from_index,
                                              TNode<IntPtrT> character_count);
 
-  void IncrementCounterSubStringNative();
-
  protected:
   void StringEqual_Loop(TNode<String> lhs, TNode<Word32T> lhs_instance_type,
                         MachineType lhs_type, TNode<String> rhs,

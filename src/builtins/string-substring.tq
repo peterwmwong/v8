@@ -6,8 +6,6 @@ namespace string {
 
 const kFlagStringSlices: constexpr bool generates 'FLAG_string_slices';
 
-extern macro StringBuiltinsAssembler::IncrementCounterSubStringNative(): void;
-
 // TODO(pwong): Audit usages of StringSubstring and verify whether it was
 // originally calling the inline or builtin version.
 
@@ -21,7 +19,6 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   const slice = string.Slice(from, to);
   if constexpr (kFlagStringSlices) {
     if (slice.length >= kSlicedStringMinLength) {
-      IncrementCounterSubStringNative();
       return new SlicedString{
         map: slice.isOneByte ? kSlicedOneByteStringMap : kSlicedStringMap,
         raw_hash_field: kNameEmptyHashField,
@@ -31,6 +28,7 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
       };
     }
   }
+
   // Optimization: Reduce generated code by consolidating the following cases
   // needing to allocate a string into a single allocation point:
   // 1. {length} is greater than 1.
@@ -60,11 +58,11 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
     }
   }
 
-  // Optimization: Reduce generated code by generating a single allocation point
-  // for both one and two byte sequential strings.
-  // Allocates a two byte string as if it were a one byte string with
-  // twice as many characters and then update with the appropriate map and
-  // character length.
+  // Optimization: Reduce generated code by generating a single allocation
+  // point. Allocates sequential strings by byte (char8) size and copy character
+  // data on a byte by byte basis (see InitializeFieldsFromIterator<char8,
+  // StringSlice>). Afterwards, the map and length are updated appropriately for
+  // a two byte string.
   const result =
       AllocateNonEmptySeqOneByteString(Convert<uint32>(charByteLength), slice);
   if (!isOneByte) {
