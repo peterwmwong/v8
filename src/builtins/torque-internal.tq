@@ -20,7 +20,7 @@ macro Subslice<T: type>(slice: MutableSlice<T>, start: intptr, length: intptr):
   if (Unsigned(length) > Unsigned(slice.length)) goto OutOfBounds;
   if (Unsigned(start) > Unsigned(slice.length - length)) goto OutOfBounds;
   const offset = slice.offset + torque_internal::TimesSizeOf<T>(start);
-  return torque_internal::unsafe::NewConstSlice<T>(
+  return torque_internal::unsafe::NewMutableSlice<T>(
       slice.object, offset, length);
 }
 
