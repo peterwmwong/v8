@@ -23,7 +23,7 @@ struct StringSlice {
   }
 
   isOneByte: bool;
-  root: String;
+  root: SeqString|ExternalString;
   rootOffset: intptr;
   rootCharsObject: HeapObject|TaggedZeroPattern;
   rootCharsOffset: intptr;

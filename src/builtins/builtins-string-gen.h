@@ -73,12 +73,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
       const TNode<RawPtrT> subject_ptr, const TNode<IntPtrT> subject_length,
       const TNode<RawPtrT> search_ptr, const TNode<IntPtrT> start_position);
 
-  template <typename T>
-  TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
-                                             TNode<Int32T> from_instance_type,
-                                             TNode<IntPtrT> from_index,
-                                             TNode<IntPtrT> character_count);
-
  protected:
   void StringEqual_Loop(TNode<String> lhs, TNode<Word32T> lhs_instance_type,
                         MachineType lhs_type, TNode<String> rhs,
@@ -167,6 +161,13 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
       const TNode<Object> maybe_string, Handle<Symbol> symbol,
       DescriptorIndexNameValue additional_property_to_check,
       const NodeFunction0& regexp_call, const NodeFunction1& generic_call);
+
+ private:
+  template <typename T>
+  TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
+                                             TNode<Int32T> from_instance_type,
+                                             TNode<IntPtrT> from_index,
+                                             TNode<IntPtrT> character_count);
 };
 
 }  // namespace internal
