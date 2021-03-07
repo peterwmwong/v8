@@ -16,10 +16,15 @@ struct StringSlice {
     }
     return *torque_internal::unsafe::NewReference<char16>(object, offset);
   }
-  macro ByteLength(): uintptr {
-    return Unsigned(
-        this.isOneByte ? torque_internal::TimesSizeOf<char8>(this.length) :
-                         torque_internal::TimesSizeOf<char16>(this.length));
+  // TODO(pwong): Figure out where this should live. In String? In StringSlice?
+  macro Chars(): never labels OneByte(ConstSlice<char8>),
+      TwoByte(ConstSlice<char16>) {
+    if (this.isOneByte) {
+      goto OneByte(torque_internal::unsafe::NewConstSlice<char8>(
+          this.rootCharsObject, this.rootCharsOffset, this.length));
+    }
+    goto TwoByte(torque_internal::unsafe::NewConstSlice<char16>(
+        this.rootCharsObject, this.rootCharsOffset, this.length));
   }
 
   isOneByte: bool;
@@ -113,17 +118,6 @@ extern class String extends Name {
   }
   macro Slice(): StringSlice {
     return this.Slice(0, this.length_uintptr);
-  }
-  // TODO(pwong): Figure out where this should live. In String? In StringSlice?
-  macro CharSlice(): never labels OneByte(ConstSlice<char8>),
-      TwoByte(ConstSlice<char16>) {
-    const slice = this.Slice();
-    if (slice.isOneByte) {
-      goto OneByte(torque_internal::unsafe::NewConstSlice<char8>(
-          slice.rootCharsObject, slice.rootCharsOffset, slice.length));
-    }
-    goto TwoByte(torque_internal::unsafe::NewConstSlice<char16>(
-        slice.rootCharsObject, slice.rootCharsOffset, slice.length));
   }
 
   const length: int32;
@@ -373,10 +367,10 @@ macro Flatten(cons: ConsString): String {
 macro TwoStringsToSlices<Result: type, Functor: type>(
     s1: String, s2: String, f: Functor): Result {
   try {
-    s1.CharSlice() otherwise FirstOneByte, FirstTwoByte;
+    s1.Slice().Chars() otherwise FirstOneByte, FirstTwoByte;
   } label FirstOneByte(s1Slice: ConstSlice<char8>) {
     try {
-      s2.CharSlice() otherwise SecondOneByte, SecondTwoByte;
+      s2.Slice().Chars() otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {
@@ -384,7 +378,7 @@ macro TwoStringsToSlices<Result: type, Functor: type>(
     }
   } label FirstTwoByte(s1Slice: ConstSlice<char16>) {
     try {
-      s2.CharSlice() otherwise SecondOneByte, SecondTwoByte;
+      s2.Slice().Chars() otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {

@@ -242,6 +242,24 @@ macro AllocateFromNew(
   }
 }
 
+// TODO(pwong): 1. ASM Compare without this specialization.
+// TODO(pwong): 2. ASM Compare with AtIndex.
+// TODO(pwong): 3. ASM Compare with RawPtr arithmetic.
+macro InitializeCharsFromIterator<T: type>(
+    target: MutableSlice<T>, src: ConstSlice<T>) {
+  assert(target.length > 0 && target.length <= src.length);
+  const length = target.length;
+  let i: intptr = 0;
+  while (true) {
+    const dest = unsafe::NewReference<T>(
+        target.object, target.offset + torque_internal::TimesSizeOf<T>(i));
+    const src = unsafe::NewReference<T>(
+        src.object, src.offset + torque_internal::TimesSizeOf<T>(i));
+    *dest = *src;
+    if (++i == length) break;
+  }
+}
+
 macro InitializeFieldsFromIterator<T: type, Iterator: type>(
     target: MutableSlice<T>, originIterator: Iterator) {
   let targetIterator = target.Iterator();
@@ -256,18 +274,13 @@ InitializeFieldsFromIterator<char8, UninitializedIterator>(
     _target: MutableSlice<char8>, _originIterator: UninitializedIterator) {}
 InitializeFieldsFromIterator<char16, UninitializedIterator>(
     _target: MutableSlice<char16>, _originIterator: UninitializedIterator) {}
-InitializeFieldsFromIterator<char8, StringSlice>(
-    target: MutableSlice<char8>, src: StringSlice) {
-  assert(target.length > 0 && target.length <= Signed(src.ByteLength()));
-  const length = target.length;
-  let i: intptr = 0;
-  while (true) {
-    const dest = unsafe::NewReference<char8>(target.object, target.offset + i);
-    const src = unsafe::NewReference<char8>(
-        src.rootCharsObject, src.rootCharsOffset + i);
-    *dest = *src;
-    if (++i == length) break;
-  }
+InitializeFieldsFromIterator<char8, ConstSlice<char8>>(
+    target: MutableSlice<char8>, src: ConstSlice<char8>) {
+  InitializeCharsFromIterator(target, src);
+}
+InitializeFieldsFromIterator<char16, ConstSlice<char16>>(
+    target: MutableSlice<char16>, src: ConstSlice<char16>) {
+  InitializeCharsFromIterator(target, src);
 }
 
 extern macro IsDoubleHole(HeapObject, intptr): bool;

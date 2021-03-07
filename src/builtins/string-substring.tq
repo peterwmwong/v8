@@ -42,19 +42,20 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
       }
   }
 
-  // Optimization: Reduce generated code by generating a single allocation
-  // point. Allocates sequential strings by byte (char8) size and copy character
-  // data on a byte by byte basis (see InitializeFieldsFromIterator<char8,
-  // StringSlice>). Afterwards, the map and length are updated appropriately for
-  // a two byte string.
-  const result = AllocateNonEmptySeqOneByteString(
-      Convert<uint32>(slice.ByteLength()), slice);
-  if (!slice.isOneByte) {
-    // Map for non-internalilzed SeqTwoByteString
-    *UnsafeConstCast(&result.map) = kStringMap;
-    *UnsafeConstCast(&result.length) = Convert<int32>(slice.length);
+  // TODO(pwong): Re-verify optimization. Compare with CharSlice() w/2
+  // Allocation Points. Optimization: Reduce generated code by generating a
+  // single allocation point. Allocates sequential strings by byte (char8) size
+  // and copy character data on a byte by byte basis (see
+  // InitializeFieldsFromIterator<char8, StringSlice>). Afterwards, the map and
+  // length are updated appropriately for a two byte string.
+  const lengthUint32 = Convert<uint32>(Unsigned(slice.length));
+  try {
+    slice.Chars() otherwise OneByte, TwoByte;
+  } label OneByte(s: ConstSlice<char8>) {
+    return AllocateNonEmptySeqOneByteString(lengthUint32, s);
+  } label TwoByte(s: ConstSlice<char16>) {
+    return AllocateNonEmptySeqTwoByteString(lengthUint32, s);
   }
-  return result;
 }
 
 // Return a new string object which holds a substring containing the range
