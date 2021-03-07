@@ -6,9 +6,6 @@ namespace string {
 
 const kFlagStringSlices: constexpr bool generates 'FLAG_string_slices';
 
-// TODO(pwong): Audit usages of StringSubstring and verify whether it was
-// originally calling the inline or builtin version.
-
 macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   const length = Convert<intptr>(to - from);
   assert(from <= to);
@@ -29,33 +26,20 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
     }
   }
 
-  // Optimization: Reduce generated code by consolidating the following cases
-  // needing to allocate a string into a single allocation point:
-  // 1. {length} is greater than 1.
-  // 2. {length} is 1, {singleChar} is one byte representable, but does not have
-  //    an associated cached string in kSingleCharacterStringCache.
-  // 3. {length} is 1, {singleChar} needs two bytes to be represented.
-
-  // If {length} is 1, {singleChar} is the first/only character code of the
-  // substring. Otherwise, {singleChar} is a marker value (character code not
-  // one byte representable) indicating {result} should not be cached in
-  // kSingleCharacterStringCache.
-  let singleChar: uintptr = kMaxOneByteCharCode + 1;
-  let isOneByte = slice.isOneByte;
-  let charByteLength = slice.ByteLength();
   if (slice.length == 1) {
     // Even if {singleChar} is from a two byte string, it may be one byte
     // representable. If so, attempt to use a cached string from
     // kSingleCharacterStringCache.
-    singleChar = Convert<uintptr>(slice.AtIndex(0));
-    if (singleChar <= kMaxOneByteCharCode) {
-      const cached = kSingleCharacterStringCache.objects[singleChar];
-      if (cached != Undefined) return UnsafeCast<String>(cached);
-
-      // If no cached string exists, allocate a one byte string and cache it.
-      isOneByte = true;
-      charByteLength = 1;
-    }
+    const singleChar = slice.AtIndex(0);
+    if (singleChar <= kMaxOneByteCharCode) deferred {
+        let result = &kSingleCharacterStringCache
+                         .objects[Convert<uintptr>(singleChar)];
+        if (*result == Undefined) {
+          *result = AllocateNonEmptySeqOneByteString(
+              1, ConstantIterator(%RawDownCast<char8>(singleChar)));
+        }
+        return UnsafeCast<String>(*result);
+      }
   }
 
   // Optimization: Reduce generated code by generating a single allocation
@@ -63,22 +47,13 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   // data on a byte by byte basis (see InitializeFieldsFromIterator<char8,
   // StringSlice>). Afterwards, the map and length are updated appropriately for
   // a two byte string.
-  const result =
-      AllocateNonEmptySeqOneByteString(Convert<uint32>(charByteLength), slice);
-  if (!isOneByte) {
+  const result = AllocateNonEmptySeqOneByteString(
+      Convert<uint32>(slice.ByteLength()), slice);
+  if (!slice.isOneByte) {
     // Map for non-internalilzed SeqTwoByteString
     *UnsafeConstCast(&result.map) = kStringMap;
     *UnsafeConstCast(&result.length) = Convert<int32>(slice.length);
   }
-
-  // If {length} is 1, {singleChar} is one byte representable, and was not
-  // already cached, then cache {result} in kSingleCharacterStringCache.
-  if (singleChar <= kMaxOneByteCharCode) {
-    assert(result.length == 1);
-    assert(kSingleCharacterStringCache.objects[singleChar] == Undefined);
-    kSingleCharacterStringCache.objects[singleChar] = result;
-  }
-
   return result;
 }
 
