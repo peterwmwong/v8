@@ -4,19 +4,22 @@
 
 #include 'src/builtins/builtins-string-gen.h'
 
-// TODO(pwong): Document why this exist (why can't we just use Slice<T>)
-// - Why can't this just be Slice<char8|char16>?
+// TODO(pwong): To determine whether this is a good abstraction, we convert everything this should replace and see whether it was worth it.
+//   - TwoStringsToSlices
+//      - String endsWith
+//      - String indexOf
+//   - String Trim
 struct StringSlice {
   macro AtIndex(index: intptr): char8|char16 {
     assert(index >= 0 && index < this.length);
     const object = this.rootCharsObject;
     const offset = this.rootCharsOffset;
+    // TODO(pwong): Compare with using Chars() `*this.Chars().AtIndex(index);`
     if (this.isOneByte) {
       return *torque_internal::unsafe::NewReference<char8>(object, offset);
     }
     return *torque_internal::unsafe::NewReference<char16>(object, offset);
   }
-  // TODO(pwong): Figure out where this should live. In String? In StringSlice?
   macro Chars(): never labels OneByte(ConstSlice<char8>),
       TwoByte(ConstSlice<char16>) {
     if (this.isOneByte) {

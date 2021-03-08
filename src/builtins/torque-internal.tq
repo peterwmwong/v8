@@ -242,9 +242,6 @@ macro AllocateFromNew(
   }
 }
 
-// TODO(pwong): 1. ASM Compare without this specialization.
-// TODO(pwong): 2. ASM Compare with AtIndex.
-// TODO(pwong): 3. ASM Compare with RawPtr arithmetic.
 macro InitializeCharsFromIterator<T: type>(
     target: MutableSlice<T>, src: ConstSlice<T>) {
   assert(target.length > 0 && target.length <= src.length);
