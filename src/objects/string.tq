@@ -4,29 +4,25 @@
 
 #include 'src/builtins/builtins-string-gen.h'
 
-// TODO(pwong): To determine whether this is a good abstraction, we convert
-// everything this should replace and see whether it was worth it.
+// TODO(pwong): To determine whether this is a good abstraction, we convert everything this should replace and see whether it was worth it.
 //   - TwoStringsToSlices
 //      - String endsWith
 //      - String indexOf
 //   - String Trim
 struct StringSlice {
-  macro IsOneByte(): bool {
-    return this.root.IsOneByteRepresentation();
-  }
   macro AtIndex(index: intptr): char8|char16 {
     assert(index >= 0 && index < this.length);
     const object = this.rootCharsObject;
     const offset = this.rootCharsOffset;
     // TODO(pwong): Compare with using Chars() `*this.Chars().AtIndex(index);`
-    if (this.root.IsOneByteRepresentation()) {
+    if (this.isOneByte) {
       return *torque_internal::unsafe::NewReference<char8>(object, offset);
     }
     return *torque_internal::unsafe::NewReference<char16>(object, offset);
   }
   macro Chars(): never labels OneByte(ConstSlice<char8>),
       TwoByte(ConstSlice<char16>) {
-    if (this.root.IsOneByteRepresentation()) {
+    if (this.isOneByte) {
       goto OneByte(torque_internal::unsafe::NewConstSlice<char8>(
           this.rootCharsObject, this.rootCharsOffset, this.length));
     }
@@ -34,6 +30,7 @@ struct StringSlice {
         this.rootCharsObject, this.rootCharsOffset, this.length));
   }
 
+  isOneByte: bool;
   root: SeqString|ExternalString;
   rootOffset: intptr;
   rootCharsObject: HeapObject|TaggedZeroPattern;
@@ -49,9 +46,6 @@ extern class String extends Name {
     return %RawDownCast<StringInstanceType>(
         Convert<uint16>(this.map.instance_type));
   }
-  macro IsOneByteRepresentation(): bool {
-    return this.StringInstanceType().is_one_byte;
-  }
   // Create a StringSlice and flatten string only if unavoidable.
   macro Slice(from: uintptr, to: uintptr): StringSlice {
     assert(from <= to && to <= this.length_uintptr);
@@ -62,6 +56,7 @@ extern class String extends Name {
       typeswitch (string) {
         case (root: SeqOneByteString): {
           return StringSlice{
+            isOneByte: true,
             root,
             rootOffset,
             rootCharsObject: root,
@@ -72,6 +67,7 @@ extern class String extends Name {
         }
         case (root: SeqTwoByteString): {
           return StringSlice{
+            isOneByte: false,
             root,
             rootOffset,
             rootCharsObject: root,
@@ -92,6 +88,7 @@ extern class String extends Name {
         }
         case (root: ExternalOneByteString): {
           return StringSlice{
+            isOneByte: true,
             root,
             rootOffset,
             rootCharsObject: kZeroBitPattern,
@@ -104,6 +101,7 @@ extern class String extends Name {
         }
         case (root: ExternalTwoByteString): {
           return StringSlice{
+            isOneByte: false,
             root,
             rootOffset,
             rootCharsObject: kZeroBitPattern,
@@ -150,6 +148,10 @@ extern class ConsString extends String {
   // Corresponds to String::IsFlat() in the C++ runtime.
   macro IsFlat(): bool {
     return this.second.length == 0;
+  }
+
+  macro IsOneByteRepresentation(): bool {
+    return this.StringInstanceType().is_one_byte;
   }
 
   first: String;
@@ -367,13 +369,11 @@ macro Flatten(cons: ConsString): String {
 // Dispatch on the slice type of two different strings.
 macro TwoStringsToSlices<Result: type, Functor: type>(
     s1: String, s2: String, f: Functor): Result {
-  const s1Slice = s1.Slice();
-  const s2Slice = s2.Slice();
   try {
-    s1Slice.Chars() otherwise FirstOneByte, FirstTwoByte;
+    s1.Slice().Chars() otherwise FirstOneByte, FirstTwoByte;
   } label FirstOneByte(s1Slice: ConstSlice<char8>) {
     try {
-      s2Slice.Chars() otherwise SecondOneByte, SecondTwoByte;
+      s2.Slice().Chars() otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {
@@ -381,7 +381,7 @@ macro TwoStringsToSlices<Result: type, Functor: type>(
     }
   } label FirstTwoByte(s1Slice: ConstSlice<char16>) {
     try {
-      s2Slice.Chars() otherwise SecondOneByte, SecondTwoByte;
+      s2.Slice().Chars() otherwise SecondOneByte, SecondTwoByte;
     } label SecondOneByte(s2Slice: ConstSlice<char8>) {
       return Call(f, s1Slice, s2Slice);
     } label SecondTwoByte(s2Slice: ConstSlice<char16>) {
