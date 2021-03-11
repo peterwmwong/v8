@@ -24,6 +24,6 @@ transitioning javascript builtin StringPrototypeAt(
   }
   // 8. Return the String value consisting of only the code unit at position k
   // in S.
-  return StringFromSingleCharCode(StringCharCodeAt(s, Convert<uintptr>(k)));
+  return string::StringFromSingleCharCode(StringCharCodeAt(s, Convert<uintptr>(k)));
 }
 }

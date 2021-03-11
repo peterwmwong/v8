@@ -723,8 +723,6 @@ extern macro LoadBufferIntptr(RawPtr, constexpr int32): intptr;
 extern runtime StringEqual(Context, String, String): Oddball;
 extern builtin StringLessThan(Context, String, String): Boolean;
 extern macro StringCharCodeAt(String, uintptr): char16;
-extern macro StringFromSingleCharCode(char8): String;
-extern macro StringFromSingleCharCode(char16): String;
 
 extern macro NumberToString(Number): String;
 extern macro StringToNumber(String): Number;

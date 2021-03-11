@@ -135,7 +135,7 @@ transitioning javascript builtin StringPrototypeCharAt(
         otherwise IfInBounds, IfOutOfBounds;
   } label IfInBounds(string: String, index: uintptr, _length: uintptr) {
     const code: char16 = StringCharCodeAt(string, index);
-    return StringFromSingleCharCode(code);
+    return string::StringFromSingleCharCode(code);
   } label IfOutOfBounds {
     return kEmptyString;
   }
@@ -247,6 +247,6 @@ builtin StringCharAt(implicit context: Context)(
   // Load the character code at the {position} from the {receiver}.
   const code: char16 = StringCharCodeAt(receiver, position);
   // And return the single character string with only that {code}
-  return StringFromSingleCharCode(code);
+  return string::StringFromSingleCharCode(code);
 }
 }

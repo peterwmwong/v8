@@ -6,10 +6,30 @@ namespace string {
 
 const kFlagStringSlices: constexpr bool generates 'FLAG_string_slices';
 
+macro OneByteStringFromSingleCharCode(charCode: char8|
+                                      char16): String labels TwoByteCharCode {
+  if (charCode <= kMaxOneByteCharCode) deferred {
+      let result =
+  &kSingleCharacterStringCache.objects[Convert<uintptr>(charCode)];
+      if (*result == Undefined) {
+        *result = AllocateNonEmptySeqOneByteString(
+            1, ConstantIterator(%RawDownCast<char8>(charCode)));
+      }
+      return UnsafeCast<String>(*result);
+    }
+  goto TwoByteCharCode;
+}
+
+@export
+macro StringFromSingleCharCode(charCode: char8|char16): String {
+  return OneByteStringFromSingleCharCode(charCode)
+      otherwise return AllocateNonEmptySeqTwoByteString(
+      1, ConstantIterator(%RawDownCast<char16>(charCode)));
+}
+
 macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   const length = Convert<intptr>(to - from);
-  assert(from <= to);
-  assert(length <= string.length_intptr);
+  assert(from <= to && length <= string.length_intptr);
   if (length == string.length_intptr) return string;
   if (length == 0) return kEmptyString;
 
@@ -27,27 +47,12 @@ macro SubstringInline(string: String, from: uintptr, to: uintptr): String {
   }
 
   if (slice.length == 1) {
-    // Even if {singleChar} is from a two byte string, it may be one byte
-    // representable. If so, attempt to use a cached string from
-    // kSingleCharacterStringCache.
-    const singleChar = slice.AtIndex(0);
-    if (singleChar <= kMaxOneByteCharCode) deferred {
-        let result = &kSingleCharacterStringCache
-                         .objects[Convert<uintptr>(singleChar)];
-        if (*result == Undefined) {
-          *result = AllocateNonEmptySeqOneByteString(
-              1, ConstantIterator(%RawDownCast<char8>(singleChar)));
-        }
-        return UnsafeCast<String>(*result);
-      }
+    try {
+      return OneByteStringFromSingleCharCode(slice.AtIndex(0))
+          otherwise TwoByteCharCode;
+    } label TwoByteCharCode {}
   }
 
-  // TODO(pwong): Re-verify optimization. Compare with CharSlice() w/2
-  // Allocation Points. Optimization: Reduce generated code by generating a
-  // single allocation point. Allocates sequential strings by byte (char8) size
-  // and copy character data on a byte by byte basis (see
-  // InitializeFieldsFromIterator<char8, StringSlice>). Afterwards, the map and
-  // length are updated appropriately for a two byte string.
   const lengthUint32 = Convert<uint32>(Unsigned(slice.length));
   try {
     slice.Chars() otherwise OneByte, TwoByte;
