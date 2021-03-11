@@ -6644,62 +6644,6 @@ TNode<Uint16T> CodeStubAssembler::StringCharCodeAt(TNode<String> string,
   return var_result.value();
 }
 
-TNode<String> CodeStubAssembler::StringFromSingleCharCode(TNode<Int32T> code) {
-  TVARIABLE(String, var_result);
-
-  // Check if the {code} is a one-byte char code.
-  Label if_codeisonebyte(this), if_codeistwobyte(this, Label::kDeferred),
-      if_done(this);
-  Branch(Int32LessThanOrEqual(code, Int32Constant(String::kMaxOneByteCharCode)),
-         &if_codeisonebyte, &if_codeistwobyte);
-  BIND(&if_codeisonebyte);
-  {
-    // Load the isolate wide single character string cache.
-    TNode<FixedArray> cache = SingleCharacterStringCacheConstant();
-    TNode<IntPtrT> code_index = Signed(ChangeUint32ToWord(code));
-
-    // Check if we have an entry for the {code} in the single character string
-    // cache already.
-    Label if_entryisundefined(this, Label::kDeferred),
-        if_entryisnotundefined(this);
-    TNode<Object> entry = UnsafeLoadFixedArrayElement(cache, code_index);
-    Branch(IsUndefined(entry), &if_entryisundefined, &if_entryisnotundefined);
-
-    BIND(&if_entryisundefined);
-    {
-      // Allocate a new SeqOneByteString for {code} and store it in the {cache}.
-      TNode<String> result = AllocateSeqOneByteString(1);
-      StoreNoWriteBarrier(
-          MachineRepresentation::kWord8, result,
-          IntPtrConstant(SeqOneByteString::kHeaderSize - kHeapObjectTag), code);
-      StoreFixedArrayElement(cache, code_index, result);
-      var_result = result;
-      Goto(&if_done);
-    }
-
-    BIND(&if_entryisnotundefined);
-    {
-      // Return the entry from the {cache}.
-      var_result = CAST(entry);
-      Goto(&if_done);
-    }
-  }
-
-  BIND(&if_codeistwobyte);
-  {
-    // Allocate a new SeqTwoByteString for {code}.
-    TNode<String> result = AllocateSeqTwoByteString(1);
-    StoreNoWriteBarrier(
-        MachineRepresentation::kWord16, result,
-        IntPtrConstant(SeqTwoByteString::kHeaderSize - kHeapObjectTag), code);
-    var_result = result;
-    Goto(&if_done);
-  }
-
-  BIND(&if_done);
-  return var_result.value();
-}
-
 ToDirectStringAssembler::ToDirectStringAssembler(
     compiler::CodeAssemblerState* state, TNode<String> string, Flags flags)
     : CodeStubAssembler(state),

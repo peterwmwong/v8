@@ -134,6 +134,13 @@ extern class ThinString extends String {
 // C++ runtime. See also: ToDirectStringAssembler.
 type DirectString extends String;
 
+extern macro SingleCharacterStringCacheConstant(): FixedArray;
+
+const kSingleCharacterStringCache: FixedArray =
+    SingleCharacterStringCacheConstant();
+const kMaxOneByteCharCode:
+    constexpr int31 generates 'String::kMaxOneByteCharCode';
+
 macro AllocateNonEmptySeqOneByteString<Iterator: type>(
     length: uint32, content: Iterator): SeqOneByteString {
   assert(length != 0 && length <= kStringMaxLength);

@@ -429,7 +429,7 @@ void AccessorAssembler::HandleLoadICSmiHandlerCase(
         TNode<UintPtrT> length =
             Unsigned(LoadStringLengthAsWord(string_holder));
         GotoIf(UintPtrGreaterThanOrEqual(index, length), &if_oob);
-        TNode<Int32T> code = StringCharCodeAt(string_holder, index);
+        TNode<Uint16T> code = StringCharCodeAt(string_holder, index);
         TNode<String> result = StringFromSingleCharCode(code);
         Return(result);
 

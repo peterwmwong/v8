@@ -290,7 +290,7 @@ TNode<String> StringBuiltinsAssembler::StringFromSingleUTF16EncodedCodePoint(
 
   BIND(&if_isword16);
   {
-    var_result = StringFromSingleCharCode(codepoint);
+    var_result = StringFromSingleCharCode(UncheckedCast<Uint16T>(codepoint));
     Goto(&return_result);
   }
 
@@ -805,8 +805,8 @@ TF_BUILTIN(StringFromCharCode, StringBuiltinsAssembler) {
     // string on the fly otherwise.
     TNode<Object> code = arguments.AtIndex(0);
     TNode<Word32T> code32 = TruncateTaggedToWord32(context, code);
-    TNode<Int32T> code16 =
-        Signed(Word32And(code32, Int32Constant(String::kMaxUtf16CodeUnit)));
+    TNode<Uint16T> code16 = UncheckedCast<Uint16T>(
+        Word32And(code32, Int32Constant(String::kMaxUtf16CodeUnit)));
     TNode<String> result = StringFromSingleCharCode(code16);
     arguments.PopAndReturn(result);
   }
@@ -1750,7 +1750,7 @@ TNode<String> StringBuiltinsAssembler::SubString(TNode<String> string,
   // Substrings of length 1 are generated through CharCodeAt and FromCharCode.
   BIND(&single_char);
   {
-    TNode<Int32T> char_code = StringCharCodeAt(string, Unsigned(from));
+    TNode<Uint16T> char_code = StringCharCodeAt(string, Unsigned(from));
     var_result = StringFromSingleCharCode(char_code);
     Goto(&end);
   }

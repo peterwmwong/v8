@@ -2532,8 +2532,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   // String helpers.
   // Load a character from a String (might flatten a ConsString).
   TNode<Uint16T> StringCharCodeAt(TNode<String> string, TNode<UintPtrT> index);
-  // Return the single character string with only {code}.
-  TNode<String> StringFromSingleCharCode(TNode<Int32T> code);
 
   // Type conversion helpers.
   enum class BigIntHandling { kConvertToNumber, kThrow };

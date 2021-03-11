@@ -152,6 +152,9 @@ Convert<Smi, uint32>(ui: uint32): Smi {
 Convert<uintptr, uint32>(ui: uint32): uintptr {
   return ChangeUint32ToWord(ui);
 }
+Convert<uintptr, char16|char8>(i: char16|char8): uintptr {
+  return ChangeUint32ToWord(i);
+}
 Convert<intptr, uint16>(ui: uint16): intptr {
   return Signed(ChangeUint32ToWord(ui));
 }

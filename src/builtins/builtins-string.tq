@@ -129,6 +129,38 @@ IfInBounds(String, uintptr, uintptr), IfOutOfBounds {
   }
 }
 
+// If {code} can be represented by one byte, returns a previously cached or
+// allocates/caches a single character string with only {code}.
+// Otherwise, {code} requires two bytes and {TwoByteCharCode} label is taken.
+macro OneByteStringFromSingleCharCode(code: char8|
+                                      char16): String labels TwoByteCharCode {
+  // Check if the {code} is a one-byte char code.
+  if (code <= kMaxOneByteCharCode) {
+    // Check if we have an entry for the {code} in the single character string
+    // cache already.
+    let result =
+  &kSingleCharacterStringCache.objects[Convert<uintptr>(code)];
+    if (*result == Undefined) {
+      // Allocate a new SeqOneByteString for {code} and store it in the cache.
+      *result = AllocateNonEmptySeqOneByteString(
+          1, ConstantIterator(%RawDownCast<char8>(code)));
+    }
+    return UnsafeCast<String>(*result);
+  }
+  goto TwoByteCharCode;
+}
+
+// Return the single character string with only {code}.
+@export
+macro StringFromSingleCharCode(code: char8|char16): String {
+  try {
+    return OneByteStringFromSingleCharCode(code) otherwise TwoByteCharCode;
+  } label TwoByteCharCode deferred {
+    return AllocateNonEmptySeqTwoByteString(
+        1, ConstantIterator(%RawDownCast<char16>(code)));
+  }
+}
+
 // ES6 #sec-string.prototype.charat
 transitioning javascript builtin StringPrototypeCharAt(
     js-implicit context: NativeContext,
@@ -138,7 +170,7 @@ transitioning javascript builtin StringPrototypeCharAt(
         otherwise IfInBounds, IfOutOfBounds;
   } label IfInBounds(string: String, index: uintptr, _length: uintptr) {
     const code: char16 = StringCharCodeAt(string, index);
-    return StringFromSingleCharCode(code);
+    return string::StringFromSingleCharCode(code);
   } label IfOutOfBounds {
     return kEmptyString;
   }
@@ -250,6 +282,6 @@ builtin StringCharAt(implicit context: Context)(
   // Load the character code at the {position} from the {receiver}.
   const code: char16 = StringCharCodeAt(receiver, position);
   // And return the single character string with only that {code}
-  return StringFromSingleCharCode(code);
+  return string::StringFromSingleCharCode(code);
 }
 }
